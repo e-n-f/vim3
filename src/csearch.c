@@ -58,7 +58,7 @@ dosub(lp, up, cmd, nextcommand, use_old)
 	linenr_t		nlines = 0;
 	static int		do_all = FALSE; 	/* do multiple substitutions per line */
 	static int		do_ask = FALSE; 	/* ask for confirmation */
-	char_u		   *pat = NULL, *sub = NULL;
+	char_u		   *pat, *sub;
 #ifndef VIMINFO
 	static char_u   *old_sub = NULL;
 #endif
@@ -80,7 +80,7 @@ dosub(lp, up, cmd, nextcommand, use_old)
 							/* don't accept alphanumeric for separator */
 		if (isalpha(*cmd) || isdigit(*cmd))
 		{
-			emsg("Regular expressions can't be delimited by letters or digits");
+			EMSG("Regular expressions can't be delimited by letters or digits");
 			return;
 		}
 		/*

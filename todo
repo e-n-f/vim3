@@ -1,9 +1,5 @@
 Known problems and priority improvements:
 
-"line numbers wrong" message in 3.6 (Webb message 47).
-Stack overflow on MSDOS when doing ":ta".
-	- make command line buffers dynamic (docmdline(), DoOneCmd())
-	- allocate buffers in findtag()
 Windows NT: display is not always correct.
 Windows NT: CTRL-C in a child shell (created with ":sh" or CTRL-Z) kills Vim.
 Some terminals start inverting at the position where the invert code is put.
@@ -14,12 +10,15 @@ MSDOS: After writing on a network the 'w' bit for others is set.
 
 Documentation:
 
+In vim_hlp.txt also explain the cursor keys, so anybody can find its way once
+	he knows the :help command.
+Changed jumplist: remove old jumps to the same line.
 Add a remark about the limitations of the check for editing the same file
 	twice (e.g. when working on different machines) (Webb).
-Add more tags to windows.doc, difference.doc, machine.doc
-Add tags to index.doc
-Use vi.1 manpage to update vim.1 manpage.
-Clean up the list of changes. Move it from version.c to separate file?
+Add tags to vim_diff.txt, vim_machine.txt, vim_idx.txt
+Update vim.1 manpage to point to on-line help system.
+Clean up the list of changes. Move it from version.c to vim_hist.txt, together
+	with the help files.
 
 
 Problems that will probably not be solved:
@@ -39,17 +38,37 @@ When doing a CTRL-Z and typing a command for the shell, while Vim is busy
 
 Further extentions and improvements:
 
+Add [RO] to status line for read-only files.
+When doing "[^I" type of jumps, add position to tag stack. Also add command to
+	put current position to tag stack: ":push" or "gp".
+Add things like '\n', '\e', etc. (Webb, message 74).
+When 'paste' options is set, temporarily make 'formatoptions' empty (Webb).
+When window size changed (with the mouse) and made too small, set it back to
+	the minimal size.
+For smart indent: When typing 'else' line it up with matching 'if'.
+Add search string to message "Pattern not found".
+Add "]>" and "[<", shift comment at end of line (command;  /* comment */).
+Add 'stop' command, to stop recursive mappings.
+When it is not possible to get the current window title, don't set it,
+	depending on 'iconalways' and 'titlealways' options.
+When calling u_save with a single line, don't save it if line is already saved
+	for undo.
+Should not call cursorcmd() for each vgetc() in getcmdline().
+For duplicate tags: Add commands ":ntag", "Ntag", ":prevtag", ":rewtag",
+	:lasttag". Make CTRL-D listing of matching tags more informative. Keep
+	count for tag index in the tag stack, so CTRL-T and :ta work.
+Add the ex address '}', next empty line (like the "}" command).
+The way showcommand works should be changed. When mappings are partly typed
+	they should also be shown (Webb).
+Don't write any pages into the swapfile until the buffer has been changed.
+File name put into swap file should have first part of the path replaced by
+	"~user", to make it work from different machines (Webb).
+Add command line completion for ":ilist" and friends, show matching
+	identifiers (Webb).
 When switching to another file and screen scrolls because of the long message
-	and return must be typed, don't scroll the screen back before
-	redrawing.
-When using "gf" or "[f", ignore first part of hypertext link (Riehm)
-	From "type://machine/path" just use "/path".
-When calling undo with a single line, check if line is already saved for undo.
-Add a way to change the meaning of a mouse click, e.g. with mapping.
+	and return must be typed, don't scroll the screen back before redrawing.
 When incsearch used and hitting return, no need to search again in many cases,
 	saves a lot of time in big files.
-Display the help for the -- more -- message only when an illegal key typed.
-Set '[ and '] for undo commands (first and last line that was undone).
 Besides remembering the last used line number of a file, also remember the
 	column. Use it with CTRL-^ et. al.
 Add an option to switch on/off the setting of the last-used search pattern by
@@ -67,11 +86,8 @@ Use the middle mouse button to paste text that has been selected with visual
 Add the possibility to use more than one argument list: ":arglist 2".
 When unhiding a hidden buffer, put the same line at top of the window as the
 	one before hiding it.
-Add mappings for visual mode; ":vmap" for visual mode, ":nmap" for normal mode
-	and ":map" for both; use marks for start/end of selected text.
 Add command to show last search pattern and substitute string. Maybe make it
 	accessible through a register ("/ for search string)?
-Also look for tag file in other directory for tag completion.
 When mouse click after 'r' command, get character that was pointed to.
 Add possibility to :set an option to the default value (for autocmd).
 Add ":which", like "[g" and ":whereis" like "[G".
@@ -116,9 +132,6 @@ Amiga: When 'r' protection bit is not set, file can still be opened
 Bind windows together, scrolling is done in both windows synchronous
 	(horizontally and vertically). Use CTRL-W b?
 Re-select last Visual selection with "v." (exactly same text, from '[ to ']).
-Don't write any pages into the swapfile until the buffer has been changed.
-Catch terminating signals and call ml_sync_all(): SIGHUP, SIGINT, SIGQUIT,
-	SIGILL, SIGABRT, SIGFPE, SIGPIPE, SIGALRM, SIGTERM, SIGBUS, SIGSEGV.
 Change ".swp" to ".vim", because it give a hint who created the file?
 Use termcap 'ts' and 'fs' entries for setting the window title. Check 'hs'
 	and use minimum of 'ws' (if present) and Columns to truncate the title.
@@ -131,7 +144,6 @@ Optimize ml_append() for speed, esp. for reading a file.
 V..c should keep indent when 'ai' is set, just like <count>cc.
 In visual select mode: Inclusion or exclusion of char under cursor depends
 	on movement command. "vwd" and "dw" do the same???
-Find out why macros of Stephen Riehm are working strange.
 :s///p prints the line after a substitution.
 :s///N substitutes N times.
 Make CTRL-R (insert register contents) also work in command line mode.
@@ -187,14 +199,12 @@ In regexp.c: "\^" after "\|" or "\(" is start of line, and "\$" before "\|"
 Remember the "last changed" time of the edited file and check it before
 	overwriting; another user may have changed it. Also check after
 	executing a shell command?
-Support for command lines longer than 256 characters (for EXINIT).
-Option for filter when reading/writing a file for compression or crypting.
+Option for filter when reading/writing a file for compression or crypting (-x
+	command line option).  Also for crypting the swap file.
 Option to set time for emsg() sleep. Interrupt sleep when key is typed? sleep
 	before second message?
 Delete message after new command has been entered and have waited for key.
 Add "next tag" command for tags that have multiple hits.
-Support static tags: first search for tags with current filename: "foo.c:bar",
-	then for global tags (without a filename).
 History stack for . command?
 Use insert/delete char when terminal supports it.
 With undo with simple line delete/insert: optimize screen updating.
@@ -204,8 +214,8 @@ Add "-d null" for editing from a script file without displaying.
 Make Vim work like vi when stdin is not a tty. Open /dev/tty if there is no
 	controlling terminal? Vile does something like this.
 Add "-R" for readonly mode (ex has it).
-When writing to a readonly file, ask for permission to overwrite it (if file can
-	be made writable) and restore file to readonly afterwards.
+When writing to a readonly file, ask for permission to overwrite it (if file
+	can be made writable) and restore file to readonly afterwards.
 MSDOS: search for _exrc in the directory where the binary is, instead
 	of using $VIM\_exrc.
 In insert mode: Remember the characters that were removed with backspace and
@@ -213,7 +223,8 @@ In insert mode: Remember the characters that were removed with backspace and
 Amiga: Add possibility to set a keymap. The code in amiga.c does not work yet.
 Implement 'redraw' option.
 Add possibility to put the value of an option into the text: "'lines'p
-Unix: WildExpand: Without csh file name with embedded space will be split in two.
+Unix: WildExpand: Without csh file name with embedded space will be split in
+	two.
 With wildcard expansion after '%' and '#', expand current/alternate file name,
 	so it can be edited.
 Add special code to 'sections' option to define something else but '{' or '}'
@@ -221,14 +232,8 @@ Add special code to 'sections' option to define something else but '{' or '}'
 Nopaste option: Mappings with non-printable characters are OK.
 Add 'indent' option: Always use this amount of indent when starting a new line
 	and when formatting text.
-Add 'crown' option to 'Q' command: preserve indent of second line.
-When formatting with 'Q', break at paragraph boundaries (empty lines).
-When 'textwidth' is negative, use for 'Q' only, no automatic formatting.
-After formatting with Q the cursor is on the end of the last line; with = and
-	when formatprg is set it is at the start of the first line. Not good.
-Add 'scrolloffset': scroll when cursor is less then 'scrolloff' lines from
+Add 'scrolloffset': scroll when cursor is less then 'scrolloffset' lines from
 	top/bottom. Remove scrolling with mouse click in first/last line.
-Add option to switch off ignoring braces inside quotes for "%" command??
 Use pipes for filtering on unix.
 Allow for +command and -option on any position in argv[].
 Add commands like ]] and [[ that do not include the line jumped to.
@@ -239,8 +244,6 @@ After :set nowrap remove superflous redraw with wrong hor. offset if cursor
 Add -x option: crypt/decrypt when writing/reading file.
 Add -z option: gzip/gunzip when writing/reading file.
 Add count to ':', gives ":.,.+count-1"
-Improve online help: Fit into the window (also small ones), hypertext, etc.
-	(See also dh1:text/vi/vi.help). View help just like a file?
 Support several errorformats, use the first format that matches.
 Recognize "$*" in 'makeprg'; replace it by the arguments to :make.
 Allow multiple arguments to :unmap.
@@ -259,8 +262,6 @@ When the edited file is a symlink, try to put the .swp file in the same dir as
 Add new operator: clear, make area white (replace with spaces)
 Add put function that replaces the text under it.
 After "inv"ing an option show the value: ":set invpaste" gives "paste is off".
-When screen has been scrolled (e.g. after CTRL-D), wait-return for every message, there
-	should be only one wait-return at the end.
 After executing a shell, put tty back in raw mode (for shells that mess with
 	the tty settings)
 Improve error messages: when expanding '%': "no filename to substitute for '%'"
@@ -313,7 +314,7 @@ Add option to make settings from modelines valid only in the file where they
 	were set. Reset options when starting to edit another file.
 Support the "abbreviate" command in modelines (Kearns).
 For visual mode: "." does a search for the string in the marked area. Only
-	when less than two lines. What key to use for backward search?
+	when less than two lines. Use "\" for backward search.
 Matching with "%" should be configurable. 'matchstrings' =
 		(/*,*/),(^#if,^#else,^#endif)
 Expanding ~ and $VAR in options should be done not only for the first entry.
@@ -338,8 +339,14 @@ Modifier for the put command: Change to linewise, charwise, blockwise, etc.
 Add commands for saving and restoring settings ":set save" "set restore", for
 	use in macro's and the like.
 Add possibility to ":jumps" to show the text in the line (for loaded files).
-When using "Vim -r", the list of swap files found should include info about
-	the swap file.
+Each swap file should include a flag that shows if the swapfile contains any
+	changes. Report this when giving the ATTENTION message.
+Add visual command to do rot13 encoding.
+Add option to set the number of lines when not to scroll, instead of the fixed
+	number used now (for terminals that scroll slow with a large number of
+	lines but not with a single line).
+Add possibility to put output of ex commands in a buffer or file, e.g. for
+	":set all".
 
 From Elvis:
 fontchanges recognized "\\fB" etc.
@@ -348,11 +355,11 @@ fontchanges recognized "\\fB" etc.
 Read .exfilerc when starting to edit a new file (can be used to load macros for
 	specific file type).
 Change cursor shape in command/insert mode.
-'flipcase' variable: upper/lower case pairs.
+'flipcase' variable: upper/lower case pairs. (alternative: translate command,
+	e.g. ":tr \248-\254 \216-\222")
 
 From nvi:
 'cdpath' option.
-'remapmax' option.
 Allow editing lines that do not fit in the window.
 
 From xvim:
@@ -360,7 +367,6 @@ Use '\' before commands to make them linewise.
 Allow a newline in search patterns (also for :s, can delete newline).
 	Add BOW, EOW, NEWL, NLORANY, NLBUTANY, magic 'n' and 'r', etc.
 Add register for ':', '?' and '/' commands? (yank_buf()).
-Searching in help file.
 get code for backspace from termcap.
 Remember last cursor position, optimize setcursor().
 Add :collapse, remove multiple blank lines (Demirel, Webb)?
@@ -413,8 +419,6 @@ Add column numbers to ":" commands (:line1:col1,line2:col2 cmd). Block can be
 	selected with CTRL-V.
 Add 'hidecomment' option: don't display comments in /* */ and after //.
 Add open mode, use it when terminal has no cursor positioning.
-File in local directory to store contents of named registers and named marks.
-	Write when quitting, read when starting.
 Special "drawing mode": a line is drawn where the cursor is moved to. Backspace
 	deletes along the line (from jvim).
 Save cursor position (and other things) for a next editing session.
@@ -430,3 +434,5 @@ Highlighting of different kinds of text (e.g. for showing variables, keywords).
 Internationalization: wide characters and multibyte char support.
 Support to "freeze" the current editor state (buffers, windows, settings, etc.)
 	so editing can be resumed at the same point at a later time.
+When editing a readonly file, don't use a swap file but read parts from the
+	original file.

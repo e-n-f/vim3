@@ -49,8 +49,8 @@ static int	qf_nonevalid;		/* set to TRUE if not a single valid entry found */
 	int
 qf_init()
 {
-	char_u 			namebuf[CMDBUFFSIZE + 1];
-	char_u			errmsg[CMDBUFFSIZE + 1];
+	char_u 			*namebuf;
+	char_u			*errmsg;
 	int				col;
 	int				type;
 	int				valid;
@@ -68,16 +68,23 @@ qf_init()
 	int				adr_cnt = 0;
 	int				maxlen;
 	int				i;
+	int				retval = FAIL;
 
 	if (p_ef == NULL || *p_ef == NUL)
 	{
 		emsg(e_errorf);
 		return FAIL;
 	}
+
+	namebuf = alloc(CMDBUFFSIZE + 1);
+	errmsg = alloc(CMDBUFFSIZE + 1);
+	if (namebuf == NULL || errmsg == NULL)
+		goto qf_init_end;
+
 	if ((fd = fopen((char *)p_ef, "r")) == NULL)
 	{
 		emsg2(e_openerrf, p_ef);
-		return FAIL;
+		goto qf_init_end;
 	}
 	qf_free();
 	qf_index = 0;
@@ -233,17 +240,21 @@ qf_init()
 		}
 		else
 			qf_nonevalid = FALSE;
-		fclose(fd);
 		qf_jump(0, 0);			/* display first error */
-		return OK;
+		retval = OK;
+		goto qf_init_ok;
 	}
 	emsg(e_readerrf);
 error1:
 	free(qfp);
 error2:
-	fclose(fd);
 	qf_free();
-	return FAIL;
+qf_init_ok:
+	fclose(fd);
+qf_init_end:
+	free(namebuf);
+	free(errmsg);
+	return retval;
 }
 
 /*
@@ -368,7 +379,7 @@ qf_jump(dir, errornr)
 		/*
 		 * if the message is short, redisplay after redrawing the screen
 		 */
-		if (linetabsize(IObuff) < sc_col)
+		if (linetabsize(IObuff) < (Rows - cmdline_row - 1) * Columns + sc_col)
 			keep_msg = IObuff;
 	}
 	else if (qf_ptr->qf_fnum != 0)
@@ -417,14 +428,14 @@ qf_list(all)
 				sprintf((char *)IObuff, "%2d", i);
 			else
 				sprintf((char *)IObuff, "%2d %s", i, fname);
-			msg_outstr(IObuff);
+			msg_outtrans(IObuff);
 			stop_highlight();
 			if (qfp->qf_lnum == 0)
 				IObuff[0] = NUL;
 			else if (qfp->qf_col == 0)
-				sprintf((char *)IObuff, ":%d", qfp->qf_lnum);
+				sprintf((char *)IObuff, ":%ld", qfp->qf_lnum);
 			else
-				sprintf((char *)IObuff, ":%d, col %d", qfp->qf_lnum, qfp->qf_col);
+				sprintf((char *)IObuff, ":%ld, col %d", qfp->qf_lnum, qfp->qf_col);
 			sprintf((char *)IObuff + STRLEN(IObuff), "%s: ",
 										qf_types(qfp->qf_type, qfp->qf_nr));
 			msg_outstr(IObuff);

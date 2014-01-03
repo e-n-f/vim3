@@ -194,7 +194,7 @@ char_u	digraphdefault[][3] = 		/* standard ISO digraphs */
 dodigraph(c)
 	int		c;
 {
-	static int	backspaced;		/* character before BS */
+	static int	backspaced;		/* character before K_BS */
 	static int	lastchar;		/* last typed character */
 
 	if (c == -1)				/* init values */
@@ -206,7 +206,7 @@ dodigraph(c)
 		if (backspaced >= 0)
 			c = getdigraph(backspaced, c, FALSE);
 		backspaced = -1;
-		if (c == BS && lastchar >= 0)
+		if (c == K_BS && lastchar >= 0)
 			backspaced = lastchar;
 	}
 	lastchar = c;
@@ -351,7 +351,7 @@ printdigraph(p)
 			len = 0;
 		}
 		if (len)
-			msg_outstr((char_u *)"   ");
+			MSG_OUTSTR("   ");
 		sprintf((char *)buf, "%c%c %c %3d", p[0], p[1], p[2], p[2]);
 		msg_outstr(buf);
 		len += 11;

@@ -781,7 +781,7 @@ Fixed mouse not turned off when doing CTRL-Z.
 
 Changed 'identchar' to 'indentchars'.
 
-If 'identchars' not set, use '_' instead of '"' as default.
+If 'identchars' not set, use '_' instead of '"' when it is not set.
 
 Fixed autocommands not executed if file didn't exist.
 
@@ -932,7 +932,7 @@ Fixed extra wait_return after error message on starting up.
 Move '-' in 'identchars' to the end when using CTRL-N/P in insert mode. Avoids
 most common "Invalid range" errors. Other chars still need a backslash.
 
- Vim 3.7 (not finished yet)
+ Vim 3.7 (finished 1995 June 1)
 
 Adjusted formatting of comments to keep spaces after comment leader.
 
@@ -1033,11 +1033,274 @@ noremapstr[] were checked.
 Fixed having to type return twice when starting to edit another file and the
 message is too long.
 
+  Vim 3.8 (finished 1995 June 9)
+
+Fixed appending characters to the command line in overstrike mode.
+
+Made 'v' in visual mode stop visual mode again. 'V' and CTRL-V toggle between
+char mode and line or block mode. Left mouse click ends visual mode.
+
+Changed "No lines in buffer" from error message into normal message. This is
+not vi-compatible, but it works more like one would expect.
+
+When a mapping is not remappable, it is also not considered for function key
+codes.
+
+Changed CTRL-X CTRL-G into CTRL-X CTRL-I, to make it consistent with [i.
+
+When editing in readonly mode, don't set p_uc to zero and do use a swap file.
+Fixes problem of not being able to edit large files with "Vim -v". 'uc' is set
+to 10000 to reduce the number of writes to the swapfile.
+
+Added ":view file" and ":sview file": start editing a file with 'readonly'
+set.
+
+Added '+' flag and [count] to ":ilist", ":dlist", ":ijump", etc. '!' now means
+to also search comment lines.
+
+Added match number to list of matches from "[I", ":ilist" and the like.
+
+Don't give meaning of keys at --more-- message, unless a wrong key is typed.
+
+Moved processing of automatic commands to after reading the file and
+processing of modelines after both.
+
+Disallow trailing bar for ":autocmd" again, so it easier to use.
+
+For mapping and abbreviate commands the backslash cannot be used to escape
+'|', only CTRL-V can. Made this vi-compatible.
+
+Changed "Invalid command" message into "<command>: Not an editor command".
+
+Disallow ":autocmd" from .vimrc or .exrc in local dir when the 'secure' option
+is set.
+
+Really set alternate file name for ":file fname" command.
+
+Give line numbers for errors discovered when sourcing .vimrc and the like.
+
+Moved scroll_start() to after wait_return() in main.c, otherwise error
+messages will disappear (Webb).
+
+File name for marks in .viminfo file was never recognized, because of the
+trailing '\n' (Webb).
+
+Arrays in findtag() are allocated instead of on stack.
+
+Support for static tags: When searching for a tag in the tags file, and there
+is no global match and no static match for the current file, use any static
+tag that matches. If there is a static tag that matches for the current file,
+don't use a global match.
+
+Removed restriction on command line length.
+
+Fixed problem with handling concatenated commands after expanding wildcards,
+e.g. with ":e bu*c|ls".
+
+Fixed problem with argument like '#' to a command like ":wnext" causing the
+command not to do the right thing, depending on the file name.
+
+Display file names with outtrans(), control characters will be shown.
+
+Fixed removing not enough backslashes and too many CTRL-V's from filenames.
+
+Replaced msg_outstr(fname) by msg_outtrans(fname) to show special chars in a
+file name. Also use transchar() for setting the window title and icon.
+
+When command line causes an error, don't execute the next command after '|'.
+
+Fixed not resetting the yankbuffer when operator fails or is canceled with ESC
+(e.g. using "p" after ""ad<ESC>" would still use register a.
+
+When using "Vim -r" don't list current dir if 'dir' option starts with '>'.
+
+When expanding a setting, like with ":set dir=<TAB>", insert backslash in
+front of backslash.
+
+Set previous context mark for "gd" command (Webb).
+
+Don't truncate messages to one line when 'cmdheight' is larger than 1 (Webb).
+
+Added commands ":ascii" and "ga" (Webb).
+
+Added "gg" command to goto line 1 (Webb).
+
+Added "g~", "gu" and "gU" operators (Webb).
+
+When "[[" or "]]" is used without an operator, put cursor on begin of line
+(Webb).
+
+When adding a jump to the jumplist, remove older jumps to the same line (Webb).
+
+Added argument to ":display" and ":marks" (Webb).
+
+Added highlighting to titles of lists (Webb).
+
+Adjust Insstart when using CTRL-T and CTRL-D in insert mode, would not be able
+to backspace over some characters (Webb).
+
+  Vim 3.9 (not finished yet)
+
+When starting to edit a new file, put cursor on first non-blank of line,
+instead of column 1 (vi-compatible).
+
+Changed local variable did_emsg in search.c to mr_did_emsg.
+
+":unhide" could redisplay some buffers at the wrong position, added call
+tocursupdate() to enter_buffer().
+
+When p_id is NULL, use "" instead of "_".
+
+Use home_replace() for the file names dispayed during recovery (Webb).
+Improved recovery when there are multiple swap files, give user a choice which
+one to use. Ignore the swap file from the active editing session. "Vim -r"
+gives information about date and contents of the swap files. Allow ":recover"
+without a file name, to recover from ".swp".
+
+When two mouse clicks are in typestr[], only recognize the first one,
+otherwise 'mouse_code' will be overwritten. Add button specifier to <MOUSE>
+special code, so it can be used in mappings.
+
+Fixed freeing memory twice when opening of memfile fails.
+
+When using ":wq" after the message "No lines in buffer" an empty file is
+created (used to be a file with a single newline).
+
+Improved error message for unrecognized command in .vimrc. Now whole line is
+displayed.
+
+When error detected when writing a file, give error message instead of normal
+message.
+
+After "z." screen was displayed one line down compared to other positioning.
+
+Made redo and show-command work for "gu..", "g~.." and "gU..".
+
+Added ':' reply to --more-- message.
+
+After catching some deadly signals, produce a core dump.
+
+Added separate mapping for normal mode and visual mode. New commands ":nmap",
+":nnoremap", ":nunmap", ":vmap", ":vunmap" and ":vnoremap".
+
+Added mark for start of visual area: '<'.
+
+Fixed putting a command line that is abandoned with ESC in the history.
+
+Set '[ and '] marks to start and end of undone/redone lines.
+
+Added CTRL-] command to visual mode: :ta to highlighted text.
+
+When using CTRL-A and CTRL-X leading zeros are preserved for octal and
+hexadecimal numbers.
+
+Fixed "%<" and "#<" in the command line not working.
+
+Fixed two bugs in "2cc". The auto-indent was taken from the last line instead
+of the first. When the cursor was on the last character in the line it would
+be positioned on the first char of the next line.
+
+When 'visualbell' is set and 't_vb' is empty, don't beep or flash or anything
+(used to display some ^G in the command line which was deleted before you
+could see it).
+
+Added <MOUSE>P, position cursor to mouse coordinates, only within current
+buffer and without side effects. Can be used for mapping.
+
+Added "-u vimrc" command line argument: Read initializations only from {vimrc}
+file and skip the other initializations.
+
+For commands that get a file name out of the text (e.g. "gf", "g["), ignore
+the the part of a hypertext link that gives the file type and machine name.
+
+Moved initialization of 'shellpipe' and 'shellredir' to after other
+initizalizations, so that they work correctly when 'shell' option is set.
+
+Added '2' to 'formatoptions: 'Q' will keep the indent of the second line of a
+paragraph.
+
+Added 'maxmapdepth' option: maximal recursiveness of mapping.
+
+Completely changed the help system. Renamed all the help files. Help is now in
+a separate window and tags can be used like hypertext links to jump around.
+Use right mouse button to jump to tag (like CTRL-]). Added 'helpheight'
+option.
+
+Added '~' to the special characters for tag search patterns.
+
+When completing the old value of an option, put a backslash in front of ' ',
+'"', '|' and '\\'. Also do this for the identifier from the CTRL-] command.
+
+Fixed <BS> in command line causing the screen to be scrolled up, when hitting
+':' at the "wait for return" message caused by an existing swap file.
+
+Fixed problem with formatting, when char in column to break is a CTRL-M.
+Replaced isspace() by iswhite().
+
+Command line completion of tags now also uses tag file in directory where file
+is and vim_tags file for help files.
+
+Replace typestr[] by typebuf and optimized the use of it. Now much less
+allocing and copying, speeding up the execution of commands like "@r".
+
+Made mapping with key codes after some other keys work (e.g. ":map x<C_UP>".
+Was caused by xterm only returning one char at a time.
+
+Removed a lot of unneccesary initializations. A few changes to avoid compiler
+warnings (Webb).
+
+Flags for cmdtab are now short_u instead of short.
+
+Improved 'smartindent' a bit more, e.g. Ignore lines starting with '#' (Webb).
+
+Completely changed 'showcommand'. Now also shows parts of mappings, CTRL-V,
+etc. (Webb).
+
+When 'columns' or 'lines' is changed, try to set the window size (Webb).
+
+Made ":dlist + el" find "#define hello there" as it should (Webb).
+
+Switch off 'showmatch' when doing CTRL-X completion in insert mode (Webb).
+
+When not_full_screen is TRUE, don't do any termcap stuff.
+
+Call starttermcap() in wait_return() only when redraw is done.  Moved calling
+starttermcap() to avoid switching screens before calling wait_return().
+
+Fixed screen not being updated when a command typed in response to
+wait_return(). Don't update screen when '/' or '?' typed, just like with ':'.
+
+For recognizing a static tag file name before ':' and after white space must
+match.
+
+Process modelines after recovering a file.
+
+Process modelines after ":doautocmd".
+
+Removed the use of BS and DEL codes, always use K_BS and K_DEL. Set defaults
+for t_bs and t_del if they are not in the termcap.
+
+For smartindenting: When typing '{' after "O" delete one indent.
+
+When splitting window, don't copy scroll option from other window, avoids
+"invalid scroll size" error message.
+
+When looking for swap files also consider the shorname version. Finds
+swapfiles on MSDOS file systems.
+
+Fixed u_sync() called when second key of special key obtained in insert mode.
+Made BS key causing undo to fail.
+
+Adjusting marks for undo/redo was one line off.
+
+When 'wrap' option is off, make sure the whole character under the cursor is
+on the screen (for TAB and ctrl characters).
+
 */
 
-char		   *Version = "VIM 3.7";
+char		   *Version = "VIM 3.9";
 #if !defined(__DATE__) || !defined(__TIME__)
-char		   *longVersion = "Vi IMproved 3.7 by Bram Moolenaar (1995 June 1)";
+char		   *longVersion = "Vi IMproved 3.9 by Bram Moolenaar (1995 Jul 24)";
 #else
-char		   *longVersion = "Vi IMproved 3.7 by Bram Moolenaar (1995 June 1, compiled " __DATE__ " " __TIME__ ")";
+char		   *longVersion = "Vi IMproved 3.9 by Bram Moolenaar (1995 Jul 24, compiled " __DATE__ " " __TIME__ ")";
 #endif

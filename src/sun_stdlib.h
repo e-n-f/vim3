@@ -25,11 +25,6 @@ extern int unlink(char *);
 
 #ifdef __sys_types_h
 extern off_t lseek(int, off_t, int);
-
-# ifdef _sys_time_h
-extern int select(int, fd_set *, fd_set *, fd_set *, struct timeval *);
-# endif _sys_time_h
-
 #else
 extern long lseek(int, long, int);
 #endif
@@ -50,6 +45,7 @@ extern int fscanf(FILE *, char *, ...);
 extern int fseek(FILE *, long, int);
 extern int fflush(FILE *);
 extern int fread(char *, int, int, FILE *);
+extern int fputs(char *, FILE *);
 #else
 extern char *sprintf(char *, char *, ...);
 #endif

@@ -101,7 +101,7 @@ vim_delay()
 	void
 mch_suspend()
 {
-	msg_outstr("new shell started\n");
+	MSG_OUTSTR("new shell started\n");
 	call_shell(NULL, 0, 1);
 }
 

@@ -1,4 +1,5 @@
 /* cmdcmds.c */
+void do_ascii __PARMS((void));
 void do_align __PARMS((linenr_t start, linenr_t end, int width, int type));
 void do_retab __PARMS((linenr_t start, linenr_t end, int new_ts, int force));
 int do_move __PARMS((linenr_t line1, linenr_t line2, linenr_t n));

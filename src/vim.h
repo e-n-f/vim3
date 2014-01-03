@@ -5,6 +5,19 @@
  * Read the file "credits.txt" for a list of people who contributed.
  * Read the file "uganda.txt" for copying and usage conditions.
  */
+#define ADDED_BY_WEBB
+#ifdef ADDED_BY_WEBB
+
+#define ADDED_BY_WEBB_COMPILE
+#define ADDED_BY_WEBB_SIGNALS
+#define ADDED_BY_WEBB_ISIDCHAR
+
+#define WEBB_DIAG(str)	{FILE *_fp_ = fopen("out.debug", "a"); fprintf(_fp_, str); fclose(_fp_); }
+#define WEBB_DIAG1(str, arg)	{FILE *_fp_ = fopen("out.debug", "a"); fprintf(_fp_, str, arg); fclose(_fp_); }
+#define WEBB_DIAG2(str, arg1, arg2)	{FILE *_fp_ = fopen("out.debug", "a"); fprintf(_fp_, str, arg1, arg2); fclose(_fp_); }
+#define WEBB_DIAG3(str, arg1, arg2, arg3)	{FILE *_fp_ = fopen("out.debug", "a"); fprintf(_fp_, str, arg1, arg2, arg3); fclose(_fp_); }
+
+#endif /* ADDED_BY_WEBB */
 
 #if defined(SYSV_UNIX) || defined(BSD_UNIX)
 # ifndef UNIX
@@ -227,21 +240,23 @@ typedef unsigned long	long_u;
 
 /* values for State */
 /*
- * The lowest three bits are used to distinguish normal/cmdline/insert+replace
- * mode. This is used for mapping.
+ * The lowest four bits are used to distinguish normal/visual/cmdline/
+ * insert+replace mode. This is used for mapping. If none of these bits is set
+ * no mapping is done.
+ * The upper four bits are used to distinguish between other states.
  */
 #define NORMAL					0x01
+#define VISUAL					0x02
+#define CMDLINE 				0x04
+#define INSERT					0x08
 #define NORMAL_BUSY				0x11	/* busy interpreting a command */
-#define CMDLINE 				0x02
-#define INSERT					0x04
-#define REPLACE 				0x24	/* replace mode */
-#define HELP					0x30	/* displaying help */
+#define REPLACE 				0x28	/* replace mode */
 #define NOMAPPING 				0x40	/* no :mapping mode for vgetc() */
-#define ONLYKEY 				0x70	/* like NOMAPPING, but keys allowed */
-#define HITRETURN				0x51	/* waiting for a return */
-#define ASKMORE					0x90	/* Asking if you want --more-- */
-#define SETWSIZE				0x60	/* window size has changed */
-#define ABBREV					0x80	/* abbreviation instead of mapping */
+#define ONLYKEY 				0x50	/* like NOMAPPING, but keys allowed */
+#define HITRETURN				0x61	/* waiting for a return */
+#define ASKMORE					0x70	/* Asking if you want --more-- */
+#define SETWSIZE				0x80	/* window size has changed */
+#define ABBREV					0x90	/* abbreviation instead of mapping */
 
 /* directions */
 #define FORWARD 				1
@@ -270,6 +285,7 @@ typedef unsigned long	long_u;
 #define EXPAND_BOOL_SETTINGS	5
 #define EXPAND_TAGS				6
 #define EXPAND_OLD_SETTING		7
+#define EXPAND_HELP				8
 
 /* Values for the find_pattern_in_path() function args 'type' and 'action': */
 #define FIND_ANY		1
@@ -304,6 +320,7 @@ typedef unsigned long	long_u;
 #define FO_OPEN_COMS	'o'
 #define FO_Q_COMS		'q'
 #define FO_COMS_PADDED	's'
+#define FO_Q_SECOND		'2'
 
 #define FO_DFLT			"tcqs"
 
@@ -350,6 +367,12 @@ typedef unsigned long	long_u;
 # define MAXPATHL	128			/* not too long to put name on stack */
 #endif
 
+/*
+ * Maximum length of key sequence to be mapped.
+ * Must be able to hold an Amiga resize report.
+ */
+#define MAXMAPLEN	50
+
 #ifdef MSDOS
 # define WRITEBIN	"wb"		/* no CR-LF translation */
 # define READBIN	"rb"
@@ -380,6 +403,7 @@ typedef unsigned long	long_u;
 #define EMSG2(s, p)			emsg2((char_u *)(s), (char_u *)(p))
 #define OUTSTR(s)			outstr((char_u *)(s))
 #define OUTSTRN(s)			outstrn((char_u *)(s))
+#define MSG_OUTSTR(s)		msg_outstr((char_u *)(s))
 
 typedef long			linenr_t;	/* line number type */
 typedef unsigned		colnr_t;	/* column number type */
@@ -390,6 +414,8 @@ typedef unsigned		colnr_t;	/* column number type */
 #else
 # define MAXCOL	32767				/* maximum column number, 15 bits */
 #endif
+
+#define SHOWCMD_COLS 10				/* columns needed by shown command */
 
 /*
  * Some versions of isspace() handle Meta characters like a space!

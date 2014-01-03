@@ -37,7 +37,6 @@
 static void check_marks_read __ARGS((void));
 #endif
 static int  write_buf __ARGS((int, char_u *, int));
-static void do_mlines __ARGS((void));
 
 	void
 filemess(name, s)
@@ -55,7 +54,8 @@ filemess(name, s)
 	 * calling filemess().
 	 */
 	msg_start();
-	msg_outstr(IObuff);
+	msg_outtrans(IObuff);
+	stop_highlight();
 	msg_clr_eos();
 	flushbuf();
 }
@@ -84,11 +84,7 @@ readfile(fname, sfname, from, newfile, skip_lnum, nlines)
 	linenr_t		skip_lnum;
 	linenr_t		nlines;
 {
-#ifdef UNIX
-	int 				fd = -1;
-#else
 	int 				fd;
-#endif
 	register char_u 	c;
 	register linenr_t	lnum = from;
 	register char_u 	*ptr = NULL;			/* pointer into read buffer */
@@ -245,6 +241,8 @@ readfile(fname, sfname, from, newfile, skip_lnum, nlines)
 				size = 0x10000L;				/* read 64K at a time */
 			else
 #endif
+			/* If you have 4 byte ints, the compiler may give a warning that
+			 * the next statement is not reached. Just ignore it. */
 				size = 0x7ff0L - linerest;		/* limit buffer to 32K */
 
 			for ( ; size >= 10; size >>= 1)
@@ -432,8 +430,6 @@ readfile(fname, sfname, from, newfile, skip_lnum, nlines)
 
 	u_clearline();		/* cannot use "U" command after adding lines */
 
-	if (newfile)		/* edit a new file: read mode from lines */
-		do_mlines();
 	if (from < curbuf->b_ml.ml_line_count)
 	{
 		curwin->w_cursor.lnum = from + 1;	/* put cursor at first new line */
@@ -994,11 +990,11 @@ nobackup:
 	IObuff[0] = '"';
 	sprintf((char *)IObuff + STRLEN(IObuff),
 					"\"%s%s %ld line%s, %ld character%s",
-			newfile ? " [New File]" : " ",
+			newfile ? " [New File]" : "",
 #ifdef MSDOS
-			buf->b_p_tx ? "" : "[notextmode]",
+			buf->b_p_tx ? "" : " [notextmode]",
 #else
-			buf->b_p_tx ? "[textmode]" : "",
+			buf->b_p_tx ? " [textmode]" : "",
 #endif
 			(long)lnum, plural((long)lnum),
 			nchars, plural(nchars));
@@ -1083,12 +1079,19 @@ nofail:
 
 	if (errmsg != NULL)
 	{
+		/* can't use emsg() here, do something alike */
+		if (p_eb)
+			beep_flush();			/* also includes flush_buffers() */
+		else
+			flush_buffers(FALSE);	/* flush internal buffers */
+		(void)set_highlight('e');	/* set highlight mode for error messages */
+		start_highlight();
 		filemess(fname, errmsg);
 		retval = FAIL;
 		if (end == 0)
 		{
-			msg_outstr("\nWARNING: Original file may be lost or damaged\n");
-			msg_outstr("don't quit the editor until the file is sucessfully written!");
+			MSG_OUTSTR("\nWARNING: Original file may be lost or damaged\n");
+			MSG_OUTSTR("don't quit the editor until the file is sucessfully written!");
 		}
 	}
 	msg_scroll = msg_save;
@@ -1117,86 +1120,6 @@ write_buf(fd, buf, len)
 		buf += wlen;
 	}
 	return OK;
-}
-
-/*
- * do_mlines() - process mode lines for the current file
- *
- * Returns immediately if the "ml" parameter isn't set.
- */
-static void 	chk_mline __ARGS((linenr_t));
-
-	static void
-do_mlines()
-{
-	linenr_t		lnum;
-	int 			nmlines;
-
-	if (!curbuf->b_p_ml || (nmlines = (int)p_mls) == 0)
-		return;
-
-	sourcing_name = (char_u *)"modelines";
-	for (lnum = 1; lnum <= curbuf->b_ml.ml_line_count && lnum <= nmlines; ++lnum)
-		chk_mline(lnum);
-
-	for (lnum = curbuf->b_ml.ml_line_count; lnum > 0 && lnum > nmlines &&
-							lnum > curbuf->b_ml.ml_line_count - nmlines; --lnum)
-		chk_mline(lnum);
-	sourcing_name = NULL;
-}
-
-/*
- * chk_mline() - check a single line for a mode string
- */
-	static void
-chk_mline(lnum)
-	linenr_t lnum;
-{
-	register char_u	*s;
-	register char_u	*e;
-	char_u			*cs;			/* local copy of any modeline found */
-	int				prev;
-	int				end;
-
-	prev = ' ';
-	for (s = ml_get(lnum); *s != NUL; ++s)
-	{
-		if (isspace(prev) && (STRNCMP(s, "vi:", (size_t)3) == 0 ||
-					STRNCMP(s, "ex:", (size_t)3) == 0 ||
-					STRNCMP(s, "vim:", (size_t)4) == 0))
-		{
-			do
-				++s;
-			while (s[-1] != ':');
-			s = cs = strsave(s);
-			if (cs == NULL)
-				break;
-			end = FALSE;
-			while (end == FALSE)
-			{
-				while (*s == ' ' || *s == TAB)
-					++s;
-				if (*s == NUL)
-					break;
-				for (e = s; (*e != ':' || *(e - 1) == '\\') && *e != NUL; ++e)
-					;
-				if (*e == NUL)
-					end = TRUE;
-				*e = NUL;
-				if (STRNCMP(s, "set ", (size_t)4) == 0) /* "vi:set opt opt opt: foo" */
-				{
-					(void)doset(s + 4);
-					break;
-				}
-				if (doset(s) == FAIL)		/* stop if error found */
-					break;
-				s = e + 1;
-			}
-			free(cs);
-			break;
-		}
-		prev = *s;
-	}
 }
 
 /*
@@ -1339,7 +1262,7 @@ vim_fgets(buf, size, fp, lnum)
 		do
 		{
 			IObuff[IOSIZE - 2] = NUL;
-			eof = fgets((char *)IObuff, IOSIZE, fp);
+			fgets((char *)IObuff, IOSIZE, fp);
 		} while (IObuff[IOSIZE - 2] != NUL && IObuff[IOSIZE - 2] != '\n');
 		return !VIM_EOF;
 	}

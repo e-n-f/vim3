@@ -50,9 +50,9 @@
 /*
  * At this point TRUE and FALSE are defined as 1L and 0L, but we want 1 and 0.
  */
-#undef TRUE
+#undef	TRUE
 #define TRUE (1)
-#undef FALSE
+#undef	FALSE
 #define FALSE (0)
 
 #ifndef AZTEC_C
@@ -184,7 +184,7 @@ vim_delay()
 void
 mch_suspend()
 {
-	msg_outstr("new shell started\n");
+	MSG_OUTSTR("new shell started\n");
 	(void)call_shell(NULL, 0, TRUE);
 }
 
@@ -964,14 +964,14 @@ call_shell(cmd, filter, cooked)
 	if ((dos2 && x < 0) || (!dos2 && !x))
 # endif
 	{
-		msg_outstr((char_u *)"Cannot execute ");
+		MSG_OUTSTR("Cannot execute ");
 		if (cmd == NULL)
 		{
-			msg_outstr((char_u *)"shell ");
-			msg_outstr(p_sh);
+			MSG_OUTSTR("shell ");
+			msg_outtrans(p_sh);
 		}
 		else
-			msg_outstr(cmd);
+			msg_outtrans(cmd);
 		msg_outchar('\n');
 		retval = FAIL;
 	}
@@ -987,7 +987,7 @@ call_shell(cmd, filter, cooked)
 			{
 				msg_outchar('\n');
 				msg_outnum(x);
-				msg_outstr((char_u *)" returned\n");
+				MSG_OUTSTR(" returned\n");
 			}
 			retval = FAIL;
 		}
@@ -1053,7 +1053,7 @@ call_shell(cmd, filter, cooked)
 	if ((dos2 && x < 0) || (!dos2 && x))
 # endif
 	{
-		msg_outstr((char_u *)"Cannot execute ");
+		MSG_OUTSTR("Cannot execute ");
 		if (use_execute)
 		{
 			if (cmd == NULL)
@@ -1063,7 +1063,7 @@ call_shell(cmd, filter, cooked)
 		}
 		else
 		{
-			msg_outstr((char_u *)"shell ");
+			MSG_OUTSTR("shell ");
 			msg_outstr(shellcmd);
 		}
 		msg_outchar('\n');
@@ -1088,7 +1088,7 @@ call_shell(cmd, filter, cooked)
 			{
 				msg_outchar('\n');
 				msg_outnum((long)x);
-				msg_outstr((char_u *)" returned\n");
+				MSG_OUTSTR(" returned\n");
 			}
 			retval = FAIL;
 		}

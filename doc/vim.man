@@ -186,7 +186,7 @@ SSEEEE AALLSSOO
 
        unix.doc:   Unix-specific comments
 
-       vim.hlp:    File used by the on-line help (short)
+       vim.help:   File used by the on-line help (short)
 
 AAUUTTHHOORR
        Most of VIM was made by Bram Moolenaar.

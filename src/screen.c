@@ -18,15 +18,15 @@
 char *tgoto __PARMS((char *cm, int col, int line));
 
 /*
- * The characters that are currently on the screen are kept in Nextscreen.
+ * The characters that are currently on the screen are kept in NextScreen.
  * Each line in it has two parts: First the characters and then the
  * attributes.
  */
-static char_u 	*Nextscreen = NULL; 	/* What is currently on the screen. */
-static char_u 	**LinePointers = NULL;	/* array of pointers into Nextscreen */
+static char_u 	*NextScreen = NULL; 	/* What is currently on the screen. */
+static char_u 	**LinePointers = NULL;	/* array of pointers into NextScreen */
 
 /*
- * Attributes for Nextscreen.
+ * Attributes for NextScreen.
  */
 #define CHAR_INVERT		1
 #define CHAR_UNDERL		2
@@ -75,7 +75,7 @@ updateline()
 
 	screenalloc(TRUE);		/* allocate screen buffers if size changed */
 
-	if (Nextscreen == NULL || RedrawingDisabled)
+	if (NextScreen == NULL || RedrawingDisabled)
 		return;
 
 	screen_start();			/* init cursor position of screen_char() */
@@ -120,7 +120,7 @@ update_curbuf(type)
  * updateScreen()
  *
  * Based on the current value of curwin->w_topline, transfer a screenfull
- * of stuff from Filemem to Nextscreen, and update curwin->w_botline.
+ * of stuff from Filemem to NextScreen, and update curwin->w_botline.
  */
 
 	void
@@ -130,7 +130,7 @@ updateScreen(type)
 	WIN				*wp;
 
 	screenalloc(TRUE);		/* allocate screen buffers if size changed */
-	if (Nextscreen == NULL)
+	if (NextScreen == NULL)
 		return;
 
 	if (must_redraw)
@@ -350,7 +350,7 @@ win_update(wp)
 	done = didline = FALSE;
 	screen_start();			/* init cursor position of screen_char() */
 
-	if (VIsual.lnum != 0)	/* check if we are updating the inverted part */
+	if (VIsual_active)		/* check if we are updating the inverted part */
 	{
 		linenr_t	from, to;
 
@@ -639,7 +639,6 @@ win_line(wp, lnum, startrow, endrow)
 
 	int				fromcol, tocol;		/* start/end of inverting */
 	int				noinvcur = FALSE;	/* don't invert the cursor */
-	int				temp;
 	FPOS			*top, *bot;
 
 	if (startrow > endrow)				/* past the end already! */
@@ -656,7 +655,7 @@ win_line(wp, lnum, startrow, endrow)
 	/*
 	 * handle visual active in this window
 	 */
-	if (VIsual.lnum != 0 && wp->w_buffer == curwin->w_buffer)
+	if (VIsual_active && wp->w_buffer == curwin->w_buffer)
 	{
 										/* Visual is after curwin->w_cursor */
 		if (ltoreq(curwin->w_cursor, VIsual))
@@ -673,19 +672,18 @@ win_line(wp, lnum, startrow, endrow)
 		{
 			if (lnum >= top->lnum && lnum <= bot->lnum)
 			{
-				fromcol = getvcol(wp, top, 2);
-				temp = getvcol(wp, bot, 2);
-				if (temp < fromcol)
-					fromcol = temp;
+				colnr_t		from, to;
 
-				if (wp->w_curswant != MAXCOL)
-				{
-					tocol = getvcol(wp, top, 3);
-					temp = getvcol(wp, bot, 3);
-					if (temp > tocol)
-						tocol = temp;
-					++tocol;
-				}
+				getvcol(wp, top, (colnr_t *)&fromcol, NULL, (colnr_t *)&tocol);
+				getvcol(wp, bot, &from, NULL, &to);
+				if (from < fromcol)
+					fromcol = from;
+				if (to > tocol)
+					tocol = to;
+				++tocol;
+
+				if (wp->w_curswant == MAXCOL)
+					tocol = MAXCOL;
 			}
 		}
 		else							/* non-block mode */
@@ -693,9 +691,12 @@ win_line(wp, lnum, startrow, endrow)
 			if (lnum > top->lnum && lnum <= bot->lnum)
 				fromcol = 0;
 			else if (lnum == top->lnum)
-				fromcol = getvcol(wp, top, 2);
+				getvcol(wp, top, (colnr_t *)&fromcol, NULL, NULL);
 			if (lnum == bot->lnum)
-				tocol = getvcol(wp, bot, 3) + 1;
+			{
+				getvcol(wp, bot, NULL, NULL, (colnr_t *)&tocol);
+				++tocol;
+			}
 
 			if (Visual_mode == 'V')		/* linewise */
 			{
@@ -727,9 +728,11 @@ win_line(wp, lnum, startrow, endrow)
 	{
 		if (lnum == curwin->w_cursor.lnum)
 		{
-			fromcol = getvcol(curwin, &(curwin->w_cursor), 2);
+			getvcol(curwin, &(curwin->w_cursor),
+											(colnr_t *)&fromcol, NULL, NULL);
 			curwin->w_cursor.col += search_match_len;
-			tocol = getvcol(curwin, &(curwin->w_cursor), 2);
+			getvcol(curwin, &(curwin->w_cursor),
+											(colnr_t *)&tocol, NULL, NULL);
 			curwin->w_cursor.col -= search_match_len;
 			canopt = FALSE;
 		}
@@ -795,7 +798,7 @@ win_line(wp, lnum, startrow, endrow)
 				/*
 				 * when getting a character from the file, we may have to turn
 				 * it into something else on the way to putting it into
-				 * 'Nextscreen'.
+				 * 'NextScreen'.
 				 */
 				if (c == TAB && !wp->w_p_list)
 				{
@@ -846,13 +849,9 @@ win_line(wp, lnum, startrow, endrow)
 				++col;
 			}
 			if (col < Columns)
-			{
 				screen_fill(screen_row, screen_row + 1,
 												col, (int)Columns, ' ', ' ');
-				col = Columns;
-			}
 			row++;
-			screen_row++;
 			break;
 		}
 		if (col >= Columns)
@@ -871,7 +870,7 @@ win_line(wp, lnum, startrow, endrow)
 		}
 
 		/*
-		 * Store the character in Nextscreen.
+		 * Store the character in NextScreen.
 		 */
 		if (*screenp != c || *(screenp + Columns) != attributes)
 		{
@@ -1253,10 +1252,11 @@ screenalloc(clear)
 
 	/*
 	 * Allocation of the screen buffers is done only when the size changes
-	 * and when Rows and Columns have been set.
+	 * and when Rows and Columns have been set and we are doing full screen
+	 * stuff.
 	 */
-	if ((Nextscreen != NULL && Rows == old_Rows && Columns == old_Columns)
-								|| Rows == 0 || Columns == 0)
+	if ((NextScreen != NULL && Rows == old_Rows && Columns == old_Columns)
+							|| Rows == 0 || Columns == 0 || not_full_screen)
 		return;
 
 	comp_col();			/* recompute columns for shown command and ruler */
@@ -1266,12 +1266,12 @@ screenalloc(clear)
 	/*
 	 * If we're changing the size of the screen, free the old arrays
 	 */
-	free(Nextscreen);
+	free(NextScreen);
 	free(LinePointers);
 	for (wp = firstwin; wp; wp = wp->w_next)
 		win_free_lsize(wp);
 
-	Nextscreen = (char_u *)malloc((size_t) (Rows * Columns * 2));
+	NextScreen = (char_u *)malloc((size_t) (Rows * Columns * 2));
 	LinePointers = (char_u **)malloc(sizeof(char_u *) * Rows);
 	for (wp = firstwin; wp; wp = wp->w_next)
 	{
@@ -1282,16 +1282,16 @@ screenalloc(clear)
 		}
 	}
 
-	if (Nextscreen == NULL || LinePointers == NULL || outofmem)
+	if (NextScreen == NULL || LinePointers == NULL || outofmem)
 	{
 		do_outofmem_msg();
-		free(Nextscreen);
-		Nextscreen = NULL;
+		free(NextScreen);
+		NextScreen = NULL;
 	}
 	else
 	{
 		for (i = 0; i < Rows; ++i)
-			LinePointers[i] = Nextscreen + i * Columns * 2;
+			LinePointers[i] = NextScreen + i * Columns * 2;
 	}
 
 	if (clear)
@@ -1310,12 +1310,12 @@ screenclear2()
 {
 	int		i;
 
-	if (starting || Nextscreen == NULL)
+	if (starting || NextScreen == NULL)
 		return;
 
 	outstr(T_ED);				/* clear the display */
 
-								/* blank out Nextscreen */
+								/* blank out NextScreen */
 	for (i = 0; i < Rows; ++i)
 	{
 		memset((char *)LinePointers[i], ' ', (size_t)Columns);
@@ -1354,7 +1354,7 @@ cursupdate()
 
 	screenalloc(TRUE);		/* allocate screen buffers if size changed */
 
-	if (Nextscreen == NULL)
+	if (NextScreen == NULL)
 		return;
 
 	check_cursor();
@@ -1499,9 +1499,12 @@ cursupdate()
 curs_columns(scroll)
 	int scroll;			/* when TRUE, may scroll horizontally */
 {
-	int diff;
+	int		diff;
+	colnr_t	startcol;
+	colnr_t endcol;
 
-	curwin->w_virtcol = getvcol(curwin, &curwin->w_cursor, 1);
+	getvcol(curwin, &curwin->w_cursor,
+								&startcol, &(curwin->w_virtcol), &endcol);
 	curwin->w_col = curwin->w_virtcol;
 	if (curwin->w_p_nu)
 		curwin->w_col += 8;
@@ -1517,20 +1520,13 @@ curs_columns(scroll)
 						 * scrolling is on.  If scrolling is off,
 						 * curwin->w_leftcol is assumed to be 0 */
 	{
-						/* If Cursor is in columns 0, start in column 0 */
 						/* If Cursor is left of the screen, scroll rightwards */
 						/* If Cursor is right of the screen, scroll leftwards */
-		if (curwin->w_cursor.col == 0)
+		if ((diff = curwin->w_leftcol +
+								(curwin->w_p_nu ? 8 : 0) - startcol) > 0 ||
+					(diff = endcol - (curwin->w_leftcol + Columns) + 1) > 0)
 		{
-						/* screen needs redrawing with new curwin->w_leftcol */
-			if (curwin->w_leftcol != 0)
-				redraw_later(NOT_VALID);
-			curwin->w_leftcol = 0;
-		}
-		else if (((diff = curwin->w_leftcol + (curwin->w_p_nu ? 8 : 0)
-					- curwin->w_col) > 0 || (diff = curwin->w_col
-							- (curwin->w_leftcol + Columns) + 1) > 0))
-		{
+				/* far off, put cursor in middle of window */
 			if (p_ss == 0 || diff >= Columns / 2)
 				curwin->w_leftcol = curwin->w_col - Columns / 2;
 			else
@@ -1557,43 +1553,52 @@ curs_columns(scroll)
 
 /*
  * get virtual column number of pos
- * type = 1: where the cursor is on this character
- * type = 2: on the first position of this character (TAB)
- * type = 3: on the last position of this character (TAB)
+ * start: on the first position of this character (TAB, ctrl)
+ * cursor: where the cursor is on this character (first char, except for TAB)
+ * end: on the last position of this character (TAB, ctrl)
  */
-	int
-getvcol(wp, pos, type)
-	WIN		*wp;
-	FPOS	*pos;
-	int		type;
+	void
+getvcol(wp, pos, start, cursor, end)
+	WIN			*wp;
+	FPOS		*pos;
+	colnr_t		*start;
+	colnr_t		*cursor;
+	colnr_t		*end;
 {
 	int				col;
-	int				vcol;
+	colnr_t			vcol;
 	char_u		   *ptr;
 	int 			incr;
 	int				c;
 
 	vcol = 0;
 	ptr = ml_get_buf(wp->w_buffer, pos->lnum, FALSE);
-	for (col = pos->col; col >= 0; --col)
+	for (col = pos->col; ; --col)
 	{
 		c = *ptr++;
+
+					/* A tab gets expanded, depending on the current column */
+		incr = chartabsize(c, (long)vcol);
+
 		if (c == NUL)		/* make sure we don't go past the end of the line */
 			break;
 
-		/* A tab gets expanded, depending on the current column */
-		incr = chartabsize(c, (long)vcol);
-
 		if (col == 0)		/* character at pos.col */
-		{
-			if (type == 3 || (type == 1 && c == TAB && State == NORMAL && !wp->w_p_list))
-				--incr;
-			else
-				break;
-		}
+			break;
+
 		vcol += incr;
 	}
-	return vcol;
+	if (start != NULL)
+		*start = vcol;
+	if (end != NULL)
+		*end = vcol + incr - 1;
+	if (cursor != NULL)
+	{
+		if (c == TAB && State == NORMAL && !wp->w_p_list)
+			*cursor = vcol + incr - 1;		/* cursor at end */
+		else
+			*cursor = vcol;					/* cursor at start */
+	}
 }
 
 	void
@@ -1884,7 +1889,7 @@ win_rest_invalid(wp)
  */
 
 /*
- * insert lines on the screen and update Nextscreen
+ * insert lines on the screen and update NextScreen
  * 'end' is the line after the scrolled part. Normally it is Rows.
  * When scrolling region used 'off' is the offset from the top for the region.
  * 'row' and 'end' are relative to the start of the region.
@@ -1909,7 +1914,7 @@ screen_ins_lines(off, row, nlines, end)
 		cursor_row = row + off;
 
 	screenalloc(TRUE);		/* allocate screen buffers if size changed */
-	if (Nextscreen == NULL)
+	if (NextScreen == NULL)
 		return FAIL;
 
 	if (nlines <= 0 ||  ((T_CIL == NULL || *T_CIL == NUL) &&
@@ -1960,7 +1965,7 @@ screen_ins_lines(off, row, nlines, end)
 }
 
 /*
- * delete lines on the screen and update Nextscreen
+ * delete lines on the screen and update NextScreen
  * 'end' is the line after the scrolled part. Normally it is Rows.
  * When scrolling region used 'off' is the offset from the top for the region.
  * 'row' and 'end' are relative to the start of the region.
@@ -1992,7 +1997,7 @@ screen_del_lines(off, row, nlines, end)
 	}
 
 	screenalloc(TRUE);		/* allocate screen buffers if size changed */
-	if (Nextscreen == NULL)
+	if (NextScreen == NULL)
 		return FAIL;
 
 	if (nlines <= 0 ||  ((T_DL == NULL || *T_DL == NUL) &&
@@ -2066,27 +2071,27 @@ showmode()
 		{
 			if (State & INSERT)
 			{
-				msg_outstr((char_u *)"-- ");
+				MSG_OUTSTR("-- ");
 				if (State == INSERT)
 				{
 					if (p_ri)
-						msg_outstr((char_u *)"REVERSE ");
-					msg_outstr((char_u *)"INSERT");
+						MSG_OUTSTR("REVERSE ");
+					MSG_OUTSTR("INSERT");
 				}
 				else
-					msg_outstr((char_u *)"REPLACE");
+					MSG_OUTSTR("REPLACE");
 				if (edit_submode != NULL)
 				{
-					msg_outstr((char_u *)": ");
+					MSG_OUTSTR(": ");
 					msg_outstr(edit_submode);
 				}
-				msg_outstr((char_u *)" --");
+				MSG_OUTSTR(" --");
 				need_clear = TRUE;
 			}
 		}
 		if (Recording)
 		{
-			msg_outstr((char_u *)"recording");
+			MSG_OUTSTR("recording");
 			need_clear = TRUE;
 		}
 		if (need_clear && !did_clear)
@@ -2176,17 +2181,21 @@ win_redr_ruler(wp, always)
 screen_valid()
 {
 	screenalloc(FALSE);		/* allocate screen buffers if size changed */
-	return (Nextscreen != NULL);
+	return (NextScreen != NULL);
 }
 
 /*
  * Move the cursor to the specified row and column on the screen.
- * Change current window if neccesary.
+ * Change current window if neccesary. Used for mouse clicks.
+ * If 'same_buffer' is TRUE, only move within current buffer.
+ * If 'do_scroll' is TRUE, may scroll the window.
  */
 	int
-jumpto(row, col)
+jumpto(row, col, same_buffer, do_scroll)
 	int		row;
 	int		col;
+	int		same_buffer;
+	int		do_scroll;
 {
 	WIN		*wp;
 	int		count;
@@ -2199,6 +2208,9 @@ jumpto(row, col)
 	for (wp = firstwin; wp->w_next; wp = wp->w_next)
 		if (row < wp->w_next->w_winpos)
 			break;
+	if (same_buffer && wp->w_buffer != curbuf)
+		return FAIL;
+
 	row -= wp->w_winpos;		/* winpos may change in win_enter()! */
 	win_enter(wp, TRUE);
 
@@ -2214,7 +2226,7 @@ jumpto(row, col)
 	 * When clicking in the first line, scroll the screen
 	 * up to 'scrolljump' lines down.
 	 */
-	if (row == 0)
+	if (do_scroll && row == 0)
 	{
 		count = 0;
 		for (first = TRUE; curwin->w_topline > 1; --curwin->w_topline)
@@ -2226,7 +2238,7 @@ jumpto(row, col)
 		}
 		redraw_later(VALID);
 	}
-	else if (row == curwin->w_height - 1)
+	else if (do_scroll && row == curwin->w_height - 1)
 	{
 		count = 0;
 		for (first = TRUE; curwin->w_topline < curbuf->b_ml.ml_line_count;

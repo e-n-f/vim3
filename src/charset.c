@@ -114,7 +114,7 @@ linetabsize(s)
 }
 
 /*
- * return TRUE if 'c' is an identifier character
+ * return TRUE if 'c' is a normal identifier character
  */
 	int
 isidchar(c)
@@ -128,7 +128,9 @@ isidchar(c)
 #else
 				isalpha(c) || isdigit(c)
 #endif
-				|| (curbuf->b_p_id != NULL && STRCHR(curbuf->b_p_id, c) != NULL)
+#ifdef ADDED_BY_WEBB_ISIDCHAR
+				|| c == '_'
+#endif /* ADDED_BY_WEBB_ISIDCHAR */
 	/*
 	 * we also accept alpha's with accents
 	 */
@@ -138,4 +140,18 @@ isidchar(c)
 				|| (c >= 0xc0 && c <= 0xff)
 #endif
 				);
+}
+
+/*
+ * return TRUE if 'c' is an identifier character
+ * Also check 'identchars' option.
+ */
+	int
+isidchar_id(c)
+	int c;
+{
+	if (c > 0x100 || c == NUL)
+		return FALSE;
+	return (isidchar(c) ||
+			(curbuf->b_p_id != NULL && STRCHR(curbuf->b_p_id, c) != NULL));
 }

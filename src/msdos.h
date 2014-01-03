@@ -32,7 +32,7 @@
 #endif
 
 #ifndef VIM_HLP
-# define VIM_HLP		"$VIM\\vim.hlp"
+# define VIM_HLP		"$VIM\\vim_help.txt"
 #endif
 
 #ifdef VIMINFO
@@ -75,3 +75,4 @@
 #define MOUSE_LEFT		0x01
 #define MOUSE_RIGHT		0x02
 #define MOUSE_MIDDLE	0x04
+#define MOUSE_RELEASE	0x07

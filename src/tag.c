@@ -16,6 +16,7 @@
 #include "param.h"
 
 static int findtag __ARGS((char_u *));
+static int get_tagfname __ARGS((int, char_u	*));
 static char_u *bottommsg = (char_u *)"at bottom of tag stack";
 static char_u *topmsg = (char_u *)"at top of tag stack";
 
@@ -55,7 +56,6 @@ dotag(tag, type, count)
 			for (i = 1; i < tagstacklen; ++i)
 				tagstack[i - 1] = tagstack[i];
 			--tagstackidx;
-			--oldtagstackidx;
 		}
 	/*
 	 * put the tag name in the tag stack
@@ -157,7 +157,10 @@ dotags()
 	int				tagstackidx = curwin->w_tagstackidx;
 	int				tagstacklen = curwin->w_tagstacklen;
 
-	msg_outstr((char_u *)"\n  # TO tag      FROM line in file");
+	set_highlight('t');		/* Highlight title */
+	start_highlight();
+	MSG_OUTSTR("\n  # TO tag      FROM line in file");
+	stop_highlight();
 	for (i = 0; i < tagstacklen; ++i)
 	{
 		if (tagstack[i].tagname != NULL)
@@ -166,31 +169,33 @@ dotags()
 			if (name == NULL)		/* file name not available */
 				continue;
 
-			sprintf((char *)IObuff, "\n%c%2d %-15s %4ld  %s",
+			msg_outchar('\n');
+			sprintf((char *)IObuff, "%c%2d %-15s %4ld  %s",
 				i == tagstackidx ? '>' : ' ',
 				i + 1,
 				tagstack[i].tagname,
 				tagstack[i].fmark.mark.lnum,
 				name);
-			msg_outstr(IObuff);
+			msg_outtrans(IObuff);
 		}
 		flushbuf();					/* show one line at a time */
 	}
 	if (tagstackidx == tagstacklen)		/* idx at top of stack */
-		msg_outstr((char_u *)"\n>");
+		MSG_OUTSTR("\n>");
 }
 
 /*
  * findtag(tag) - goto tag
- *   return 0 for failure, 1 for success
+ *   return FAIL for failure, OK for success
  */
 	static int
 findtag(tag)
 	char_u		   *tag;
 {
-	FILE	   *tp;
-	char_u		lbuf[LSIZE];
-	char_u		pbuf[LSIZE];			/* search pattern buffer */
+	FILE	   *fp;
+	char_u	   *lbuf;					/* line buffer */
+	char_u	   *pbuf;					/* search pattern buffer */
+	char_u	   *tag_fname;				/* name of tag file */
 	char_u	   *fname, *str;
 	char_u	   *tagname;
 	char_u	   *tail;
@@ -199,15 +204,22 @@ findtag(tag)
 	char_u		*marg = NULL;
 	register char_u	*p;
 	char_u		*p2;
-	char_u		*np;					/* pointer into file name string */
-	char_u		sbuf[CMDBUFFSIZE + 1];	/* tag file name */
 	int			i;
 	int			save_secure;
 	int			save_p_ws;
-	int			tried_local = FALSE;	/* tried tags file local to file */
+	int			retval = FAIL;
+	int			is_static;				/* current tag line is static */
+	int			eof;					/* end of tags file */
+	char_u		*static_line = NULL;	/* saved line for static tag */
+	char_u		*global_line = NULL;	/* saved line for global tag */
+	int			first_file;				/* trying first tag file */
 
-	if (tag == NULL)		/* out of memory condition */
-		return 0;
+	lbuf = alloc(LSIZE);
+	pbuf = alloc(LSIZE);
+	tag_fname = alloc(CMDBUFFSIZE + 1);
+				/* check for out of memory situation */
+	if (tag == NULL || lbuf == NULL || pbuf == NULL || tag_fname == NULL)
+		goto findtag_end;
 
 	tail = (curbuf->b_filename == NULL) ? NULL : gettail(curbuf->b_filename);
 
@@ -215,88 +227,99 @@ findtag(tag)
 		cmplen = 999;
 
 	/* get stack of tag file names from tags option */
-	for (np = p_tags; tried_local == FALSE; )
+	for (first_file = TRUE; get_tagfname(first_file, tag_fname) == OK;
+															first_file = FALSE)
 	{
-		/*
-		 * after trying all the names in the 'tags' option, try the 'tags' file
-		 * in the same directory as the current file (unless it is the same as "./tags").
-		 */
-		if (*np == NUL)
-		{
-			if (curbuf->b_filename == NULL)				/* no file name */
-				break;
-			np = gettail(curbuf->b_filename);
-			i = np - curbuf->b_filename;
-			if (i + 5 >= CMDBUFFSIZE)
-				break;
-			STRNCPY(sbuf, curbuf->b_filename, i);
-
-			STRCPY(sbuf + i, "tags");
-			if (FullName((char_u *)"tags", lbuf, LSIZE) == OK &&
-												STRCMP(sbuf, lbuf) == 0)
-				break;									/* same as ./tags */
-			tried_local = TRUE;
-		}
-		else
-		{
-			for (i = 0; i < CMDBUFFSIZE && *np; ++i)	/* copy next file name into sbuf */
-			{
-				if (*np == ' ')
-				{
-					++np;
-					break;
-				}
-				sbuf[i] = *np++;
-			}
-			sbuf[i] = 0;
-		}
-		if ((tp = fopen((char *)sbuf, "r")) == NULL)
+		if ((fp = fopen((char *)tag_fname, "r")) == NULL)
 			continue;
 		reg_ic = p_ic;										/* for cstrncmp() */
-		while (fgets((char *)lbuf, LSIZE, tp) != NULL)
+		for (;;)
 		{
-			m = (char_u *)"Format error in tags file %s";	/* default error message */
-			marg = sbuf;
-
-			/* Find start of file name, after first white space */
-			fname = tagname = lbuf;
-			while (*fname != ' ' && *fname != '\t' && *fname != NUL)
+			eof = (fgets((char *)lbuf, LSIZE, fp) == NULL);
+			if (eof)
 			{
-				/*
-				 * Static tags produced by elvis's ctags program have the
-				 * format: 'file:tag  file  /pattern$'. jw.
-				 */
-				if (*fname == ':')
-				{
-					/*
-					 * Static tag must be in current file
-					 * If it is not, set tagname to NULL
-					 */
-					*fname = '\0';
-					if (tail != NULL && STRCMP(tail, gettail(lbuf)) == 0)
-						tagname = fname + 1;
-					else
-						tagname = NULL;
-				}
-				++fname;
+				if (global_line != NULL)
+					STRCPY(lbuf, global_line);			/* use global line */
+				else if (static_line != NULL)
+					STRCPY(lbuf, static_line);			/* use static line */
+				else
+					break;								/* tag not found */
 			}
+
+									/* set default error message */
+			m = (char_u *)"Format error in tags file %s";
+			marg = tag_fname;
+
+				/* Find start of file name, after first white space */
+			fname = tagname = lbuf;
+			skiptowhite(&fname);
 			if (*fname == NUL)
 				goto erret;
 			*fname++ = '\0';
+			skipwhite(&fname);
 
-			if (tagname != NULL && cstrncmp(tagname, tag, cmplen) == 0)
-											/* Tag found */
+				/* find start of search command, after second white space */
+			str = fname;
+			skiptowhite(&str);
+			if (*str == NUL)
+				goto erret;
+			*str++ = '\0';
+			skipwhite(&str);
+
+			/*
+			 * Static tags produced by the ctags program have the
+			 * format: 'file:tag  file  /pattern'. jw.
+			 * This is only recognized when both occurences of 'file' are
+			 * the same, to avoid recognizing "string::string" or ":exit".
+			 */
+			is_static = FALSE;
+			for (p = tagname; *p; ++p)
 			{
-				fclose(tp);
-				skipwhite(&fname);
+				if (*p == ':' && p > tagname &&
+								cstrncmp(tagname, fname, p - tagname) == 0)
+				{
+					*p = '\0';
+					is_static = TRUE;
+					tagname = p + 1;
+					break;
+				}
+			}
 
-			/* find start of search command, after second white space */
-				str = fname;
-				skiptowhite(&str);
-				if (*str == NUL)
-					goto erret;
-				*str++ = '\0';
-				skipwhite(&str);
+			if (cstrncmp(tagname, tag, cmplen) == 0)		/* Tag matches */
+			{
+				if (!eof)
+				{
+					/*
+					 * Static tag must be in current file.
+					 * If it is not, skip it for now. It is saved for use when
+					 * there is no match for the current file.
+					 * Non-static (global) tag is skipped and saved for use
+					 * when a static tag is not found for the current file.
+					 */
+					if ((is_static && (tail == NULL ||
+							STRCMP(tail, gettail(lbuf)) != 0)) || !is_static)
+					{
+							/* put blanks back in the line */
+						while (*--fname == NUL)
+							*fname = ' ';
+						while (*--str == NUL)
+							*str = ' ';
+						if (is_static)
+						{
+							if (static_line == NULL)
+								static_line = strsave(tagname);
+						}
+						else
+						{
+							if (global_line == NULL)
+								global_line = strsave(tagname);
+						}
+						continue;
+					}
+				}
+
+				/* When we get here we have a match, close the file */
+				fclose(fp);
 
 				/*
 				 * If the command is a string like "/^function fname"
@@ -344,6 +367,7 @@ findtag(tag)
 										break;
 						case '^':
 						case '*':
+						case '~':
 						case '.':	*p++ = '\\';
 									break;
 						}
@@ -363,10 +387,11 @@ findtag(tag)
 				/*
 				 * if 'tagrelative' option set, may change file name
 				 */
-				if (p_tr && !isFullName(fname) && (p2 = gettail(sbuf)) != sbuf)
+				if (p_tr && !isFullName(fname) &&
+									(p2 = gettail(tag_fname)) != tag_fname)
 				{
-					STRNCPY(p2, fname, CMDBUFFSIZE - (p2 - sbuf));
-					fname = sbuf;
+					STRNCPY(p2, fname, CMDBUFFSIZE - (p2 - tag_fname));
+					fname = tag_fname;
 				}
 				/*
 				 * check if file for tag exists before abandoning current file
@@ -456,7 +481,8 @@ findtag(tag)
 						 * another file */
 					if (i == -1)
 						need_fileinfo = TRUE;
-					return 1;
+					retval = OK;
+					goto findtag_end;
 				}
 				--RedrawingDisabled;
 				if (postponed_split)			/* close the window */
@@ -464,13 +490,13 @@ findtag(tag)
 					close_window(curwin, FALSE);
 					postponed_split = FALSE;
 				}
-				return 0;
+				goto findtag_end;
 			}
 		}
 		m = NULL;
 
 erret:
-		fclose(tp);
+		fclose(fp);
 		if (m)
 			emsg2(m, marg);
 	}
@@ -478,39 +504,121 @@ erret:
 		EMSG("tag not found");
 	else if (marg == NULL)
 		emsg(m);
-	return 0;
+
+findtag_end:
+	free(lbuf);
+	free(pbuf);
+	free(tag_fname);
+	free(static_line);
+	free(global_line);
+	return retval;
+}
+
+/*
+ * Get the next name of a tag file from the tag file list.
+ * Also try the tag file in the same directory as the current file.
+ * For help files, use "vim_tags" file only.
+ *
+ * Return FAIL if no more tag file names, OK otherwise.
+ */
+	static int
+get_tagfname(first, buf)
+	int		first;			/* TRUE when first file name is wanted */
+	char_u	*buf;			/* pointer to buffer of CMDBUFFSIZE chars */
+{
+	static char_u	*np = NULL;
+	static int		tried_local = FALSE;
+	int				i;
+	char_u			*fname;
+
+	if (first)
+	{
+		np = p_tags;
+		tried_local = FALSE;
+	}
+
+	if (tried_local)			/* tried all possibilities */
+		return FAIL;
+
+	/*
+	 * after trying all the names in the 'tags' option, try the 'tags'
+	 * file in the same directory as the current file (unless it is the
+	 * same as "./tags").
+	 * For a help window only try the file 'vim_tags' in the same
+	 * directory as the file.
+	 */
+	if (*np == NUL || curbuf->b_help)
+	{
+		if (curbuf->b_help)
+			fname = p_hf;
+		else
+			fname = curbuf->b_filename;
+		if (fname == NULL)						/* no file name */
+			return FAIL;
+		np = gettail(fname);
+		i = np - fname;
+		if (i + 9 >= CMDBUFFSIZE)
+			return FAIL;
+		STRNCPY(buf, fname, i);
+
+		if (curbuf->b_help)
+			STRCPY(buf + i, "vim_tags");
+		else
+		{
+			STRCPY(buf + i, "tags");
+			if (FullName((char_u *)"tags", NameBuff, LSIZE) == OK &&
+											STRCMP(buf, NameBuff) == 0)
+				return FAIL;							/* same as ./tags */
+		}
+		tried_local = TRUE;
+	}
+	else
+	{
+			/* copy next file name into buf */
+		for (i = 0; i < CMDBUFFSIZE && *np && *np != ' '; ++i)
+			buf[i] = *np++;
+		buf[i] = NUL;
+		skipwhite(&np);
+	}
+	return OK;
 }
 
 	int
-ExpandTags(prog, num_file, file)
-	regexp *prog;
-	int *num_file;
-	char_u ***file;
+ExpandTags(prog, num_file, file, help_only)
+	regexp	*prog;
+	int		*num_file;
+	char_u	***file;
+	int		help_only;			/* only tags for help files */
 {
 	char_u	**matches, **new_matches;
-	char_u	tag_file[CMDBUFFSIZE + 1];
-	char_u	line[LSIZE];
+	char_u	*tag_file;
+	char_u	*line;
 	char_u	*tagname;
 	char_u	*tail;			/* Tail of current file name */
-	char_u	*np;
 	char_u	*p;
 	int		limit = 100;
 	int		idx;
 	int		i;
 	linenr_t lnum;
 	FILE	*fp;
+	int		retval = FAIL;
+	int		first_file;
+	int		help_save;
+
+	tag_file = alloc(CMDBUFFSIZE + 1);
+	line = alloc(LSIZE);
 
 	matches = (char_u **) alloc((unsigned)(limit * sizeof(char_u *)));
 	if (matches == NULL)
-		return FAIL;
+		goto et_end;
 	tail = (curbuf->b_filename == NULL) ? NULL : gettail(curbuf->b_filename);
 	idx = 0;
-	for (np = p_tags; *np; )
+	help_save = curbuf->b_help;
+	if (help_only)
+		curbuf->b_help = TRUE;
+	for (first_file = TRUE; get_tagfname(first_file, tag_file) == OK;
+															first_file = FALSE)
 	{
-		for (i = 0; i < CMDBUFFSIZE && *np && *np != ' '; i++)
-			tag_file[i] = *np++;
-		tag_file[i] = NUL;
-		skipwhite(&np);
 		if ((fp = fopen((char *)tag_file, "r")) == NULL)
 			continue;
 		lnum = 0;
@@ -523,7 +631,8 @@ ExpandTags(prog, num_file, file)
 				 * Static tags produced by elvis's ctags program have the
 				 * format: 'file:tag  file  /pattern$'. jw.
 				 */
-				if (*p == ':')
+				if (p != tagname && *p == ':' &&
+									*(p + 1) != ':' && !iswhite(*(p + 1)))
 				{
 					/* Static tags must be in current file */
 					*p = NUL;
@@ -547,7 +656,8 @@ ExpandTags(prog, num_file, file)
 						/* We'll miss some matches, oh well */
 						*file = matches;
 						*num_file = idx;
-						return OK;
+						retval = OK;
+						goto et_end;
 					}
 					for (i = 0; i < idx; i++)
 						new_matches[i] = matches[i];
@@ -558,6 +668,7 @@ ExpandTags(prog, num_file, file)
 			}
 		}
 	}
+	curbuf->b_help = help_save;
 	if (idx > 0)
 	{
 		new_matches = *file = (char_u **) alloc((unsigned)(idx * sizeof(char_u *)));
@@ -565,12 +676,18 @@ ExpandTags(prog, num_file, file)
 		{
 			*file = matches;
 			*num_file = idx;
-			return OK;
+			retval = OK;
+			goto et_end;
 		}
 		for (i = 0; i < idx; i++)
 			new_matches[i] = matches[i];
 	}
 	free(matches);
 	*num_file = idx;
-	return OK;
+	retval = OK;
+
+et_end:
+	free(tag_file);
+	free(line);
+	return retval;
 }

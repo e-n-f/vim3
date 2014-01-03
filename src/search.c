@@ -20,7 +20,7 @@
 
 static int inmacro __ARGS((char_u *, char_u *));
 static int cls __ARGS((void));
-static void show_pat_in_path __ARGS((char_u *, int, int, int, FILE *, linenr_t *));
+static void show_pat_in_path __ARGS((char_u *, int, int, int, FILE *, linenr_t *, long));
 
 static char_u *top_bot_msg = (char_u *)"search hit TOP, continuing at BOTTOM";
 static char_u *bot_top_msg = (char_u *)"search hit BOTTOM, continuing at TOP";
@@ -58,7 +58,7 @@ static char_u 	*subst_pattern = NULL;
 static char_u 	*last_pattern = NULL;
 
 static int		want_start;				/* looking for start of line? */
-static int		did_emsg;				/* myregcomp() called emsg() */
+static int		mr_did_emsg;			/* myregcomp() called emsg() */
 
 /*
  * Type used by find_pattern_in_path() to remember which included files have
@@ -88,7 +88,7 @@ myregcomp(pat, sub_cmd, which_pat)
 	int		sub_cmd;
 	int		which_pat;
 {
-	did_emsg = FALSE;
+	mr_did_emsg = FALSE;
 	if (pat == NULL || *pat == NUL)     /* use previous search pattern */
 	{
 		if (which_pat == 0)
@@ -96,7 +96,7 @@ myregcomp(pat, sub_cmd, which_pat)
 			if (search_pattern == NULL)
 			{
 				emsg(e_noprevre);
-				did_emsg = TRUE;
+				mr_did_emsg = TRUE;
 				return (regexp *) NULL;
 			}
 			pat = search_pattern;
@@ -106,7 +106,7 @@ myregcomp(pat, sub_cmd, which_pat)
 			if (subst_pattern == NULL)
 			{
 				emsg(e_nopresub);
-				did_emsg = TRUE;
+				mr_did_emsg = TRUE;
 				return (regexp *) NULL;
 			}
 			pat = subst_pattern;
@@ -116,7 +116,7 @@ myregcomp(pat, sub_cmd, which_pat)
 			if (last_pattern == NULL)
 			{
 				emsg(e_noprevre);
-				did_emsg = TRUE;
+				mr_did_emsg = TRUE;
 				return (regexp *) NULL;
 			}
 			pat = last_pattern;
@@ -184,7 +184,7 @@ searchit(pos, dir, str, count, end, message, which_pat)
 
 	if ((prog = myregcomp(str, 0, which_pat)) == NULL)
 	{
-		if (message && !did_emsg)
+		if (message && !mr_did_emsg)
 			emsg(e_invstring);
 		return FAIL;
 	}
@@ -431,7 +431,7 @@ dosearch(dirc, str, reverse, count, echo, message)
 	{
 		msg_start();
 		msg_outchar(dirc);
-		msg_outtrans(*searchstr == NUL ? search_pattern : searchstr, -1);
+		msg_outtrans(*searchstr == NUL ? search_pattern : searchstr);
 		if (lastoffline || lastend || lastoff)
 		{
 			msg_outchar(dirc);
@@ -1399,7 +1399,7 @@ cls()
 	if (c == ' ' || c == '\t' || c == NUL)
 		return 0;
 
-	if (isidchar(c))
+	if (isidchar_id(c))
 		return 1;
 
 	/*
@@ -1591,12 +1591,15 @@ skip_chars(class, dir)
 }
 
 	void
-find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
-	char_u	*ptr;	/* pointer to search pattern */
-	int		len;	/* length of search pattern */
-	int		whole;	/* match whole words only */
-	int		type;	/* Type of search; are we looking for a type?  a macro? */
-	int		count;
+find_pattern_in_path(ptr, len, whole, skip_comments,
+							type, count, action, start_lnum, end_lnum)
+	char_u	*ptr;			/* pointer to search pattern */
+	int		len;			/* length of search pattern */
+	int		whole;			/* match whole words only */
+	int		skip_comments;	/* don't match inside comments */
+	int		type;			/* Type of search; are we looking for a type?  a
+								macro? */
+	long	count;
 	int		action;			/* What to do when we find it */
 	linenr_t	start_lnum;	/* first line to start searching */
 	linenr_t	end_lnum;	/* last line for searching */
@@ -1604,6 +1607,7 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 	SearchedFile *files;				/* Stack of included files */
 	SearchedFile *bigger;				/* When we need more space */
 	int			max_path_depth = 50;
+	long		match_count = 1;
 
 	char_u		*pat;
 	char_u		*new_fname;
@@ -1613,10 +1617,12 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 	int			depth;
 	int			depth_displayed;		/* For type==CHECK_PATH */
 	int			old_files;
-	char_u		file_line[LSIZE];
+	char_u		*file_line;
 	char_u		*line;
 	char_u		*p;
-	char_u		save_char;
+	char_u		*p2 = NUL;				/* Init for gcc */
+	char_u		save_char = NUL;
+	int			define_matched;
 	struct regexp *prog = NULL;
 	struct regexp *include_prog = NULL;
 	struct regexp *define_prog = NULL;
@@ -1626,46 +1632,38 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 	int			break_count = 0;
 	int			i;
 
+	file_line = alloc(LSIZE);
+	if (file_line == NULL)
+		return;
+
 	reg_ic = p_ic;
 	reg_magic = p_magic;
 	if (type != CHECK_PATH)
 	{
 		pat = alloc(len + 5);
 		if (pat == NULL)
-			return;
+			goto fpip_end;
 		sprintf((char *)pat, whole ? "\\<%.*s\\>" : "%.*s", len, ptr);
 		prog = regcomp(pat);
 		free(pat);
 		if (prog == NULL)
-			return;
+			goto fpip_end;
 	}
 	if (p_inc != NULL && *p_inc != NUL)
 	{
 		include_prog = regcomp(p_inc);
 		if (include_prog == NULL)
-		{
-			free(prog);
-			return;
-		}
+			goto fpip_end;
 	}
 	if (type == FIND_DEFINE && p_def != NULL && *p_def != NUL)
 	{
 		define_prog = regcomp(p_def);
 		if (define_prog == NULL)
-		{
-			free(prog);
-			free(include_prog);
-			return;
-		}
+			goto fpip_end;
 	}
 	files = (SearchedFile *)lalloc(max_path_depth * sizeof(SearchedFile), TRUE);
 	if (files == NULL)
-	{
-		free(prog);
-		free(include_prog);
-		free(define_prog);
-		return;
-	}
+		goto fpip_end;
 	for (i = 0; i < max_path_depth; i++)
 	{
 		files[i].fp = NULL;
@@ -1697,9 +1695,9 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 					else
 					{
 						gotocmdline(TRUE);		/* cursor at status line */
-						set_highlight('t');		/* Same as for directories */
+						set_highlight('t');		/* Highlight title */
 						start_highlight();
-						msg_outstr((char_u *)"--- Included files not found in path ---\n");
+						MSG_OUTSTR("--- Included files not found in path ---\n");
 						stop_highlight();
 					}
 					did_show = TRUE;
@@ -1707,15 +1705,15 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 					{
 						++depth_displayed;
 						for (i = 0; i < depth_displayed; i++)
-							msg_outstr((char_u *)"  ");
-						msg_outstr(files[depth_displayed].name);
-						msg_outstr((char_u *)" -->\n");
+							MSG_OUTSTR("  ");
+						msg_outtrans(files[depth_displayed].name);
+						MSG_OUTSTR(" -->\n");
 					}
 					if (!got_int)				/* don't display if 'q' typed
 													for "--more--" message */
 					{
 						for (i = 0; i <= depth_displayed; i++)
-							msg_outstr((char_u *)"  ");
+							MSG_OUTSTR("  ");
 						set_highlight('d');			/* Same as for directories */
 						start_highlight();
 						for (p = include_prog->endp[0] + 1; !isfilechar(*p); p++)
@@ -1791,39 +1789,53 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 				}
 			}
 		}
-		else if (prog != NULL && regexec(prog, line, TRUE))
+		else
 		{
-			matched = TRUE;
 			/*
-			 * Check if the line is a define
+			 * Check if the line is a define (type == FIND_DEFINE)
 			 */
-			if (type == FIND_DEFINE && define_prog != NULL)
+			p = line;
+			define_matched = FALSE;
+			if (define_prog != NULL && regexec(define_prog, line, TRUE))
 			{
-				if (!regexec(define_prog, line, TRUE))
-					matched = FALSE;
-				else
+				/*
+				 * Pattern must be first identifier after 'define', so skip
+				 * to that position before checking for match of pattern.  Also
+				 * don't let it match beyond the end of this identifier.
+				 */
+				p = define_prog->endp[0] + 1;
+				while (*p && !isidchar(*p))
+					p++;
+				p2 = p;
+				while (*p2 && isidchar(*p2))
+					p2++;
+				save_char = *p2;
+				*p2 = NUL;
+				define_matched = TRUE;
+			}
+
+			/*
+			 * Look for a match.  Don't do this if we are looking for a
+			 * define and this line didn't match define_prog above.
+			 */
+			if ((define_prog == NULL || define_matched) &&
+				prog != NULL && regexec(prog, p, p == line))
+			{
+				matched = TRUE;
+				/*
+				 * Check if the line is not a comment line (unless we are
+				 * looking for a define).
+				 */
+				if (!define_matched && skip_comments)
 				{
-					/* Pattern must be first identifier after 'define' */
-					p = define_prog->endp[0] + 1;
-					while (p < prog->startp[0])
-						if (isidchar(*p++))
-						{
-							matched = FALSE;
-							break;
-						}
+					fo_do_comments = TRUE;
+					if (get_leader_len(line))
+						matched = FALSE;
+					fo_do_comments = FALSE;
 				}
 			}
-			/*
-			 * Check if the line is not a comment line
-			 */
-			else if (action == ACTION_SHOW || action == ACTION_GOTO ||
-											action == ACTION_SPLIT)
-			{
-				fo_do_comments = TRUE;
-				if (get_leader_len(line))
-					matched = FALSE;
-				fo_do_comments = FALSE;
-			}
+			if (define_matched)
+				*p2 = save_char;
 		}
 		if (matched)
 		{
@@ -1833,7 +1845,7 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 					break;
 				found = TRUE;
 				p = prog->startp[0];
-				while (isidchar(*p))
+				while (isidchar_id(*p))
 					++p;
 				if (add_completion_and_infercase(prog->startp[0],
 						p - prog->startp[0], FORWARD) == RET_ERROR)
@@ -1853,7 +1865,7 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 					{
 						set_highlight('d');		/* Same as for directories */
 						start_highlight();
-						msg_outstr(curr_fname);
+						msg_outtrans(curr_fname);
 						stop_highlight();
 					}
 					prev_fname = curr_fname;
@@ -1862,7 +1874,8 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 				if (!got_int)
 					show_pat_in_path(line, type, did_show, action,
 							(depth == -1) ? NULL : files[depth].fp,
-							(depth == -1) ? &lnum : &files[depth].lnum);
+							(depth == -1) ? &lnum : &files[depth].lnum,
+							match_count++);
 			}
 			else if (--count <= 0)
 			{
@@ -1873,7 +1886,7 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 				{
 					show_pat_in_path(line, type, did_show, action,
 						(depth == -1) ? NULL : files[depth].fp,
-						(depth == -1) ? &lnum : &files[depth].lnum);
+						(depth == -1) ? &lnum : &files[depth].lnum, 1L);
 					did_show = TRUE;
 				}
 				else
@@ -1928,9 +1941,7 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 	for (i = old_files; i < max_path_depth; i++)
 		free(files[i].name);
 	free(files);
-	free(prog);
-	free(include_prog);
-	free(define_prog);
+
 	if (type == CHECK_PATH)
 	{
 		if (!did_show)
@@ -1947,16 +1958,23 @@ find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
 	}
 	if (action == ACTION_SHOW || action == ACTION_SHOW_ALL)
 		msg_end();
+
+fpip_end:
+	free(file_line);
+	free(prog);
+	free(include_prog);
+	free(define_prog);
 }
 
 	static void
-show_pat_in_path(line, type, did_show, action, fp, lnum)
+show_pat_in_path(line, type, did_show, action, fp, lnum, count)
 	char_u	*line;
 	int		type;
 	int		did_show;
 	int		action;
 	FILE	*fp;
 	linenr_t *lnum;
+	long	count;
 {
 	char_u	*p;
 
@@ -1978,11 +1996,14 @@ show_pat_in_path(line, type, did_show, action, fp, lnum)
 		}
 		if (action == ACTION_SHOW_ALL)
 		{
-			set_highlight('n');			/* Highlight line numbers */
+			sprintf((char *)IObuff, "%3ld: ", count);	/* show match nr */
+			msg_outstr(IObuff);
+			set_highlight('n');					/* Highlight line numbers */
 			start_highlight();
-			sprintf((char *)IObuff, "%7ld ", *lnum);
+			sprintf((char *)IObuff, "%4ld", *lnum);		/* show line nr */
 			msg_outstr(IObuff);
 			stop_highlight();
+			MSG_OUTSTR(" ");
 		}
 		msg_prt_line(line);
 		flushbuf();						/* show one line at a time */

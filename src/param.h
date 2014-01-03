@@ -59,7 +59,7 @@ EXTERN char_u *p_efm	INIT(= (char_u *)"%f>%l:%c:%t:%n:%m");/* error format */
 # ifdef ARCHIE
 EXTERN char_u *p_efm	INIT(= (char_u *)"%f:%l:%m");	/* error format */
 # else
-EXTERN char_u *p_efm	INIT(= (char_u *)"\"%f\",%*[^0123456789]%l: %m");	/* error format */
+EXTERN char_u *p_efm	INIT(= (char_u *)"\"%f\",%*[^0-9]%l: %m");	/* error format */
 # endif
 #endif
 #ifdef COMPATIBLE
@@ -78,6 +78,7 @@ EXTERN int	p_gr	INIT(= FALSE);		/* display graphic characters */
 EXTERN int	p_icon	INIT(= FALSE);		/* put file name in icon if possible */
 EXTERN long p_hi	INIT(= 20);			/* command line history size */
 EXTERN char_u *p_hf	INIT(= (char_u *)VIM_HLP);	/* name of help file */
+EXTERN long p_hh	INIT(= 20);			/* help window height */
 EXTERN int	p_hid	INIT(= FALSE);		/* buffers can be hidden */
 EXTERN char_u *p_hl	INIT(= (char_u *)"8b,db,es,hs,mb,nu,rs,si,tb,vi");
 										/* which highlight mode to use */
@@ -95,6 +96,7 @@ EXTERN int	p_magic INIT(= TRUE);		/* use some characters for reg exp */
 EXTERN char_u *p_mp	INIT(= (char_u *)"make");		/* program for :make command */
 EXTERN long p_mm	INIT(= MAXMEM);		/* maximal amount of memory for buffer */
 EXTERN long p_mmt	INIT(= MAXMEMTOT);	/* maximal amount of memory for Vim */
+EXTERN long p_mmd	INIT(= 1000);		/* maximal map depth */
 EXTERN long p_mls	INIT(= 5);			/* number of mode lines */
 EXTERN int	p_mouse	INIT(= TRUE);		/* enable mouse clicks (for xterm) */
 #ifdef COMPATIBLE

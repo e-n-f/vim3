@@ -7,7 +7,7 @@
  */
 
 /*
- * help.c: display help from the vim.hlp file
+ * help.c: open a read-only window on the vim_help.txt file
  */
 
 #include "vim.h"
@@ -15,37 +15,28 @@
 #include "proto.h"
 #include "param.h"
 
-static long helpfilepos;		/* position in help file */
-static FILE *helpfd;			/* file descriptor of help file */
-
-#define MAXSCREENS 52			/* one screen for a-z and A-Z */
-
 	void
-help()
+dohelp(arg)
+	char_u		*arg;
 {
-	int		c;
-	int		eof;
-	int		screens;
-	int		i;
-	long	filepos[MAXSCREENS];	/* seek position for each screen */
-	int		screennr;			/* screen number; index == 0, 'c' == 1, 'd' == 2, etc */
-#if defined(MSDOS) && !defined(NT)
 	char_u	*fnamep;
-#endif
+	FILE	*helpfd;			/* file descriptor of help file */
+	int		n;
 
 /*
  * try to open the file specified by the "helpfile" option
  */
+	fnamep = p_hf;
 	if ((helpfd = fopen((char *)p_hf, READBIN)) == NULL)
 	{
 #if defined(MSDOS) && !defined(NT)
 	/*
 	 * for MSDOS: try the DOS search path
      */
-		fnamep = searchpath("vim.hlp");
+		fnamep = searchpath("vim_help.txt");
 		if (fnamep == NULL || (helpfd = fopen((char *)fnamep, READBIN)) == NULL)
 		{
-			smsg((char_u *)"Sorry, help file \"%s\" and \"vim.hlp\" not found", p_hf);
+			smsg((char_u *)"Sorry, help file \"%s\" and \"vim_help.txt\" not found", p_hf);
 			return;
 		}
 #else
@@ -53,103 +44,30 @@ help()
 		return;
 #endif
 	}
-	helpfilepos = 0;
-	screennr = 0;
-	for (i = 0; i < MAXSCREENS; ++i)
-		filepos[i] = 0;
-	State = HELP;
-	for (;;)
-	{
-		screens = redrawhelp();				/* show one or more screens */
-		eof = (screens < 0);
-		if (!eof && screennr + screens < MAXSCREENS)
-			filepos[screennr + screens] = ftell(helpfd);
-
-		if ((c = vgetc()) == '\n' || c == '\r' || c == Ctrl('C') || c == ESC)
-			break;
-
-											/* one screen forwards */
-		if (c == ' ' || c == K_PAGEDOWN || c == Ctrl('F'))
-		{
-			if (screennr < MAXSCREENS && !eof)
-				++screennr;
-		}
-		else if (c == 'a')					/* go to first screen */
-			screennr = 0;
-											/* go one screen backwards */
-		else if (c == 'b' || c == K_PAGEUP || c == Ctrl('B'))
-		{
-			if (screennr > 0)
-				--screennr;
-		}
-		else if (c < 0x100 && isalpha(c))	/* go to specified screen */
-		{
-			if (isupper(c))
-				c = c - 'A' + 'z' + 1;		/* 'A' comes after 'z' */
-			screennr = c - 'b';
-		}
-		for (i = screennr; i > 0; --i)
-			if (filepos[i])
-				break;
-		fseek(helpfd, filepos[i], 0);
-		while (i < screennr)
-		{
-			while ((c = getc(helpfd)) != '\f' && c != -1)
-				;
-			if (c == -1)
-				break;
-			filepos[++i] = ftell(helpfd);	/* store the position just after the '\f' */
-		}
-		screennr = i;						/* required when end of file reached */
-		helpfilepos = filepos[screennr];
-	}
-	State = NORMAL;
 	fclose(helpfd);
-	updateScreen(CLEAR);
-}
 
-/*
- * redraw the help info for the current position in the help file
- *
- * return the number of screens displayed, or -1 if end of file reached
- */
-	int
-redrawhelp()
-{
-	int nextc;
-	int col;
-	int	line = 0;
-	int	screens = 1;
+	if (win_split(p_hh, FALSE) == FAIL)
+		return;
 
-	fseek(helpfd, helpfilepos, 0);
-	outstr(T_ED);
-	(void)set_highlight('h');
-	windgoto(0,0);
-	while ((nextc = getc(helpfd)) != -1 && (nextc != '\f' || line < Rows - 24))
+	/* open help file in readonly mode */
+	n = readonlymode;
+	readonlymode = TRUE;
+	(void)doecmd(0, fnamep, NULL, NULL, TRUE, (linenr_t)0);
+	readonlymode = n;
+		/* set help flag, use "vim_tags" instead of "tags" file */
+	curbuf->b_help = TRUE;
+		/* accept many characters for identifier, except white space and '|' */
+	free(curbuf->b_p_id);
+	curbuf->b_p_id = strsave((char_u *)"!\"#$%&'()+,-./:;<=>?@[\\]^_`{}~");
+
+	if (*arg != NUL)
 	{
-		if (nextc == Ctrl('B'))			/* begin of standout */
-			start_highlight();
-		else if (nextc == Ctrl('E'))	/* end of standout */
-			stop_highlight();
-		else if (nextc == '\f')			/* start of next screen */
-		{
-			++screens;
-			outchar('\n');
-			++line;
-		}
-		else
-		{
-			outchar(nextc);
-			if (nextc == '\n')
-				++line;
-		}
+#ifdef ADDED_BY_WEBB_COMPILE
+		stuffReadbuff((char_u *)":ta ");
+#else
+		stuffReadbuff(":ta ");
+#endif /* ADDED_BY_WEBB_COMPILE */
+		stuffReadbuff(arg);
+		stuffcharReadbuff('\n');
 	}
-	windgoto(0, (int)(Columns - STRLEN(Version) - 1));
-	outstrn(Version);
-	col = (int)Columns - 52;
-	if (col < 0)
-		col = 0;
-	windgoto((int)Rows - 1, col);
-	OUTSTRN("<space = next; return = quit; a = index; b = back>");
-	return (nextc == -1 ? -1 : screens);
 }

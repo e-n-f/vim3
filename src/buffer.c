@@ -40,6 +40,8 @@ static linenr_t buflist_findlnum __ARGS((BUF *));
  	int
 open_buffer()
 {
+	int		retval = OK;
+
 	if (readonlymode && curbuf->b_filename != NULL)
 		curbuf->b_p_ro = TRUE;
 	if (ml_open() == FAIL)
@@ -65,24 +67,25 @@ open_buffer()
 		enter_buffer(curbuf);
 		return FAIL;
 	}
+	if (curbuf->b_filename != NULL)
+		retval = readfile(curbuf->b_filename, curbuf->b_sfilename, (linenr_t)0,
+										TRUE, (linenr_t)0, MAXLNUM);
+	else
+		MSG("Empty Buffer");
 	/*
-	 * Apply the automatic commands, before reading in a new file, which can
-	 * contain modelines. So the modelines have priority over auto commands.
+	 * Apply the automatic commands, before processing the modelines.
+	 * So the modelines have priority over auto commands.
 	 */
 	apply_autocmds(NULL);
 
-	if (curbuf->b_filename != NULL)
+	if (retval != FAIL)
 	{
-		if (readfile(curbuf->b_filename, curbuf->b_sfilename, (linenr_t)0,
-										TRUE, (linenr_t)0, MAXLNUM) == FAIL)
-			return FAIL;
+		do_mlines();
+		UNCHANGED(curbuf);
+		curbuf->b_neverloaded = FALSE;
 	}
-	else
-		MSG("Empty Buffer");
-	UNCHANGED(curbuf);
-	curbuf->b_neverloaded = FALSE;
 
-	return OK;
+	return retval;
 }
 
 /*
@@ -331,6 +334,7 @@ enter_buffer(buf)
 	else
 		need_fileinfo = TRUE;			/* display file info after redraw */
 	buflist_getlnum();					/* restore curpos.lnum */
+	cursupdate();						/* redisplay at correct position */
 	maketitle();
 	updateScreen(NOT_VALID);
 }
@@ -669,7 +673,7 @@ buflist_list()
 		sprintf((char *)IObuff + len, "line %ld",
 				buf == curbuf ? curwin->w_cursor.lnum :
 								(long)buflist_findlnum(buf));
-		msg_outstr(IObuff);
+		msg_outtrans(IObuff);
 		flushbuf();			/* output one line at a time */
 		breakcheck();
 	}
@@ -890,37 +894,43 @@ static char_u *lasticon = NULL;
 	void
 maketitle()
 {
-	char_u		*t;
-	char_u		*i;
+	char_u		*t_name;
+	char_u		*i_name;
 
 	if (!p_title && !p_icon)
 		return;
 
 	if (curbuf->b_filename == NULL)
 	{
-		t = (char_u *)"";
-		i = (char_u *)"No File";
+		t_name = (char_u *)"";
+		i_name = (char_u *)"No File";
 	}
 	else
 	{
 		home_replace(curbuf->b_filename, IObuff, IOSIZE);
 		if (arg_count > 1)
 			sprintf((char *)IObuff + STRLEN(IObuff), " (%d of %d)", curwin->w_arg_idx + 1, arg_count);
-		t = IObuff;
-		i = gettail(curbuf->b_filename);		/* use filename only for icon */
+		t_name = IObuff;
+		i_name = gettail(curbuf->b_filename);		/* use filename only for icon */
 	}
 
 	free(lasttitle);
-	if (p_title)
-		lasttitle = alloc((unsigned)(STRLEN(t) + 7));
+	if (p_title && (lasttitle = alloc((unsigned)(strsize(t_name) + 7))) != NULL)
+	{
+		STRCPY(lasttitle, "VIM - ");
+		while (*t_name)
+			STRCAT(lasttitle, transchar(*t_name++));
+	}
 	else
 		lasttitle = NULL;
-	if (lasttitle != NULL)
-		sprintf((char *)lasttitle, "VIM - %s", (char *)t);
 
 	free(lasticon);
-	if (p_icon)
-		lasticon = strsave(i);
+	if (p_icon && (lasticon = alloc((unsigned)(strsize(i_name) + 1))) != NULL)
+	{
+		*lasticon = NUL;
+		while (*i_name)
+			STRCAT(lasticon, transchar(*i_name++));
+	}
 	else
 		lasticon = NULL;
 
@@ -1060,4 +1070,86 @@ do_buffer_all(all)
 		buf = buf->b_next;
 	}
 	stuffReadbuff((char_u *)"\n100\027k");		/* back to first window */
+}
+
+/*
+ * do_mlines() - process mode lines for the current file
+ *
+ * Returns immediately if the "ml" parameter isn't set.
+ */
+static void 	chk_mline __ARGS((linenr_t));
+
+	void
+do_mlines()
+{
+	linenr_t		lnum;
+	int 			nmlines;
+
+	if (!curbuf->b_p_ml || (nmlines = (int)p_mls) == 0)
+		return;
+
+	sourcing_name = (char_u *)"modelines";
+	for (lnum = 1; lnum <= curbuf->b_ml.ml_line_count && lnum <= nmlines; ++lnum)
+		chk_mline(lnum);
+
+	for (lnum = curbuf->b_ml.ml_line_count; lnum > 0 && lnum > nmlines &&
+							lnum > curbuf->b_ml.ml_line_count - nmlines; --lnum)
+		chk_mline(lnum);
+	sourcing_name = NULL;
+	sourcing_lnum = 0;
+}
+
+/*
+ * chk_mline() - check a single line for a mode string
+ */
+	static void
+chk_mline(lnum)
+	linenr_t lnum;
+{
+	register char_u	*s;
+	register char_u	*e;
+	char_u			*cs;			/* local copy of any modeline found */
+	int				prev;
+	int				end;
+
+	prev = ' ';
+	sourcing_lnum = lnum;
+	for (s = ml_get(lnum); *s != NUL; ++s)
+	{
+		if (isspace(prev) && (STRNCMP(s, "vi:", (size_t)3) == 0 ||
+					STRNCMP(s, "ex:", (size_t)3) == 0 ||
+					STRNCMP(s, "vim:", (size_t)4) == 0))
+		{
+			do
+				++s;
+			while (s[-1] != ':');
+			s = cs = strsave(s);
+			if (cs == NULL)
+				break;
+			end = FALSE;
+			while (end == FALSE)
+			{
+				while (*s == ' ' || *s == TAB)
+					++s;
+				if (*s == NUL)
+					break;
+				for (e = s; (*e != ':' || *(e - 1) == '\\') && *e != NUL; ++e)
+					;
+				if (*e == NUL)
+					end = TRUE;
+				*e = NUL;
+				if (STRNCMP(s, "set ", (size_t)4) == 0) /* "vi:set opt opt opt: foo" */
+				{
+					(void)doset(s + 4);
+					break;
+				}
+				if (doset(s) == FAIL)		/* stop if error found */
+					break;
+				s = e + 1;
+			}
+			free(cs);
+			break;
+		}
+		prev = *s;
+	}
 }

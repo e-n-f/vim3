@@ -187,10 +187,13 @@ WaitForChar(msec)
 		{
 			regs.x.ax = 3;
 			int86(0x33, &regs, &regs);		/* check mouse status */
-				/* only recognize button-down event */
-			if (last_status == 0 && regs.x.bx != 0)
+				/* only recognize button-down and button-up event */
+			if ((last_status == 0) != (regs.x.bx == 0))
 			{
-				mouse_click = regs.x.bx;
+				if (last_status)		/* button up */
+					mouse_click = MOUSE_RELEASE;
+				else
+					mouse_click = regs.x.bx;
 				mouse_x = regs.x.cx / 8;
 				mouse_y = regs.x.dx / 8;
 			}
@@ -354,7 +357,7 @@ mch_char_avail()
 	void
 mch_suspend()
 {
-	msg_outstr("new shell started\n");
+	MSG_OUTSTR("new shell started\n");
 	(void)call_shell(NULL, 0, TRUE);
 }
 
@@ -850,7 +853,7 @@ call_shell(cmd, filter, cooked)
 	int		cooked;
 {
 	int		x;
-	char_u	newcmd[200];
+	char_u	*newcmd;
 
 	flushbuf();
 
@@ -860,9 +863,16 @@ call_shell(cmd, filter, cooked)
 	if (cmd == NULL)
 		x = system(p_sh);
 	else
-	{ 					/* we use "command" to start the shell, slow but easy */
-		sprintf(newcmd, "%s /c %s", p_sh, cmd);
-		x = system(newcmd);
+{ 					/* we use "command" to start the shell, slow but easy */
+		newcmd = alloc(STRLEN(p_sh) + STRLEN(cmd) + 5);
+		if (newcmd == NULL)
+			x = 1;
+		else
+		{
+			sprintf(newcmd, "%s /c %s", p_sh, cmd);
+			x = system(newcmd);
+			free(newcmd);
+		}
 	}
 	msg_outchar('\n');
 	if (cooked)
@@ -871,7 +881,7 @@ call_shell(cmd, filter, cooked)
 	if (x && !expand_interactively)
 	{
 		msg_outnum((long)x);
-		msg_outstr((char_u *)" returned\n");
+		MSG_OUTSTR(" returned\n");
 	}
 
 	resettitle();
@@ -967,12 +977,15 @@ expandpath(fl, path, fonly, donly, notf)
 	char_u		*path;
 	int			fonly, donly, notf;
 {
-	char_u	buf[MAXPATH];
+	char_u	*buf;
 	char_u	*p, *s, *e;
 	int		lastn, c, retval;
-	struct	ffblk fb;
+	struct ffblk fb;
 
 	lastn = fl->nfiles;
+	buf = alloc(STRLEN(path) + 3);
+	if (buf == NULL)
+		return 1;
 
 /*
  * Find the first part in the path name that contains a wildcard.
@@ -1016,6 +1029,7 @@ expandpath(fl, path, fonly, donly, notf)
 		STRCPY(e, path);
 		if (notf)
 			addfile(fl, buf, FALSE);
+		free(buf);
 		return 1; /* unexpanded or empty */
 	}
 	while (!c)
@@ -1032,6 +1046,7 @@ expandpath(fl, path, fonly, donly, notf)
 		}
 		c = findnext(&fb);
 	}
+	free(buf);
 	qsort(fl->file + lastn, fl->nfiles - lastn, sizeof(char_u *), pstrcmp);
 	return retval;
 }

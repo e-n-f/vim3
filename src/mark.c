@@ -56,7 +56,7 @@ setmark(c)
 	void
 setpcmark()
 {
-	int i;
+	int i, to;
 #ifdef ROTATE
 	struct filemark tempmark;
 #endif
@@ -87,34 +87,40 @@ setpcmark()
 	}
 #endif
 
-		/* only add new entry if it differs from the last one */
-	if (curwin->w_jumplistlen == 0 ||
-				curwin->w_jumplist[curwin->w_jumplistidx - 1].mark.lnum !=
-														curwin->w_pcmark.lnum ||
-				curwin->w_jumplist[curwin->w_jumplistidx - 1].fnum !=
-														curbuf->b_fnum)
+	/*
+	 * If entry already exists, remove it from the jump list.  New entry will
+	 * be added at the front of the list.
+	 */
+	for (to = 0, i = 0; i < curwin->w_jumplistlen; i++)
 	{
-			/* if jumplist is full: remove oldest entry */
-		if (++curwin->w_jumplistlen > JUMPLISTSIZE)
+		if (curwin->w_jumplist[i].mark.lnum != curwin->w_pcmark.lnum ||
+			curwin->w_jumplist[i].fnum != curbuf->b_fnum)
 		{
-			curwin->w_jumplistlen = JUMPLISTSIZE;
-			for (i = 1; i < curwin->w_jumplistlen; ++i)
-				curwin->w_jumplist[i - 1] = curwin->w_jumplist[i];
-			--curwin->w_jumplistidx;
+			curwin->w_jumplist[to++] = curwin->w_jumplist[i];
 		}
+	}
+	curwin->w_jumplistlen = to;
+
+	/* If jumplist is full: remove oldest entry */
+	if (++curwin->w_jumplistlen > JUMPLISTSIZE)
+	{
+		curwin->w_jumplistlen = JUMPLISTSIZE;
+		for (i = 1; i < curwin->w_jumplistlen; ++i)
+			curwin->w_jumplist[i - 1] = curwin->w_jumplist[i];
+	}
+	curwin->w_jumplistidx = curwin->w_jumplistlen - 1;
 
 #ifdef ARCHIE
-		/* Workaround for a bug in gcc 2.4.5 R2 on the Archimedes
-		 * Should be fixed in 2.5.x.
-		 */
-		curwin->w_jumplist[curwin->w_jumplistidx].mark.ptr = curwin->w_pcmark.ptr;
-		curwin->w_jumplist[curwin->w_jumplistidx].mark.col = curwin->w_pcmark.col;
+	/* Workaround for a bug in gcc 2.4.5 R2 on the Archimedes
+	 * Should be fixed in 2.5.x.
+	 */
+	curwin->w_jumplist[curwin->w_jumplistidx].mark.ptr = curwin->w_pcmark.ptr;
+	curwin->w_jumplist[curwin->w_jumplistidx].mark.col = curwin->w_pcmark.col;
 #else
-		curwin->w_jumplist[curwin->w_jumplistidx].mark = curwin->w_pcmark;
+	curwin->w_jumplist[curwin->w_jumplistidx].mark = curwin->w_pcmark;
 #endif
-		curwin->w_jumplist[curwin->w_jumplistidx].fnum = curbuf->b_fnum;
-		++curwin->w_jumplistidx;
-	}
+	curwin->w_jumplist[curwin->w_jumplistidx].fnum = curbuf->b_fnum;
+	++curwin->w_jumplistidx;
 }
 
 /*
@@ -211,6 +217,8 @@ getmark(c, changefile)
 						curbuf->b_endop.lnum <= curbuf->b_ml.ml_line_count)
 			posp = &(curbuf->b_endop);
 	}
+	else if (c == '<')
+		posp = &VIsual;
 	else if (islower(c))				/* normal named mark */
 		posp = &(curbuf->b_namedm[c - 'a']);
 	else if (isupper(c))				/* named file mark */
@@ -274,15 +282,23 @@ fm_getname(fmark)
  * print the marks (use the occasion to update the line numbers)
  */
 	void
-domarks()
+domarks(arg)
+	char_u		*arg;
 {
 	int			i;
 	char_u		*name;
 
-	msg_outstr((char_u *)"\nmark line  col file");
+	if (arg != NULL && *arg == NUL)
+		arg = NULL;
+
+	set_highlight('t');		/* Highlight title */
+	start_highlight();
+	MSG_OUTSTR("\nmark line  col file");
+	stop_highlight();
 	for (i = 0; i < NMARKS; ++i)
 	{
-		if (curbuf->b_namedm[i].lnum != 0)
+		if (curbuf->b_namedm[i].lnum != 0 &&
+						(arg == NULL || STRCHR(arg, i +'a') != NULL))
 		{
 			sprintf((char *)IObuff, "\n %c %5ld  %3d", i + 'a',
 												curbuf->b_namedm[i].lnum,
@@ -293,18 +309,20 @@ domarks()
 	}
 	for (i = 0; i < NMARKS; ++i)
 	{
-		if (namedfm[i].mark.lnum != 0)
+		if (namedfm[i].mark.lnum != 0
+			&& (arg == NULL || STRCHR(arg, i +'A') != NULL))
 		{
 			name = fm_getname(&namedfm[i]);
 			if (name == NULL)		/* file name not available */
 				continue;
 
-			sprintf((char *)IObuff, "\n %c %5ld  %3d %s",
+			msg_outchar('\n');
+			sprintf((char *)IObuff, " %c %5ld  %3d %s",
 				i + 'A',
 				namedfm[i].mark.lnum,
 				namedfm[i].mark.col,
 				name);
-			msg_outstr(IObuff);
+			msg_outtrans(IObuff);
 		}
 		flushbuf();				/* show one line at a time */
 	}
@@ -319,7 +337,10 @@ dojumps()
 	int			i;
 	char_u		*name;
 
-	msg_outstr((char_u *)"\n jump line  file");
+	set_highlight('t');		/* Highlight title */
+	start_highlight();
+	MSG_OUTSTR("\n jump line  file");
+	stop_highlight();
 	for (i = 0; i < curwin->w_jumplistlen; ++i)
 	{
 		if (curwin->w_jumplist[i].mark.lnum != 0)
@@ -328,23 +349,37 @@ dojumps()
 			if (name == NULL)		/* file name not available */
 				continue;
 
-			sprintf((char *)IObuff, "\n%c %2d %5ld  %s",
+			msg_outchar('\n');
+			sprintf((char *)IObuff, "%c %2d %5ld  %s",
 				i == curwin->w_jumplistidx ? '>' : ' ',
 				i + 1,
 				curwin->w_jumplist[i].mark.lnum,
 				name);
-			msg_outstr(IObuff);
+			msg_outtrans(IObuff);
 		}
 		flushbuf();
 	}
 	if (curwin->w_jumplistidx == curwin->w_jumplistlen)
-		msg_outstr((char_u *)"\n>");
+		MSG_OUTSTR("\n>");
 }
 
 /*
  * adjust marks between line1 and line2 (inclusive) to move 'amount' lines
  * If 'amount' is MAXLNUM the mark is made invalid.
  */
+
+#define one_adjust(add) \
+	{ \
+		lp = add; \
+		if (*lp >= line1 && *lp <= line2) \
+		{ \
+			if (amount == MAXLNUM) \
+				*lp = 0; \
+			else \
+				*lp += amount; \
+		} \
+	}
+
 	void
 mark_adjust(line1, line2, amount)
 	linenr_t	line1;
@@ -356,49 +391,22 @@ mark_adjust(line1, line2, amount)
 	linenr_t	*lp;
 	WIN			*win;
 
+	if (line2 < line1)		/* nothing to do */
+		return;
+
 /* named marks, lower case and upper case */
 	for (i = 0; i < NMARKS; i++)
 	{
-		lp = &(curbuf->b_namedm[i].lnum);
-		if (*lp >= line1 && *lp <= line2)
-		{
-			if (amount == MAXLNUM)
-				*lp = 0;
-			else
-				*lp += amount;
-		}
+		one_adjust(&(curbuf->b_namedm[i].lnum));
 		if (namedfm[i].fnum == fnum)
-		{
-			lp = &(namedfm[i].mark.lnum);
-			if (*lp >= line1 && *lp <= line2)
-			{
-				if (amount == MAXLNUM)
-					*lp = 0;
-				else
-					*lp += amount;
-			}
-		}
+			one_adjust(&(namedfm[i].mark.lnum));
 	}
 
 /* previous context mark */
-	lp = &(curwin->w_pcmark.lnum);
-	if (*lp >= line1 && *lp <= line2)
-	{
-		if (amount == MAXLNUM)
-			*lp = 0;
-		else
-			*lp += amount;
-	}
+	one_adjust(&(curwin->w_pcmark.lnum));
 
 /* previous pcmark */
-	lp = &(curwin->w_prev_pcmark.lnum);
-	if (*lp >= line1 && *lp <= line2)
-	{
-		if (amount == MAXLNUM)
-			*lp = 0;
-		else
-			*lp += amount;
-	}
+	one_adjust(&(curwin->w_prev_pcmark.lnum));
 
 /* marks in the tag stack */
 	for (i = 0; i < curwin->w_tagstacklen; i++)
@@ -409,7 +417,8 @@ mark_adjust(line1, line2, amount)
 			if (*lp >= line1 && *lp <= line2)
 			{
 				if (amount == MAXLNUM)
-					*lp = line1;		/* don't delete it, just put at first deleted line */
+					*lp = line1;		/* don't delete it, just put at first
+											deleted line */
 				else
 					*lp += amount;
 			}
@@ -424,19 +433,10 @@ mark_adjust(line1, line2, amount)
 	{
 		for (i = 0; i < win->w_jumplistlen; ++i)
 			if (win->w_jumplist[i].fnum == fnum)
-			{
-				lp = &(win->w_jumplist[i].mark.lnum);
-				if (*lp >= line1 && *lp <= line2)
-				{
-					if (amount == MAXLNUM)
-						*lp = 0;
-					else
-						*lp += amount;
-				}
-			}
+				one_adjust(&(win->w_jumplist[i].mark.lnum));
 		/*
-		 * also adjust the line at the top of the window and the cursor position
-		 * for windows with the same buffer.
+		 * also adjust the line at the top of the window and the cursor
+		 * position for windows with the same buffer.
 		 */
 		if (win != curwin && win->w_buffer == curbuf)
 		{

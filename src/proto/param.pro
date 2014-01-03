@@ -1,5 +1,6 @@
 /* param.c */
 void set_init __PARMS((void));
+void set_init_shell __PARMS((void));
 int doset __PARMS((char_u *arg));
 void paramchanged __PARMS((char_u *arg));
 int makeset __PARMS((FILE *fd));

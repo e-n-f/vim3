@@ -1,0 +1,11 @@
+*vim_tips.txt*
+
+EDITING LOCAL HTML FILES (WWW)
+
+Vim has some features which can help simplify the creation and
+maintenance of HTML files, provided that the files you are editing are
+available on the local file system. The ]f and ^Wf commands can be
+used to jump to the file whose name appears under the cursor, thus not
+only checking that the link is valid (at least the file name part of
+the URL) or providing a quick and easy way to edit many related HTML
+pages at once.

@@ -1,3 +1,5 @@
+*vim_arch.txt*
+
 This file contains the particularities for the Archimedes version of Vim.
 
 ============================================================================
@@ -5,7 +7,7 @@ The Archimedes version has not been tested. It probably doesn't work at the
 moment, because only patches for Vim version 2.0 were available.
 ============================================================================
 
-vim.hlp needs to be saved as Lib:vimhlp (you should set Lib$Path to be a
+vim_hlp.txt needs to be saved as Lib:vimhlp (you should set Lib$Path to be a
 path to the directory you want to save this. Your system vimrc file should
 be named vimrc in this directory too.) 
 

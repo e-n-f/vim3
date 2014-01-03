@@ -1,3 +1,5 @@
+*vim_nt.txt*
+
 The Windows NT port of Vim has not been tested very much. Be prepared to run
 into some problems in the NT specific parts.
 

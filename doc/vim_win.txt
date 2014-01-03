@@ -1,3 +1,5 @@
+*vim_win.txt*
+
 Editing with multiple windows and buffers.
 
 Explained here are commands have been added to use multiple windows and
@@ -53,33 +55,36 @@ want to set the 'winheight' option to create a workable situation.
 Opening a new window
 --------------------
 
-CTRL-W s
-CTRL-W S
-CTRL-W CTRL-S
-:[N]split
+CTRL-W s						*CTRL-W_s*
+CTRL-W S						*CTRL-W_S*
+CTRL-W CTRL-S						*CTRL-W_CTRL-S*
+:[N]split						*:split*
 		Split current window in two. The result is two viewports on
 		the same file. Make new window N high (default is to use half
 		the height of the current window). Reduces the current window
 		height to create room (and others, if the 'equalalways' option
 		is set).
 
-CTRL-W n
-CTRL-W CTRL_N
-:[N]new
+CTRL-W n						*CTRL-W_n*
+CTRL-W CTRL_N						*CTRL-W_CTRL-N*
+:[N]new							*:new*
 		Create a new window and start editing an empty file in it.
 		Make new window N high (default is to use half the existing
 		height). Reduces the current window height to create room (and
 		others, if the 'equalalways' option is set). 
 
 :[N]new [+command] fname
-:[N]split [+command] fname
+:[N]split [+command] fname				*:split_f*
 		Create a new window and start editing file fname in it. If
 		[+command] is given, execute the command when the file has
 		been loaded. Make new window N high (default is to use half
 		the existing height). Reduces the current window height to
 		create room (and others, if the 'equalalways' option is set).
 
-CTRL-W CTRL-^
+:[N]sv[iew] [+command] fname				*:sview*
+		Same as :split, but set 'readonly' option for this buffer.
+
+CTRL-W CTRL-^						*CTRL-W_CTRL-^*
 		Does ":split #", split window in two and edit alternate file.
 		When a count is given it becomes ":split #N", split window and
 		edit buffer N.
@@ -88,8 +93,8 @@ CTRL-W CTRL-^
 Closing a window
 ----------------
 
-CTRL-W q
-CTRL-W CTRL-Q
+CTRL-W q						*CTRL-W_q*
+CTRL-W CTRL-Q						*CTRL-W_CTRL-Q*
 :quit		Quit current window, unless the buffer was changed and there
 		are no other windows for this buffer. When quitting the last
 		window, exit Vim.
@@ -98,13 +103,13 @@ CTRL-W CTRL-Q
 		any changes to that buffer are lost. When quitting the last
 		window, exit Vim. 
 
-CTRL-W c
+CTRL-W c						*CTRL-W_c* *:close*
 :close		Quit current window, unless it is the last window on the
 		screen. The buffer becomes hidden (unless there is another
 		window editing it). (Note: CTRL-W CTRL-C does not work).
 
-CTRL-W o
-CTRL-W CTRL-O
+CTRL-W o						*CTRL-W_o*
+CTRL-W CTRL-O					*CTRL-W_CTRL-O* *:only*
 :only		Make the current window the only one on the screen. All other
 		windows are closed. All buffers in the other windows become
 		hidden.
@@ -113,26 +118,26 @@ CTRL-W CTRL-O
 Moving the cursor to other windows
 ----------------------------------
 
-CTRL-W <CURSOR_DOWN>
-CTRL-W CTRL-J
+CTRL-W <CURSOR_DOWN>					*CTRL-W_<C_DOWN>*
+CTRL-W CTRL-J					*CTRL-W_CTRL-J* *CTRL-W_j*
 CTRL-W j	move cursor to Nth window below current one.
 
-CTRL-W <CURSOR_UP>
-CTRL-W CTRL-K
+CTRL-W <CURSOR_UP>					*CTRL-W_<C_UP>*
+CTRL-W CTRL-K					*CTRL-W_CTRL-K* *CTRL-W_k*
 CTRL-W k	move cursor to Nth window above current one.
 
-CTRL-W w
+CTRL-W w					*CTRL-W_w* *CTRL-W_CTRL-W*
 CTRL-W CTRL-W	Without count: move cursor to window below current one. If
 		there is no window below, go to upper window.
 		With count: go to Nth window.
 
-CTRL-W t
+CTRL-W t					*CTRL-W_t* *CTRL-W_CTRL-T*
 CTRL-W CTRL-T	move cursor to top window.
 
-CTRL-W b
+CTRL-W b					*CTRL-W_b* *CTRL-W_CTRL-B*
 CTRL-W CTRL-B	move cursor to bottom window.
 
-CTRL-W p
+CTRL-W p					*CTRL-W_p* *CTRL-W_CTRL-P*
 CTRL-W CTRL-P	go to previous (last accessed) window.
 
 If visual mode is active and the new window is not for the same buffer, the
@@ -142,18 +147,19 @@ visual mode is ended.
 Moving windows around
 ---------------------
 
-CTRL-W r
+CTRL-W r					*CTRL-W_r* *CTRL-W_CTRL-R*
 CTRL-W CTRL-R	Rotate windows downwards. The first window becomes the second
 		one, the second one the third one, etc. The last window
 		becomes the first window. The cursor remains in the same
 		window.
 
+						*CTRL-W_R*
 CTRL-W R	Rotate windows upwards. The second window becomes the first
 		one, the third one the second one, etc. The first window
 		becomes the last window. The cursor remains in the same
 		window.
 
-CTRL-W x
+CTRL-W x					*CTRL-W_x* *CTRL-W_CTRL-X*
 CTRL-W CTRL-X	Without count: Exchange current window with next one. If there
 		is no next window, exchange with previous window. With count:
 		Exchange current window with Nth window (first window is 1).
@@ -163,16 +169,17 @@ CTRL-W CTRL-X	Without count: Exchange current window with next one. If there
 Window resizing
 ---------------
 
+						*CTRL-W_=*
 CTRL-W =	make all windows (almost) equal high.
 
-:resize -N
+:resize -N					*:resize* *CTRL-W_-*
 CTRL-W -	decrease current window height by N
 
-:resize +N
+:resize +N					*CTRL-W_+*
 CTRL-W +	increase current window height by N
 
 :resize [N]
-CTRL-W CTRL-_
+CTRL-W CTRL-_					*CTRL-W_CTRL-_* *CTRL-W__*
 CTRL-W _	set current window height to N (default: highest possible)
 
 z<nr><CR>	set current window height to nr
@@ -203,12 +210,13 @@ it).
 Exiting Vim with multiple windows or buffers
 --------------------------------------------
 
+							*:qall*
 :qall		Exit Vim, unless there are some buffers which have been
 		changed. (Use :bmod to go to the next modified buffer).
 
 :qall!		Exit Vim. Any changes to buffers are lost.
 
-:wqall
+:wqall							*:wqall* *:xall*
 :xall		Write all changed buffers and exit Vim. If there are buffers
 		without a file name, which are readonly or cannot be written
 		for another reason, Vim is not quit. 
@@ -222,6 +230,7 @@ Exiting Vim with multiple windows or buffers
 Writing with multiple buffers
 -----------------------------
 
+							*:wall*
 :wall		Write all changed buffers. Buffers without a file name or
 		which are readonly are not written.
 
@@ -278,31 +287,33 @@ message (file N of M) may be misleading (this is inherited from vi).
 All the entries in the argument list are added to the buffer list. Thus you
 can also get to them with the buffer list commands, like ":bnext".
 
-:all
+:all						*:all* *:sall*
 :sall		Rearrange the screen to open one window for each argument.
 		All other windows are closed (buffers become hidden).
 
-:[N]sargument[!] [N]
+:[N]sargument[!] [N]				*:sargument*
 		Short for ":split | argument [N]": split window and go to
 		Nth argument. But when there is no such argument, of the
 		current file cannot be abandoned, the window is not split.
 
-:[N]snext[!] [file ..]
+:[N]snext[!] [file ..]				*:snext*
 		Short for ":split | [N]next": split window and go to Nth
 		next argument. But when there is no next file, or the
 		current file cannot be abandoned, the window is not split.
 
-:[N]sprevious[!] [N]
-:[N]sNext[!] [N]
+:[N]sprevious[!] [N]				*:sprevious*
+:[N]sNext[!] [N]				*:sNext*
 		Short for ":split | Next": split window and go to Nth
 		previous argument. But when there is no previous file, or
 		the current file cannot be abandoned, the window is not
 		split.
 
+						*:srewind*
 :srewind[!]	Short for ":split | rewind": split window and go to first
 		argument. But when the current file cannot be abandoned the
 		window is not split.
 
+						*:slast*
 :slast[!]	Short for ":split | last": split window and go to last
 		argument. But when the current file cannot be abandoned the
 		window is not split.
@@ -311,17 +322,19 @@ can also get to them with the buffer list commands, like ":bnext".
 Tag or file name under the cursor
 ---------------------------------
 
-CTRL-W ]
+CTRL-W ]					*CTRL-W_]* *CTRL-W_CTRL-]*
 CTRL-W CTRL-]	split current window in two. Use identifier under cursor as a
 		tag and jump to it in the new upper window. Make new window N
 		high.
 
-CTRL-W f
+CTRL-W f					*CTRL-W_f* *CTRL-W_CTRL-F*
 CTRL-W CTRL-F	split current window in two. Edit file name under cursor. Like
 		":split ]f", but window isn't split if the file does not
 		exist.  Uses the 'path' variable as a list of directory names
 		where to look for the file. Also the path for current file
-		is used to search for the file name.
+		is used to search for the file name. If the name is a
+		hypertext link, that looks like "type://machine/path", only
+		"/path" is used.
 
 
 Using hidden buffers
@@ -339,8 +352,8 @@ although the 'hidden' option is not set (see below).
 You can make a hidden buffer not hidden, by starting to edit it with any
 command. Or by deleting it with the ":bdelete" command.
 
-:files						*c_files*
-:buffers					*c_buffers* *c_ls*
+:files						*:files*
+:buffers					*:buffers* *:ls*
 :ls		Show all buffers. Example:
 
 			1 #h  "/test/text" line 1
@@ -357,7 +370,7 @@ command. Or by deleting it with the ":bdelete" command.
 		indicates the alternate buffer for ":e #" or CTRL-^. '+'
 		indicates a modified buffer.
 
-:[N]bdelete
+:[N]bdelete					*:bdelete*
 :bdelete [N]
 		Unload buffer [N] (default: current buffer) and delete it from
 		the buffer list. If the buffer was changed this fails. The
@@ -378,7 +391,7 @@ command. Or by deleting it with the ":bdelete" command.
 :bdelete[!] N1 N2 ..
 		do :bdelete[!] for buffer N1, N2, etc.
 
-:[N]bunload
+:[N]bunload					*:bunload*
 :bunload [N]
 		Unload buffer [N] (default: current buffer). The memory
 		allocated for this buffer will be freed. The buffer remains in
@@ -401,44 +414,53 @@ command. Or by deleting it with the ":bdelete" command.
 :bunload[!] N1 N2 ..
 		do :bunload[!] for buffer N1, N2, etc.
 
-:[N]buffer [N]
+:[N]buffer [N]					*:buffer*
 		Edit buffer [N] from the buffer list. If [N] is not given, the
 		current buffer remains being edited.
 
-:[N]bnext [N]	Go to [N]th next buffer in buffer list. [N] defaults to one.
-
-:[N]bNext [N]
-:[N]bprev [N]	Go to [N]th previous buffer in buffer list. [N] defaults to
-		one.
-
-:brewind	Go to first buffer in buffer list
-
-:blast		Go to last buffer in buffer list
-
-:[N]bmodified [N]
-		Go to [N]th next modified buffer in buffer list
-
-:[N]sbuffer [N]
-		split window and Edit buffer [N] from the buffer list. If [N]
+:[N]sbuffer [N]					*:sbuffer*
+		Split window and edit buffer [N] from the buffer list. If [N]
 		is not given, the current buffer is edited.
 
-:[N]sbnext [N]	split window and go to [N]th next buffer in buffer list
+						*:bnext*
+:[N]bnext [N]	Go to [N]th next buffer in buffer list. [N] defaults to one.
 
-:[N]sbNext [N]
-:[N]sbprev [N]	split window and go to [N]th previous buffer in buffer list
+						*:sbnext*
+:[N]sbnext [N]	Split window and go to [N]th next buffer in buffer list.
 
+:[N]bNext [N]					*:bNext* *:bprevious*
+:[N]bprevious [N]
+		Go to [N]th previous buffer in buffer list. [N] defaults to
+		one.
+
+:[N]sbNext [N]					*:sbNext* *:sbprevious*
+:[N]sbprevious [N]
+		Split window and go to [N]th previous buffer in buffer list.
+
+						*:brewind*
+:brewind	Go to first buffer in buffer list.
+
+						*:sbrewind*
 :sbrewind	split window and go to first buffer in buffer list
 
-:sblast		split window and go to last buffer in buffer list
+						*:blast*
+:blast		Go to last buffer in buffer list.
 
-:[N]sbmodified [N]
-		split window and go to [N]th next modified buffer in buffer list
+						*:sblast*
+:sblast		Split window and go to last buffer in buffer list.
 
-:unhide
+:[N]bmodified [N]				*:bmodified*
+		Go to [N]th next modified buffer in buffer list.
+
+:[N]sbmodified [N]				*:sbmodified*
+		Split window and go to [N]th next modified buffer in buffer
+		list.
+
+:unhide						*:unhide* *:sunhide*
 :sunhide	Rearrange the screen to open one window for each loaded
 		buffer in the buffer list.
 
-:ball
+:ball						*:ball* *:sball*
 :sball		Rearrange the screen to open one window for each buffer in
 		the buffer list.
 

@@ -44,7 +44,7 @@ usage(n)
 	fprintf(stderr, "\noptions:\t-v\t\treadonly mode (view)\n");
 	fprintf(stderr, "\t\t-n\t\tno swap file, use memory only\n");
 	fprintf(stderr, "\t\t-b\t\tbinary mode\n");
-	fprintf(stderr, "\t\t-r\t\trecovery mode (needs a file name)\n");
+	fprintf(stderr, "\t\t-r\t\trecovery of crashed session\n");
 #ifdef AMIGA
 	fprintf(stderr, "\t\t-x\t\tdon't use newcli to open window\n");
 	fprintf(stderr, "\t\t-d device\tuse device for I/O\n");
@@ -56,6 +56,7 @@ usage(n)
 	fprintf(stderr, "\t\t-c command\texecute command first\n");
 	fprintf(stderr, "\t\t-s scriptin\tread commands from script file\n");
 	fprintf(stderr, "\t\t-w scriptout\twrite commands in script file\n");
+	fprintf(stderr, "\t\t-u vimrc\tread initializations from a file\n");
 	mch_windexit(1);
 }
 
@@ -73,6 +74,7 @@ main(argc, argv)
 	char_u		   *fname = NULL;	/* file name from command line */
 	char_u		   *command = NULL;	/* command from + or -c option */
 	char_u		   *tagname = NULL;	/* tag from -t option */
+	char_u		   *use_vimrc = NULL;	/* vimrc from -u option */
 	int 			c;
 	int				doqf = 0;
 	int				i;
@@ -105,7 +107,7 @@ main(argc, argv)
 	{
 		readonlymode = TRUE;
 		curbuf->b_p_ro = TRUE;
-		p_uc = 0;
+		p_uc = 10000;			/* don't update very often */
 	}
 
 	++argv;
@@ -115,6 +117,7 @@ main(argc, argv)
 	 *		'+{command}'	execute command
 	 * 		'-s scriptin'	read from script file
 	 *		'-w scriptout'	write to script file
+	 *		'-u vimrc'		read initializations from a file
 	 *		'-v'			view
 	 *		'-b'			binary
 	 *		'-n'			no .vim file
@@ -124,7 +127,7 @@ main(argc, argv)
 	 *		'-T terminal'	terminal name
 	 */
 	while (argc > 1 && ((c = argv[0][0]) == '+' || (c == '-' &&
-			strchr("vnbrxocswTd", c = argv[0][1]) != NULL && c != NUL)))
+			strchr("vnbrxocswTdu", c = argv[0][1]) != NULL && c != NUL)))
 	{
 		--argc;
 		switch (c)
@@ -140,7 +143,8 @@ main(argc, argv)
 		case 'v':
 			readonlymode = TRUE;
 			curbuf->b_p_ro = TRUE;
-			/*FALLTHROUGH*/
+			p_uc = 10000;			/* don't update very often */
+			break;
 
 		case 'n':
 			p_uc = 0;
@@ -179,7 +183,7 @@ main(argc, argv)
 				command = (char_u *)&(argv[0][0]);
 				break;
 
-			case 's':
+			case 's':			/* -s {scriptin} */
 				if ((scriptin[0] = fopen(argv[0], READBIN)) == NULL)
 				{
 					fprintf(stderr, "cannot open %s for reading\n", argv[0]);
@@ -187,7 +191,7 @@ main(argc, argv)
 				}
 				break;
 			
-			case 'w':
+			case 'w':			/* -w {scriptout} */
 				if ((scriptout = fopen(argv[0], APPENDBIN)) == NULL)
 				{
 					fprintf(stderr, "cannot open %s for output\n", argv[0]);
@@ -199,8 +203,12 @@ main(argc, argv)
  * The -T term option is always available and when TERMCAP is supported it
  * overrides the environment variable TERM.
  */
-			case 'T':
+			case 'T':			/* -T {terminal} */
 				term = (char_u *)*argv;
+				break;
+			
+			case 'u':			/* -u {vimrc} */
+				use_vimrc = (char_u *)*argv;
 				break;
 			
 		/*	case 'd':		This is ignored as it is handled in check_win() */
@@ -319,11 +327,11 @@ main(argc, argv)
 	no_wait_return = TRUE;
 
 #ifdef MSDOS /* default mapping for some often used keys */
-	domap(0, "#1 :help\r", NORMAL);			/* F1 is help key */
-	domap(0, "\316w H", NORMAL);			/* CTRL-HOME is 'H' */
-	domap(0, "\316u L", NORMAL);			/* CTRL-END is 'L' */
-	domap(0, "\316\204 1G", NORMAL);		/* CTRL-PageUp is '1G' */
-	domap(0, "\316v G", NORMAL);			/* CTRL-PageDown is 'G' */
+	domap(0, "#1 :help\r", NORMAL+VISUAL);		/* F1 is help key */
+	domap(0, "\316w H", NORMAL+VISUAL);			/* CTRL-HOME is 'H' */
+	domap(0, "\316u L", NORMAL+VISUAL);			/* CTRL-END is 'L' */
+	domap(0, "\316\204 1G", NORMAL+VISUAL);		/* CTRL-PageUp is '1G' */
+	domap(0, "\316v G", NORMAL+VISUAL);			/* CTRL-PageDown is 'G' */
 			/* insert mode */
 	domap(0, "#1 \017:help\r", INSERT);		/* F1 is help key */
 	domap(0, "\316w \017H", INSERT);		/* CTRL-HOME is '^OH' */
@@ -333,81 +341,96 @@ main(argc, argv)
 #endif
 
 /*
- * get system wide defaults (for unix)
+ * If -u option give, use only the initializations from that file and nothing
+ * else.
  */
+	if (use_vimrc != NULL)
+		(void)dosource(use_vimrc);
+	else
+	{
+
+	/*
+	 * get system wide defaults (for unix)
+	 */
 #ifdef DEFVIMRC_FILE
-	(void)dosource((char_u *)DEFVIMRC_FILE);
+		(void)dosource((char_u *)DEFVIMRC_FILE);
 #endif
 
-/*
- * Try to read initialization commands from the following places:
- * - environment variable VIMINIT
- * - file s:.vimrc ($HOME/.vimrc for Unix)
- * - environment variable EXINIT
- * - file s:.exrc ($HOME/.exrc for Unix)
- * The first that exists is used, the rest is ignored.
- */
-	if ((initstr = vimgetenv((char_u *)"VIMINIT")) != NULL && *initstr != NUL)
-	{
-		sourcing_name = (char_u *)"VIMINIT";
-		docmdline(initstr, TRUE, TRUE);
-		sourcing_name = NULL;
-	}
-	else if (dosource((char_u *)SYSVIMRC_FILE) == FAIL)
-	{
-		if ((initstr = vimgetenv((char_u *)"EXINIT")) != NULL)
+	/*
+	 * Try to read initialization commands from the following places:
+	 * - environment variable VIMINIT
+	 * - file s:.vimrc ($HOME/.vimrc for Unix)
+	 * - environment variable EXINIT
+	 * - file s:.exrc ($HOME/.exrc for Unix)
+	 * The first that exists is used, the rest is ignored.
+	 */
+		if ((initstr = vimgetenv((char_u *)"VIMINIT")) != NULL &&
+														*initstr != NUL)
 		{
-			sourcing_name = (char_u *)"EXINIT";
+			sourcing_name = (char_u *)"VIMINIT";
 			docmdline(initstr, TRUE, TRUE);
 			sourcing_name = NULL;
 		}
-		else
-			(void)dosource((char_u *)SYSEXRC_FILE);
-	}
-
-/*
- * Read initialization commands from ".vimrc" or ".exrc" in current directory.
- * This is only done if the 'exrc' option is set.
- * Because of security reasons we disallow shell and write commands now,
- * except for unix if the file is owned by the user or 'secure' option has been
- * reset in environmet of global ".exrc" or ".vimrc".
- * Only do this if VIMRC_FILE is not the same as SYSVIMRC_FILE or DEFVIMRC_FILE.
- */
-	if (p_exrc)
-	{
-#ifdef UNIX
+		else if (dosource((char_u *)SYSVIMRC_FILE) == FAIL)
 		{
-			struct stat s;
-
-				/* if ".vimrc" file is not owned by user, set 'secure' mode */
-			if (stat(VIMRC_FILE, &s) || s.st_uid != getuid())
-				secure = p_secure;
-		}
-#else
-		secure = p_secure;
-#endif
-
-		i = FAIL;
-		if (fullpathcmp((char_u *)SYSVIMRC_FILE, (char_u *)VIMRC_FILE)
-#ifdef DEFVIMRC_FILE
-				&& fullpathcmp((char_u *)DEFVIMRC_FILE, (char_u *)VIMRC_FILE)
-#endif
-				)
-			i = dosource((char_u *)VIMRC_FILE);
-#ifdef UNIX
-		if (i == FAIL)
-		{
-			struct stat s;
-
-				/* if ".exrc" file is not owned by user set 'secure' mode */
-			if (stat(EXRC_FILE, &s) || s.st_uid != getuid())
-				secure = p_secure;
+			if ((initstr = vimgetenv((char_u *)"EXINIT")) != NULL)
+			{
+				sourcing_name = (char_u *)"EXINIT";
+				docmdline(initstr, TRUE, TRUE);
+				sourcing_name = NULL;
+			}
 			else
-				secure = 0;
+				(void)dosource((char_u *)SYSEXRC_FILE);
 		}
+
+	/*
+	 * Read initialization commands from ".vimrc" or ".exrc" in current
+	 * directory.  This is only done if the 'exrc' option is set.
+	 * Because of security reasons we disallow shell and write commands now,
+	 * except for unix if the file is owned by the user or 'secure' option has
+	 * been reset in environmet of global ".exrc" or ".vimrc".
+	 * Only do this if VIMRC_FILE is not the same as SYSVIMRC_FILE or
+	 * DEFVIMRC_FILE.
+	 */
+		if (p_exrc)
+		{
+#ifdef UNIX
+			{
+				struct stat s;
+
+					/* if ".vimrc" file is not owned by user, set 'secure'
+					 * mode */
+				if (stat(VIMRC_FILE, &s) || s.st_uid != getuid())
+					secure = p_secure;
+			}
+#else
+			secure = p_secure;
 #endif
-		if (i == FAIL && fullpathcmp((char_u *)SYSEXRC_FILE, (char_u *)EXRC_FILE))
-			(void)dosource((char_u *)EXRC_FILE);
+
+			i = FAIL;
+			if (fullpathcmp((char_u *)SYSVIMRC_FILE, (char_u *)VIMRC_FILE)
+#ifdef DEFVIMRC_FILE
+					&& fullpathcmp((char_u *)DEFVIMRC_FILE,
+												(char_u *)VIMRC_FILE)
+#endif
+					)
+				i = dosource((char_u *)VIMRC_FILE);
+#ifdef UNIX
+			if (i == FAIL)
+			{
+				struct stat s;
+
+					/* if ".exrc" is not owned by user set 'secure' mode */
+				if (stat(EXRC_FILE, &s) || s.st_uid != getuid())
+					secure = p_secure;
+				else
+					secure = 0;
+			}
+#endif
+			if (i == FAIL && fullpathcmp((char_u *)SYSEXRC_FILE,
+													(char_u *)EXRC_FILE))
+				(void)dosource((char_u *)EXRC_FILE);
+		}
 	}
 
 	/*
@@ -417,9 +440,13 @@ main(argc, argv)
 	 */
 	if (recoverymode && fname == NULL)
 	{
-		recover_list();
+		recover_names(NULL, TRUE, 0);
 		mch_windexit(0);
 	}
+
+#ifdef UNIX
+	set_init_shell();			/* set 'shellpipe' and 'shellredir' defaults */
+#endif
 
 #ifdef VIMINFO
 /*
@@ -432,13 +459,6 @@ main(argc, argv)
 #ifdef SPAWNO			/* special MSDOS swapping library */
 	init_SPAWNO("", SWAP_ANY);
 #endif
-/*
- * Call settmode and starttermcap here, so the T_KS and T_TS may be defined
- * by termcapinit and redifined in .exrc.
- */
-	settmode(1);
-	starttermcap();
-	scroll_start();
 
 	if (bin_mode)					/* -b option used */
 	{
@@ -466,14 +486,24 @@ main(argc, argv)
  * Clear screen now, so file message will not be cleared.
  */
 	starting = FALSE;
-
 	no_wait_return = FALSE;
 	msg_scroll = FALSE;
-		/* done something that is not allowed or error message */
+/*
+ * When done something that is not allowed or error message call wait_return.
+ * This must be done before starttermcap(), because it may switch to another
+ * screen. It must be done after settmode(1), because we want to react on a
+ * single key stroke.
+ * Call settmode and starttermcap here, so the T_KS and T_TS may be defined
+ * by termcapinit and redifined in .exrc.
+ */
+	settmode(1);
 	if (secure == 2 || need_wait_return || msg_didany)
-		wait_return(TRUE);				/* must be called after settmode(1) */
+		wait_return(TRUE);
+	starttermcap();			/* start termcap if not done by wait_return() */
+
 	secure = 0;
 
+	scroll_start();
 	screenclear();						/* clear screen */
 
 	no_wait_return = TRUE;
@@ -481,10 +511,11 @@ main(argc, argv)
 	if (recoverymode)					/* do recover */
 	{
 		msg_scroll = TRUE;				/* scroll message up */
-		if (ml_open() == FAIL)			/* Initialize storage structure */
-			getout(1);
-		ml_recover();					/* recover the file */
+		ml_recover();
 		msg_scroll = FALSE;
+		if (curbuf->b_ml.ml_mfp == NULL)/* failed */
+			getout(1);
+		do_mlines();					/* do modelines */
 	}
 	else
 		(void)open_buffer();			/* create memfile and read file */
@@ -560,10 +591,15 @@ main(argc, argv)
 			got_int = FALSE;
 		}
 		adjust_cursor();				/* put cursor on an existing line */
-		if (skip_redraw)				/* skip redraw (for ":" in
-											wait_return()) */
+		msg_scroll = FALSE;
+		/*
+		 * If skip redraw is set (for ":" in wait_return()), don't redraw now.
+		 * If there is nothing in the stuff_buffer or do_redraw is TRUE,
+		 * update cursor and redraw.
+		 */
+		if (skip_redraw)			
 			skip_redraw = FALSE;
-		else if (stuff_empty())			/* only when no command pending */
+		else if (do_redraw || stuff_empty())
 		{
 			cursupdate();				/* Figure out where the cursor is based
 											on curwin->w_cursor. */
@@ -572,8 +608,7 @@ main(argc, argv)
 				sleep(1);
 				need_sleep = FALSE;
 			}
-			msg_scroll = FALSE;
-			if (VIsual.lnum != 0)
+			if (VIsual_active)
 				update_curbuf(INVERTED);/* update inverted part */
 			if (must_redraw)
 				updateScreen(must_redraw);
@@ -586,6 +621,7 @@ main(argc, argv)
 			}
 
 			msg_didany = FALSE;			/* reset lines_left in msg_start() */
+			do_redraw = FALSE;
 			showruler(FALSE);
 
 			setcursor();

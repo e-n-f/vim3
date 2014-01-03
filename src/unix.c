@@ -100,6 +100,10 @@ extern int execvp __ARGS((const char *, const char **));
 # endif
 #endif
 
+#ifdef _sys_time_h
+extern int select();
+#endif /* _sys_time_h */
+
 #ifdef USE_X11
 
 # include <X11/Xlib.h>
@@ -121,6 +125,10 @@ static int	Read __ARGS((char_u *, long));
 static int	WaitForChar __ARGS((int));
 static int	RealWaitForChar __ARGS((int));
 static void fill_inbuf __ARGS((void));
+#ifdef ADDED_BY_WEBB_SIGNALS
+static void sig_winch __ARGS((int));
+static void deathtrap __ARGS((int));
+#else /* ADDED_BY_WEBB_SIGNALS */
 #ifdef USL
 static void sig_winch __ARGS((int));
 static void deathtrap __ARGS((int));
@@ -130,22 +138,88 @@ static void sig_winch __ARGS((int, int, struct sigcontext *));
 static void deathtrap __ARGS((int, int, struct sigcontext *));
 # endif
 #endif
+#endif /* ADDED_BY_WEBB_SIGNALS */
 static void catch_signals __ARGS((void (*func)()));
 
-static int do_resize = FALSE;
-static char_u *oldtitle = NULL;
-static char_u *oldicon = NULL;
-static char_u *extra_shell_arg = NULL;
-static int show_shell_mess = TRUE;
+static int		do_resize = FALSE;
+static char_u	*oldtitle = NULL;
+static char_u	*oldicon = NULL;
+static char_u	*extra_shell_arg = NULL;
+static int		show_shell_mess = TRUE;
+static int		core_dump = FALSE;			/* core dump in mch_windexit() */
 
-/*
- * At this point TRUE and FALSE are defined as 1L and 0L, but we want 1 and 0.
- */
-#undef TRUE
-#define TRUE 1
-#undef FALSE
-#define FALSE 0
+#ifdef ADDED_BY_WEBB_SIGNALS
+static struct
+{
+	int		sig;		/* Signal number, eg. SIGSEGV etc */
+	char	*name;		/* Signal name (not char_u!). */
+	int		dump;		/* Should this signal cause a core dump? */
+} signal_info[] =
+{
+#ifdef SIGHUP
+	{SIGHUP,		"HUP",		FALSE},
+#endif
+#ifdef SIGINT
+	{SIGINT,		"INT",		FALSE},
+#endif
+#ifdef SIGQUIT
+	{SIGQUIT,		"QUIT",		TRUE},
+#endif
+#ifdef SIGILL
+	{SIGILL,		"ILL",		TRUE},
+#endif
+#ifdef SIGTRAP
+	{SIGTRAP,		"TRAP",		TRUE},
+#endif
+#ifdef SIGABRT
+	{SIGABRT,		"ABRT",		TRUE},
+#endif
+#ifdef SIGEMT
+	{SIGEMT,		"EMT",		TRUE},
+#endif
+#ifdef SIGFPE
+	{SIGFPE,		"FPE",		TRUE},
+#endif
+#ifdef SIGBUS
+	{SIGBUS,		"BUS",		TRUE},
+#endif
+#ifdef SIGSEGV
+	{SIGSEGV,		"SEGV",		TRUE},
+#endif
+#ifdef SIGSYS
+	{SIGSYS,		"SYS",		TRUE},
+#endif
+#ifdef SIGPIPE
+	{SIGPIPE,		"PIPE",		FALSE},
+#endif
+#ifdef SIGALRM
+	{SIGALRM,		"ALRM",		FALSE},
+#endif
+#ifdef SIGTERM
+	{SIGTERM,		"TERM",		FALSE},
+#endif
+#ifdef SIGVTALRM
+	{SIGVTALRM,		"VTALRM",	FALSE},
+#endif
+#ifdef SIGPROF
+	{SIGPROF,		"PROF",		FALSE},
+#endif
+#ifdef SIGXCPU
+	{SIGXCPU,		"XCPU",		TRUE},
+#endif
+#ifdef SIGXFSZ
+	{SIGXFSZ,		"XFSZ",		TRUE},
+#endif
+#ifdef SIGUSR1
+	{SIGUSR1,		"USR1",		FALSE},
+#endif
+#ifdef SIGUSR2
+	{SIGUSR2,		"USR2",		FALSE},
+#endif
+	{-1,			"Unknown!",	-1}
+};
 
+#endif /* ADDED_BY_WEBB_SIGNALS */
 	void
 mch_write(s, len)
 	char_u	*s;
@@ -205,7 +279,16 @@ GetChars(buf, maxlen, wtime)
 			continue;
 		len = Read(buf, (long)maxlen);
 		if (len > 0)
+		{
+			/*
+			 * For some terminals we only get one character at a time.
+			 * We want the get all available characters, so keep on trying
+			 * until none is available
+			 */
+			while (len < maxlen && WaitForChar(1))
+				len += Read(buf + len, (long)(maxlen - len));
 			return len;
+		}
 	}
 }
 
@@ -222,7 +305,7 @@ mch_char_avail()
 mch_avail_mem(special)
 	int special;
 {
-	return 0x7fffffff;		/* virual memory eh */
+	return 0x7fffffff;		/* virtual memory eh */
 }
 
 #ifndef FD_ZERO
@@ -248,6 +331,11 @@ vim_delay()
 #endif
 
 	static void
+#ifdef ADDED_BY_WEBB_SIGNALS
+/* Bram, see comment below for deathtrap */
+sig_winch(sig)
+	int		sig;
+#else /* ADDED_BY_WEBB_SIGNALS */
 #if defined(__alpha) || (defined(mips) && !defined(USL))
 sig_winch()
 #else
@@ -267,6 +355,7 @@ sig_winch(sig, code, scp)
 #  endif
 # endif
 #endif
+#endif /* ADDED_BY_WEBB_SIGNALS */
 {
 #if defined(SIGWINCH)
 		/* this is not required on all systems, but it doesn't hurt anybody */
@@ -280,8 +369,55 @@ sig_winch(sig, code, scp)
  * It tries to preserve any swap file and exit properly.
  * (partly from Elvis).
  */
+#ifdef ADDED_BY_WEBB_SIGNALS
+/*
+ * Bram, do we really need all those #if's that were around this function
+ * header before?  I think the callback function registered with 'signal' will
+ * always have the signal number as its first argument on any platform, and we
+ * can just ignore the other arguments.  Similarly for the sig_winch() function
+ * header -- webb
+ */
 	static void
-#if defined(__alpha) || (defined(mips) && !defined(USL))
+deathtrap(sig)
+	int		sig;
+{
+	static int		entered = FALSE;
+	BUF		*buf;
+	int		i;
+
+	for (i = 0; signal_info[i].dump != -1; i++)
+	{
+		if (sig == signal_info[i].sig)
+		{
+			if (signal_info[i].dump)
+				core_dump = TRUE;
+			break;
+		}
+	}
+
+	if (entered)				/* double signal, exit now */
+		getout(1);
+	entered = TRUE;
+
+	windgoto((int)Rows - 1, 0);
+	sprintf((char *)IObuff,
+		"Vim: Caught deadly signal %s, preserving files...\n",
+		signal_info[i].name);
+	outstr(IObuff);
+	flushbuf();
+
+	for (buf = firstbuf; buf != NULL; buf = buf->b_next)
+		if (!buf->b_changed)
+			ml_close(buf, TRUE);	/* close all not-modified buffers */
+
+	ml_sync_all(FALSE, TRUE);		/* preserve all swap files */
+	ml_close_all(FALSE);			/* close all memfiles, without deleting */
+
+	getout(1);
+}
+#else /* ADDED_BY_WEBB_SIGNALS */
+	static void
+#if (defined(mips) && !defined(USL) && !defined(__sgi))
 deathtrap()
 #else
 # if defined(_SEQUENT_) || defined(SCO) || defined(ISC)
@@ -309,7 +445,7 @@ deathtrap(sig, code, scp)
 	entered = TRUE;
 
 	windgoto((int)Rows - 1, 0);
-	outstr("Vim: deadly signal caught, preserving files...\n");
+	OUTSTR("Vim: deadly signal caught, preserving files...\n");
 	flushbuf();
 
 	for (buf = firstbuf; buf != NULL; buf = buf->b_next)
@@ -319,8 +455,31 @@ deathtrap(sig, code, scp)
 	ml_sync_all(FALSE, TRUE);		/* preserve all swap files */
 	ml_close_all(FALSE);			/* close all memfiles, without deleting */
 
+/*
+ * force a core dump with some signals, done in mch_windexit().
+ */
+	if (
+# ifdef SIGSEGV
+			sig == SIGSEGV ||
+# endif
+# ifdef SIGILL
+			sig == SIGILL ||
+# endif
+# ifdef SIGFPE
+			sig == SIGFPE ||
+# endif
+# ifdef SIGBUS
+			sig == SIGBUS ||
+# endif
+# ifdef SIGSYS
+			sig == SIGSYS ||
+# endif
+								0)
+		core_dump = TRUE;
+
 	getout(1);
 }
+#endif /* ADDED_BY_WEBB_SIGNALS */
 
 /*
  * If the machine has job control, use it to suspend the program,
@@ -336,7 +495,7 @@ mch_suspend()
 	kill(0, SIGTSTP);		/* send ourselves a STOP signal */
 	settmode(1);
 #else
-	msg_outstr((char_u *)"new shell started\n");
+	MSG_OUTSTR("new shell started\n");
 	(void)call_shell(NULL, 0, TRUE);
 #endif
 }
@@ -366,11 +525,23 @@ mch_windinit()
 catch_signals(func)
 	void (*func)();
 {
+#ifdef ADDED_BY_WEBB_SIGNALS
+	int		i;
+
+	for (i = 0; signal_info[i].dump != -1; i++)
+		signal(signal_info[i].sig, func);
+#else /* ADDED_BY_WEBB_SIGNALS */
 #ifdef SIGHUP
 	signal(SIGHUP, func);
 #endif
 #ifdef SIGINT
 	signal(SIGINT, func);
+#endif
+#ifdef SIGQUIT
+	signal(SIGQUIT, func);
+#endif
+#ifdef SIGABRT
+	signal(SIGABRT, func);
 #endif
 #ifndef DEBUG
 # ifdef SIGILL
@@ -407,6 +578,7 @@ catch_signals(func)
 #ifdef SIGUSR2
 	signal(SIGUSR2, func);
 #endif
+#endif /* ADDED_BY_WEBB_SIGNALS */
 }
 
 /*
@@ -872,6 +1044,11 @@ mch_windexit(r)
 	stoptermcap();
 	flushbuf();
 	ml_close_all(TRUE); 				/* remove all memfiles */
+#ifdef SIGQUIT
+	signal(SIGQUIT, SIG_DFL);
+	if (core_dump)
+		kill(getpid(), SIGQUIT);		/* force a core dump */
+#endif
 	exit(r);
 }
 
@@ -955,10 +1132,10 @@ setmouse(on)
 	static int	ison = FALSE;
 
 	if (on && !ison)
-		outstrn((char_u *)"\033[?9h"); /* xterm: enable mouse events */
+		outstrn((char_u *)"\033[?1000h"); /* xterm: enable mouse events */
 
 	if (!on && ison)
-		outstrn((char_u *)"\033[?9l"); /* xterm: disable mouse events */
+		outstrn((char_u *)"\033[?1000l"); /* xterm: disable mouse events */
 	
 	ison = on;
 }
@@ -1034,11 +1211,7 @@ mch_get_winsize()
  * 3. try reading the termcap
  */
 	if (Columns == 0 || Rows == 0)
-	{
-		extern void getlinecol();
-
 		getlinecol();	/* get "co" and "li" entries from termcap */
-	}
 #endif
 
 /*
@@ -1065,7 +1238,7 @@ mch_set_winsize()
 	/* try to set the window size to Rows and Columns */
 	if (is_iris_ansi(term_strings.t_name))
 	{
-		sprintf((char *)string, "\033[203;%d;%d/y", Rows, Columns);
+		sprintf((char *)string, "\033[203;%ld;%ld/y", Rows, Columns);
 		outstrn(string);
 		flushbuf();
 	}
@@ -1098,13 +1271,13 @@ call_shell(cmd, dummy, cooked)
 	}
 	if (x == 127)
 	{
-		msg_outstr((char_u *)"\nCannot execute shell sh\n");
+		MSG_OUTSTR("\nCannot execute shell sh\n");
 	}
 	else if (x && !expand_interactively)
 	{
 		msg_outchar('\n');
 		msg_outnum((long)x);
-		msg_outstr((char_u *)" returned\n");
+		MSG_OUTSTR(" returned\n");
 	}
 
 	if (cooked)
@@ -1172,7 +1345,7 @@ call_shell(cmd, dummy, cooked)
 
 	if ((pid = fork()) == -1)		/* maybe we should use vfork() */
 	{
-		msg_outstr((char_u *)"\nCannot fork\n");
+		MSG_OUTSTR("\nCannot fork\n");
 	}
 	else if (pid == 0)		/* child */
 	{
@@ -1202,15 +1375,15 @@ call_shell(cmd, dummy, cooked)
 		{
 			if (status == 127)
 			{
-				msg_outstr((char_u *)"\nCannot execute shell ");
-				msg_outstr(p_sh);
+				MSG_OUTSTR("\nCannot execute shell ");
+				msg_outtrans(p_sh);
 				msg_outchar('\n');
 			}
 			else if (!expand_interactively)
 			{
 				msg_outchar('\n');
 				msg_outnum((long)status);
-				msg_outstr((char_u *)" returned\n");
+				MSG_OUTSTR(" returned\n");
 			}
 		}
 	}
@@ -1292,46 +1465,46 @@ fill_inbuf()
 }
 
 /* 
- * Wait "ticks" until a character is available from the keyboard or from inbuf[]
- * ticks = -1 will block forever
+ * Wait "msec" msec until a character is available from the keyboard or from
+ * inbuf[]. msec == -1 will block forever.
  */
 
 	static int
-WaitForChar(ticks)
-	int ticks;
+WaitForChar(msec)
+	int msec;
 {
 	if (inbufcount)		/* something in inbuf[] */
 		return 1;
-	return RealWaitForChar(ticks);
+	return RealWaitForChar(msec);
 }
 
 /* 
- * Wait "ticks" until a character is available from the keyboard
- * ticks = -1 will block forever
+ * Wait "msec" msec until a character is available from the keyboard.
+ * Time == -1 will block forever.
  */
 	static int
-RealWaitForChar(ticks)
-	int ticks;
+RealWaitForChar(msec)
+	int msec;
 {
 #ifndef FD_ZERO
 	struct pollfd fds;
 
 	fds.fd = 0;
 	fds.events = POLLIN;
-	return (poll(&fds, 1, ticks));
+	return (poll(&fds, 1, msec));
 #else
 	struct timeval tv;
 	fd_set fdset;
 
-	if (ticks >= 0)
+	if (msec >= 0)
     {
-   		tv.tv_sec = ticks / 1000;
-		tv.tv_usec = (ticks % 1000) * (1000000/1000);
+   		tv.tv_sec = msec / 1000;
+		tv.tv_usec = (msec % 1000) * (1000000/1000);
     }
 
 	FD_ZERO(&fdset);
 	FD_SET(0, &fdset);
-	return (select(1, &fdset, NULL, NULL, (ticks >= 0) ? &tv : NULL));
+	return (select(1, &fdset, NULL, NULL, (msec >= 0) ? &tv : NULL));
 #endif
 }
 

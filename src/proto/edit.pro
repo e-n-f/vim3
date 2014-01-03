@@ -3,7 +3,7 @@ int edit __PARMS((long count));
 int is_ctrl_x_key __PARMS((int c));
 int add_completion_and_infercase __PARMS((char_u *str, int len, int dir));
 int get_literal __PARMS((void));
-void insertchar __PARMS((unsigned c, int force_formatting));
+void insertchar __PARMS((unsigned c, int force_formatting, int second_indent));
 void set_last_insert __PARMS((int c));
 void beginline __PARMS((int flag));
 int oneright __PARMS((void));

@@ -82,23 +82,24 @@ edit(count)
 	static int	 o_eol = FALSE;
 	FPOS		 first_match_pos;
 	FPOS		 last_match_pos;
-	FPOS		*complete_pos = NULL;
+	FPOS		*complete_pos;
 	char_u		*complete_pat = NULL;
 	char_u		*tmp_ptr;
 	char_u		*m = NULL;					/* Message about completion */
-	char_u		*quick_m = NULL;			/* Message without sleep */
+	char_u		*quick_m;					/* Message without sleep */
 	char_u		*idp;
 	int			 started_completion = FALSE;
 	int			 complete_col = 0;			/* init for gcc */
 	int			 complete_direction;
-	int			 done_dir = 0;				/* Found all matches in this direction */
+	int			 done_dir = 0;				/* Found all matches in this
+											 * direction */
 	int			 i;
 	int			 num_matches;
 	char_u		**matches;
 	regexp		*prog;
+	int			 save_sm = -1;				/* init for gcc */
 
-	c = NUL;
-
+	clear_showcmd();
 	revins = (State == INSERT && p_ri);	/* there is no reverse replace mode */
 
 	/*
@@ -180,9 +181,9 @@ edit(count)
 					ctrl_x_mode = CTRL_X_TAGS;
 					edit_submode = (char_u *)"Tag completion (^]/^N/^P)";
 					break;
-				case Ctrl('G'):
+				case Ctrl('I'):
 					ctrl_x_mode = CTRL_X_PATH_PATTERNS;
-					edit_submode = (char_u *)"Path pattern completion (^G/^N/^P)";
+					edit_submode = (char_u *)"Path pattern completion (^N/^P)";
 					break;
 				case Ctrl('D'):
 					ctrl_x_mode = CTRL_X_PATH_DEFINES;
@@ -238,17 +239,14 @@ edit(count)
 						++tmp_ptr;
 						++ptr;
 					}
-					temp = 0;
-					while (tmp_ptr[temp])
-						tmp_ptr[temp++] = BS;
-					if (*tmp_ptr)
-						AppendToRedobuff(tmp_ptr);
+					for (temp = 0; tmp_ptr[temp]; ++temp)
+						AppendCharToRedobuff(K_BS);
 					if (*ptr)
 						AppendToRedobuff(ptr);
 				}
 				/* Break line if it's too long */
 				lnum = curwin->w_cursor.lnum;
-				insertchar(NUL, FALSE);
+				insertchar(NUL, FALSE, -1);
 				if (lnum != curwin->w_cursor.lnum)
 					updateScreen(CURSUPD);
 
@@ -258,6 +256,7 @@ edit(count)
 				free_completions();
 				started_completion = FALSE;
 				ctrl_x_mode = 0;
+				p_sm = save_sm;
 				if (edit_submode != NULL)
 				{
 					edit_submode = NULL;
@@ -278,9 +277,12 @@ edit(count)
 			screen_outchar('^', curwin->w_winpos + curwin->w_row, curwin->w_col);
 			AppendToRedobuff((char_u *)"\026");	/* CTRL-V */
 			cursupdate();
-			setcursor();
+
+			if (!add_to_showcmd(c))
+				setcursor();
 
 			c = get_literal();
+			clear_showcmd();
 			insert_special(c);
 			continue;
 		}
@@ -298,7 +300,7 @@ edit(count)
 			  case Ctrl('X'):		/* Enter ctrl-x mode */
 				/* We're not sure which ctrl-x mode it will be yet */
 				ctrl_x_mode = CTRL_X_NOT_DEFINED_YET;
-				MSG("^X mode (^E/^Y/^L/^]/^F/^G/^D)");
+				MSG("^X mode (^E/^Y/^L/^]/^F/^I/^D)");
 				break;
 
 			  case Ctrl('O'):		/* execute one command */
@@ -367,8 +369,10 @@ doESCkey:
 				 * insert the contents of a register
 				 */
 			  case Ctrl('R'):
+				add_to_showcmd(c);
 			  	if (insertbuf(vgetc()) == FAIL)
 					beep_flush();
+				clear_showcmd();
 				break;
 
 			  case Ctrl('B'):			/* toggle reverse insert mode */
@@ -402,6 +406,7 @@ doESCkey:
 						/* determine offset from first non-blank */
 					temp = curwin->w_cursor.col;
 					beginline(TRUE);
+					i = curwin->w_cursor.col;
 					temp -= curwin->w_cursor.col;
 					set_indent(0, TRUE);	/* remove all indent */
 				}
@@ -412,6 +417,7 @@ ins_indent:
 					temp = curwin->w_cursor.col;
 					vcol = curwin->w_virtcol;
 					beginline(TRUE);
+					i = curwin->w_cursor.col;
 					temp -= curwin->w_cursor.col;
 					if (temp < 0)		/* Cursor in indented part */
 						vcol = get_indent() - vcol;
@@ -451,6 +457,9 @@ ins_indent:
 					else
 						temp += curwin->w_cursor.col;
 				}
+				/* May have to adjust the start of the insert. -- webb */
+				if (curwin->w_cursor.lnum == Insstart.lnum && Insstart.col != 0)
+					Insstart.col += curwin->w_cursor.col - i;
 				if (temp <= 0)
 					curwin->w_cursor.col = 0;
 				else
@@ -458,9 +467,9 @@ ins_indent:
 				did_ai = FALSE;
 				did_si = FALSE;
 				can_si = FALSE;
+				can_si_back = FALSE;
 		  		goto redraw;
 
-			  case DEL:
 			  case K_DEL:
 				stop_arrow();
 			  	if (gchar_cursor() == NUL)		/* delete newline */
@@ -479,11 +488,11 @@ ins_indent:
 				did_ai = FALSE;
 				did_si = FALSE;
 				can_si = FALSE;
+				can_si_back = FALSE;
 				AppendCharToRedobuff(c);
 				goto redraw;
 
-			  case BS:
-nextbs:
+			  case K_BS:
 				mode = 0;
 dodel:
 				/* can't delete anything in an empty file */
@@ -551,7 +560,7 @@ dodel:
 							/*
 							 * restore blanks deleted after cursor
 							 */
-							for (i = 0; cc > 0; ++i)
+							while (cc > 0)
 							{
 								temp = curwin->w_cursor.col;
 								inschar(cc);
@@ -596,10 +605,11 @@ dodel:
 						if (mode == 1 && !isspace(gchar_cursor()))
 						{
 							mode = 2;
-							temp = isidchar(gchar_cursor());
+							temp = isidchar_id(gchar_cursor());
 						}
 								/* end of word? */
-						else if (mode == 2 && (isspace(cc = gchar_cursor()) || isidchar(cc) != temp))
+						else if (mode == 2 && (isspace(cc = gchar_cursor()) ||
+												isidchar_id(cc) != temp))
 						{
 							if (!revins)
 								inc_cursor();
@@ -628,11 +638,13 @@ dodel:
 						}
 						if (mode == 0)		/* just a single backspace */
 							break;
-					} while (revins || (curwin->w_cursor.col > mincol && (curwin->w_cursor.lnum != Insstart.lnum ||
+					} while (revins || (curwin->w_cursor.col > mincol &&
+							(curwin->w_cursor.lnum != Insstart.lnum ||
 							curwin->w_cursor.col != Insstart.col)));
 				}
 				did_si = FALSE;
 				can_si = FALSE;
+				can_si_back = FALSE;
 				if (curwin->w_cursor.col <= 1)
 					did_ai = FALSE;
 				/*
@@ -641,11 +653,6 @@ dodel:
 				 * with.
 				 */
 				AppendCharToRedobuff(c);
-				if (vpeekc() == BS)
-				{
-						c = vgetc();
-						goto nextbs;	/* speedup multiple backspaces */
-				}
 redraw:
 				cursupdate();
 				updateline();
@@ -661,7 +668,9 @@ redraw:
 
 #if defined(UNIX) || defined(MSDOS)	/* only for xterm and msdos at the moment */
 			  case K_MOUSE:
-				if (jumpto(mouse_row, mouse_col) == OK)
+				(void)vgetc();		/* get and ignore button specifier */
+				mouse_code = 0;		/* reset for next click */
+				if (jumpto(mouse_row, mouse_col, FALSE, TRUE) == OK)
 					start_arrow();
 				break;
 #endif
@@ -764,7 +773,10 @@ redraw:
 					beep_flush();
 				break;
 
-			  case TAB:
+			  case TAB:				/* TAB or Complete patterns along path */
+				if (ctrl_x_mode == CTRL_X_PATH_PATTERNS)
+					goto docomplete;
+
 			    if (echeck_abbr(TAB + 0x200))
 					break;
 			  	if (!curbuf->b_p_et && !(p_sta && inindent()))
@@ -780,6 +792,7 @@ redraw:
 				did_ai = FALSE;
 				did_si = FALSE;
 				can_si = FALSE;
+				can_si_back = FALSE;
 				if (p_sta && inindent())		/* insert smart tab */
 					temp = (int)curbuf->b_p_sw;
 				else							/* insert normal tab */
@@ -808,7 +821,8 @@ redraw:
 					replace_push(NUL);
 
 				AppendToRedobuff(NL_STR);
-				if (curbuf->b_p_fo != NULL && STRCHR(curbuf->b_p_fo, FO_RET_COMS) != NULL)
+				if (curbuf->b_p_fo != NULL &&
+								STRCHR(curbuf->b_p_fo, FO_RET_COMS) != NULL)
 					fo_do_comments = TRUE;
 				i = Opencmd(FORWARD, TRUE);
 				fo_do_comments = FALSE;
@@ -823,7 +837,8 @@ redraw:
 				screen_start();
 				screen_outchar('?', curwin->w_winpos + curwin->w_row,
 															curwin->w_col);
-				setcursor();
+				if (!add_to_showcmd(c))
+					setcursor();
 			  	c = vgetc();
 				if (c != ESC)
 				{
@@ -833,23 +848,21 @@ redraw:
 						screen_outchar(c, curwin->w_winpos + curwin->w_row,
 																curwin->w_col);
 					}
-					setcursor();
+					if (!add_to_showcmd(c))
+						setcursor();
 					cc = vgetc();
 					if (cc != ESC)
 					{
 						AppendToRedobuff((char_u *)"\026");	/* CTRL-V */
 						c = getdigraph(c, cc, TRUE);
+						clear_showcmd();
 						goto normalchar;
 					}
 				}
+				clear_showcmd();
 				updateline();
 				goto doESCkey;
 #endif /* DIGRAPHS */
-
-			  case Ctrl('G'):			/* Complete patterns along path */
-				if (ctrl_x_mode != CTRL_X_PATH_PATTERNS)
-					goto normalchar;
-				goto docomplete;
 
 			  case Ctrl(']'):			/* Tag name completion after ^X */
 				if (ctrl_x_mode != CTRL_X_TAGS)
@@ -877,6 +890,11 @@ docomplete:
 				if (!started_completion)
 				{
 					/* First time we hit ^N or ^P (in a row, I mean) */
+
+					/* Turn off 'sm' so we don't show matches with ^X^L */
+					save_sm = p_sm;
+					p_sm = FALSE;
+
 					if (ctrl_x_mode == 0)
 					{
 						edit_submode = (char_u *)"Keyword completion (^P/^N)";
@@ -885,6 +903,7 @@ docomplete:
 					did_ai = FALSE;
 					did_si = FALSE;
 					can_si = FALSE;
+					can_si_back = FALSE;
 					stop_arrow();
 					done_dir = 0;
 					first_match_pos = curwin->w_cursor;
@@ -895,13 +914,12 @@ docomplete:
 					/* Work out completion pattern and original text -- webb */
 					if (ctrl_x_mode == 0 || (ctrl_x_mode & CTRL_X_WANT_IDENT))
 					{
-						if (temp < 0 || !isidchar(ptr[temp]))
+						if (temp < 0 || !isidchar_id(ptr[temp]))
 						{
 							/* Match any identifier of at least two chars */
 							idp = get_id_option();	/* get value of 'id' */
 							sprintf((char *)IObuff,
-									(char_u *)"\\<[a-zA-Z%s][a-zA-Z0-9%s]",
-											idp, idp);
+									"\\<[a-zA-Z%s][a-zA-Z0-9%s]", idp, idp);
 							complete_pat = strsave(IObuff);
 							if (complete_pat == NULL)
 								break;
@@ -910,7 +928,7 @@ docomplete:
 						}
 						else
 						{
-							while (temp >= 0 && isidchar(ptr[temp]))
+							while (temp >= 0 && isidchar_id(ptr[temp]))
 								temp--;
 							tmp_ptr += ++temp;
 							if ((temp = complete_col - temp) == 1)
@@ -972,9 +990,9 @@ docomplete:
 					{
 						started_completion = TRUE;
 						find_pattern_in_path(complete_pat,
-								STRLEN(complete_pat), FALSE,
+								STRLEN(complete_pat), FALSE, FALSE,
 							(ctrl_x_mode == CTRL_X_PATH_DEFINES) ? FIND_DEFINE
-							: FIND_ANY, 1, ACTION_EXPAND,
+							: FIND_ANY, 1L, ACTION_EXPAND,
 							(linenr_t)1, (linenr_t)MAXLNUM);
 							/* eat the ESC to avoid leaving insert mode */
 						if (got_int)
@@ -996,8 +1014,8 @@ docomplete:
 						reg_ic = p_ic;
 						prog = regcomp(complete_pat);
 						if (prog != NULL &&
-							ExpandTags(prog, &num_matches, &matches) == OK &&
-							num_matches > 0)
+							ExpandTags(prog, &num_matches, &matches, FALSE)
+													== OK && num_matches > 0)
 						{
 							for (i = 0; i < num_matches; i++)
 								if (add_new_completion(matches[i],
@@ -1131,7 +1149,7 @@ docomplete:
 						{
 							tmp_ptr = ptr;
 							temp = 0;
-							while (*tmp_ptr != NUL && isidchar(*tmp_ptr++))
+							while (*tmp_ptr != NUL && isidchar_id(*tmp_ptr++))
 								temp++;
 						}
 						if (add_completion_and_infercase(ptr, temp,
@@ -1254,8 +1272,8 @@ normalchar:
 				/*
 				 * do some very smart indenting when entering '{' or '}' or '#'
 				 */
-				if ((curwin->w_cursor.col > 0 && did_si && c == '{') ||
-													(can_si && c == '}'))
+				if (((did_si || can_si_back) && c == '{') ||
+								(can_si && c == '}'))
 				{
 					FPOS	*pos, old_pos;
 
@@ -1299,7 +1317,7 @@ normalchar:
 					set_indent(0, TRUE);
 				}
 
-				if (isidchar(c) || !echeck_abbr(c))
+				if (isidchar_id(c) || !echeck_abbr(c))
 					insert_special(c);
 				break;
 		}	/* end of switch (c) */
@@ -1321,7 +1339,7 @@ is_ctrl_x_key(c)
 		case CTRL_X_NOT_DEFINED_YET:
 			if (c == Ctrl('X') || c == Ctrl('Y') || c == Ctrl('E') ||
 					c == Ctrl('L') || c == Ctrl('F') || c == Ctrl(']') ||
-					c == Ctrl('G') || c == Ctrl('D') || c == Ctrl('P') ||
+					c == Ctrl('I') || c == Ctrl('D') || c == Ctrl('P') ||
 					c == Ctrl('N'))
 				return TRUE;
 			break;
@@ -1342,7 +1360,7 @@ is_ctrl_x_key(c)
 				return TRUE;
 			break;
 		case CTRL_X_PATH_PATTERNS:
-			if (c == Ctrl('G') || c == Ctrl('P') || c == Ctrl('N'))
+			if (c == Ctrl('P') || c == Ctrl('N'))
 				return TRUE;
 			break;
 		case CTRL_X_PATH_DEFINES:
@@ -1532,11 +1550,13 @@ complete_dictionaries(pat, dir)
 	char_u	*dict = p_dict;
 	char_u	*ptr;
 	char_u	save_char;
-	char_u	buf[LSIZE];
+	char_u	*buf;
 	int		at_start;
 	FILE	*fp;
 	struct regexp *prog = NULL;
 
+	if ((buf = alloc(LSIZE)) == NULL)
+		return;
 	if (curr_match != NULL)
 	{
 		while (curr_match->next != NULL)
@@ -1571,7 +1591,7 @@ complete_dictionaries(pat, dir)
 					{
 						at_start = FALSE;
 						ptr = prog->startp[0];
-						while (isidchar(*ptr))
+						while (isidchar_id(*ptr))
 							++ptr;
 						if (add_completion_and_infercase(prog->startp[0],
 								ptr - prog->startp[0], FORWARD) == RET_ERROR)
@@ -1588,6 +1608,7 @@ complete_dictionaries(pat, dir)
 		curr_match = save_curr_match;
 	else if (dir == BACKWARD)
 		curr_match = first_match;
+	free(buf);
 }
 
 /*
@@ -1652,6 +1673,8 @@ get_literal()
 	for (i = 0; i < 3; ++i)
 	{
 		nc = vgetc();
+		if (!(oldstate & CMDLINE))
+			add_to_showcmd(nc);
 		if (nc >= 0x100 || !isdigit(nc))
 			break;
 		cc = cc * 10 + nc - '0';
@@ -1692,10 +1715,10 @@ insert_special(c)
 	 */
 	if (c >= 0x100)
 	{
-		insertchar(K_SPECIAL, FALSE);
+		insertchar(K_SPECIAL, FALSE, -1);
 		c = K_SECOND(c);
 	}
-	insertchar(c, FALSE);
+	insertchar(c, FALSE, -1);
 }
 
 /*
@@ -1709,14 +1732,16 @@ insert_special(c)
 #define ISSPECIAL(c)	((c) < ' ' || (c) >= DEL)
 
 	void
-insertchar(c, force_formatting)
+insertchar(c, force_formatting, second_indent)
 	unsigned	c;
 	int			force_formatting;		/* format line regardless of p_fo */
+	int			second_indent;			/* indent for second line if >= 0 */
 {
 	int		haveto_redraw = FALSE;
 	int		textwidth;
 	int		leader_len;
 	int		save;
+	int		first_line = TRUE;
 
 	stop_arrow();
 
@@ -1739,7 +1764,7 @@ insertchar(c, force_formatting)
 	 * Don't do this if an existing character is being replaced.
 	 */
 	if (force_formatting ||
-				!(isspace(c) || (State == REPLACE && *ml_get_cursor() != NUL)))
+				!(iswhite(c) || (State == REPLACE && *ml_get_cursor() != NUL)))
 	{
 		while (textwidth && curwin->w_virtcol >= textwidth)
 		{
@@ -1763,21 +1788,21 @@ insertchar(c, force_formatting)
 			}
 			if ((startcol = curwin->w_cursor.col) == 0)
 				break;
-			coladvance(textwidth);			/* find column of textwidth border */
+			coladvance(textwidth);		/* find column of textwidth border */
 			wantcol = curwin->w_cursor.col;
 
 			curwin->w_cursor.col = startcol - 1;
 			foundcol = 0;
-			while (curwin->w_cursor.col > 0)			/* find position to break at */
+			while (curwin->w_cursor.col > 0)	/* find position to break at */
 			{
-				if (isspace(gchar_cursor()))
+				if (iswhite(gchar_cursor()))
 				{
 						/* remember position of blank just before text */
 					end_foundcol = curwin->w_cursor.col;
-					while (curwin->w_cursor.col > 0 && isspace(gchar_cursor()))
+					while (curwin->w_cursor.col > 0 && iswhite(gchar_cursor()))
 						--curwin->w_cursor.col;
-					if (curwin->w_cursor.col == 0)	/* only spaces in front of text */
-						break;
+					if (curwin->w_cursor.col == 0)
+						break;			/* only spaces in front of text */
 					/* Don't break until after the comment leader */
 					if (curwin->w_cursor.col < leader_len)
 						break;
@@ -1804,7 +1829,7 @@ insertchar(c, force_formatting)
 			 * characters that will remain on top line
 			 */
 			curwin->w_cursor.col = foundcol;
-			while (isspace(gchar_cursor()))
+			while (iswhite(gchar_cursor()))
 			{
 				++curwin->w_cursor.col;
 				--startcol;
@@ -1822,6 +1847,9 @@ insertchar(c, force_formatting)
 			Opencmd(FORWARD, FALSE);
 			curbuf->b_p_ai = save;
 			replace_offset = 0;
+			if (second_indent >= 0 && first_line)
+				set_indent(second_indent, TRUE);
+			first_line = FALSE;
 			curwin->w_cursor.col += startcol;
 			curs_columns(FALSE);		/* update curwin->w_virtcol */
 			haveto_redraw = TRUE;
@@ -1846,6 +1874,7 @@ insertchar(c, force_formatting)
 	did_ai = FALSE;
 	did_si = FALSE;
 	can_si = FALSE;
+	can_si_back = FALSE;
 
 	/*
 	 * If there's any pending input, grab up to MAX_COLUMNS at once.
@@ -1860,7 +1889,7 @@ insertchar(c, force_formatting)
 		i = 1;
 		while ((c = vpeekc()) != NUL && !ISSPECIAL(c) && i < MAX_COLUMNS &&
 					(textwidth == 0 || (curwin->w_virtcol += charsize(p[i - 1])) < textwidth) &&
-					!(!no_abbr && !isidchar(c) && isidchar(p[i - 1])))
+					!(!no_abbr && !isidchar_id(c) && isidchar_id(p[i - 1])))
 			p[i++] = vgetc();
 #ifdef DIGRAPHS
 		dodigraph(-1);					/* clear digraphs */
@@ -1949,6 +1978,7 @@ stop_insert()
 	did_ai = FALSE;
 	did_si = FALSE;
 	can_si = FALSE;
+	can_si_back = FALSE;
 }
 
 /*
@@ -2179,7 +2209,7 @@ get_last_insert()
  * Check the word in front of the cursor for an abbreviation.
  * Called when the non-id character "c" has been entered.
  * When an abbreviation is recognized it is removed from the text and
- * the replacement string is inserted in typestr, followed by "c".
+ * the replacement string is inserted in typebuf[], followed by "c".
  */
 	static int
 echeck_abbr(c)
@@ -2284,6 +2314,6 @@ get_id_option()
 		idp = curbuf->b_p_id;
 	}
 	else
-		idp = "_";
+		idp = (char_u *)"";		/* out of memory, just return empty string */
 	return idp;
 }

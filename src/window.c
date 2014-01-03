@@ -52,7 +52,7 @@ do_window(nchar, Prenum)
 /* split current window and edit alternate file */
 	case K_CCIRCM:
 				reset_Visual();					/* stop Visual mode */
-				stuffReadbuff(":split #");
+				stuffReadbuff((char_u *)":split #");
 				if (Prenum)
 					stuffnumReadbuff(Prenum);	/* buffer number */
 				stuffcharReadbuff('\n');
@@ -96,9 +96,9 @@ new_win:
 				win_enter(wp, TRUE);
 				cursupdate();
 					/* When jumping to another buffer, stop visual mode */
-				if (curbuf != old_curbuf && VIsual.lnum != 0)
+				if (curbuf != old_curbuf && VIsual_active)
 				{
-					VIsual.lnum = 0;
+					VIsual_active = FALSE;
 					for (wp = firstwin; wp; wp = wp->w_next)
 						if (wp->w_buffer == old_curbuf &&
 											wp->w_redr_type < NOT_VALID)
@@ -228,18 +228,16 @@ new_win:
  */
 	case 'i':						/* Go to any match */
 	case Ctrl('I'):
-	case 'I':
 				type = FIND_ANY;
 				/* FALLTHROUGH */
 	case 'd':						/* Go to definition, using p_def */
 	case Ctrl('D'):
-	case 'D':
 				if (type == -1)
 					type = FIND_DEFINE;
 
 				if ((len = find_ident_under_cursor(&ptr, FALSE)) == 0)
 					break;
-				find_pattern_in_path(ptr, len, TRUE, type,
+				find_pattern_in_path(ptr, len, TRUE, TRUE, type,
 										Prenum1, ACTION_SPLIT,
 										(linenr_t)1, (linenr_t)MAXLNUM);
 				curwin->w_set_curswant = TRUE;
@@ -253,9 +251,9 @@ new_win:
 	static void
 reset_Visual()
 {
-	if (VIsual.lnum != 0)
+	if (VIsual_active)
 	{
-		VIsual.lnum = 0;
+		VIsual_active = FALSE;
 		update_curbuf(NOT_VALID);		/* delete the inversion */
 	}
 }
@@ -453,7 +451,7 @@ make_windows(count)
 	}
 
 /*
- * set 'splitbelow' off for a moment, don't what that now
+ * set 'splitbelow' off for a moment, don't want that now
  */
 	p_sb_save = p_sb;
 	p_sb = FALSE;
@@ -590,6 +588,11 @@ win_equal(next_curwin, redraw)
 	int		temp;
 	WIN		*wp;
 	int		new_height;
+#ifdef ADDED_BY_WEBB_COMPILE
+	int		h = 0;				/* init for gcc */
+#else
+	int		h;
+#endif /* ADDED_BY_WEBB_COMPILE */
 
 /*
  * count the number of lines available
@@ -603,22 +606,28 @@ win_equal(next_curwin, redraw)
 	}
 
 /*
- * if next_curwin given and 'winheight' set, make next_curwin p_wh lines
+ * If next_curwin given and 'winheight' set, make next_curwin p_wh lines.
+ * If this is a help file , use p_hh.
  */
-	if (next_curwin != NULL && p_wh)
+	less = 0;
+	if (next_curwin != NULL)
 	{
-		if (p_wh - MIN_ROWS > total)	/* all lines go to current window */
-			less = total;
+		if (next_curwin->w_buffer->b_help)
+			h = p_hh;
 		else
+			h = p_wh;
+		if (h)
 		{
-			less = p_wh - MIN_ROWS - total / wincount;
-			if (less < 0)
-				less = 0;
+			if (h - MIN_ROWS > total)	/* all lines go to current window */
+				less = total;
+			else
+			{
+				less = h - MIN_ROWS - total / wincount;
+				if (less < 0)
+					less = 0;
+			}
 		}
 	}
-	else
-		less = 0;
-		
 
 /*
  * spread the available lines over the windows
@@ -629,7 +638,7 @@ win_equal(next_curwin, redraw)
 		if (wp == next_curwin && less)
 		{
 			less = 0;
-			temp = p_wh - MIN_ROWS;
+			temp = h - MIN_ROWS;
 			if (temp > total)
 				temp = total;
 		}
@@ -817,6 +826,8 @@ win_enter(wp, undo_sync)
 	WIN		*wp;
 	int		undo_sync;
 {
+	int			h;
+
 	if (wp == curwin)			/* nothing to do */
 		return;
 
@@ -829,8 +840,12 @@ win_enter(wp, undo_sync)
 	curbuf = wp->w_buffer;
 	maketitle();
 			/* set window height to desired minimal value */
-	if (p_wh && curwin->w_height < p_wh)
-		win_setheight((int)p_wh);
+	if (curbuf->b_help)
+		h = p_hh;
+	else
+		h = p_wh;
+	if (h && curwin->w_height < h)
+		win_setheight(h);
 }
 
 /*
@@ -1240,6 +1255,19 @@ get_file_name_in_path(ptr, col, mess)
 	while (isfilechar(ptr[col]))
 		++col;
 
+	if (mess)
+	{
+		/* For hypertext links, ignore the name of the machine.
+		 * Such a link looks like "type://machine/path". Only "/path" is used.
+		 * First search for the string "://", then for the extra '/'
+		 */
+		if ((file_name = STRCHR(ptr, ':')) != NULL &&
+				STRCMP(file_name, "://") == 0 &&
+				(file_name = STRCHR(file_name + 3, '/')) != NULL &&
+				file_name < ptr + col)
+			ptr = file_name;
+	}
+
 		/* copy file name into NameBuff, expanding environment variables */
 	save_char = ptr[col];
 	ptr[col] = NUL;
@@ -1331,7 +1359,7 @@ isfilechar(c)
 {
 		/* characters in a file name besides alfa-num */
 #ifdef UNIX
-	static char_u	*file_chars = (char_u *)"/.-_+,~$";
+	static char_u	*file_chars = (char_u *)"/.-_+,~$:";
 #endif
 #ifdef AMIGA
 	static char_u	*file_chars = (char_u *)"/.-_+,$:";

@@ -40,6 +40,7 @@ static void		free_yank __ARGS((long));
 static void		free_yank_all __ARGS((void));
 static void		block_prep __ARGS((linenr_t, int));
 static int		same_leader __ARGS((char_u *, char_u *, int));
+static int		fmt_is_blank __ARGS((linenr_t, char_u **, int *));
 
 /* variables use by block_prep, dodelete and doyank */
 static int		startspaces;
@@ -312,11 +313,11 @@ doexecbuf(c)
 		}
 		free(new_last_cmdline);		/* don't keep the cmdline containing @: */
 		new_last_cmdline = NULL;
-		if (ins_typestr((char_u *)"\n", FALSE, 0, TRUE) == FAIL)
+		if (ins_typebuf((char_u *)"\n", FALSE, 0, TRUE) == FAIL)
 			return FAIL;
-		if (ins_typestr(last_cmdline, FALSE, 0, TRUE) == FAIL)
+		if (ins_typebuf(last_cmdline, FALSE, 0, TRUE) == FAIL)
 			return FAIL;
-		if (ins_typestr((char_u *)":", FALSE, 0, TRUE) == FAIL)
+		if (ins_typebuf((char_u *)":", FALSE, 0, TRUE) == FAIL)
 			return FAIL;
 	}
 	else
@@ -331,10 +332,10 @@ doexecbuf(c)
 		/* insert newline between lines and after last line if type is MLINE */
 			if (y_current->y_type == MLINE || i < y_current->y_size - 1)
 			{
-				if (ins_typestr((char_u *)"\n", FALSE, 0, TRUE) == FAIL)
+				if (ins_typebuf((char_u *)"\n", FALSE, 0, TRUE) == FAIL)
 					return FAIL;
 			}
-			if (ins_typestr(y_current->y_array[i], FALSE, 0, TRUE) == FAIL)
+			if (ins_typebuf(y_current->y_array[i], FALSE, 0, TRUE) == FAIL)
 				return FAIL;
 		}
 		Exec_reg = TRUE;		/* disable the 'q' command */
@@ -541,7 +542,12 @@ dodelete()
 	{
 		if (operator == CHANGE)
 		{
-			dellines((long)(nlines - 1), TRUE, TRUE);
+			if (nlines > 1)			/* delete the lines except the first one */
+			{
+				++curwin->w_cursor.lnum;
+				dellines((long)(nlines - 1), TRUE, TRUE);
+				--curwin->w_cursor.lnum;
+			}
 			if (u_save_cursor() == FAIL)
 				return;
 			if (curbuf->b_p_ai)				/* don't delete indent */
@@ -575,11 +581,12 @@ dodelete()
 		if (u_save_cursor() == FAIL)	/* save first line for undo */
 			return;
 		n = curwin->w_cursor.col;
-		while (curwin->w_cursor.col >= n)	/* delete from cursor to end of line */
+								/* delete from cursor to end of line */
+		while (curwin->w_cursor.col >= n)
 			if (delchar(TRUE) == FAIL)
 				break;
 
-		curbuf->b_startop = curwin->w_cursor;		/* remember curwin->w_cursor */
+		curbuf->b_startop = curwin->w_cursor;	/* remember curwin->w_cursor */
 		++curwin->w_cursor.lnum;
 		dellines((long)(nlines - 2), TRUE, TRUE);	/* includes save for undo */
 
@@ -587,10 +594,10 @@ dodelete()
 			return;
 		n = curbuf->b_endop.col - !mincl;
 		curwin->w_cursor.col = 0;
-		while (n-- >= 0)		/* delete from start of line until endop */
+		while (n-- >= 0)			/* delete from start of line until endop */
 			if (delchar(TRUE) == FAIL)
 				break;
-		curwin->w_cursor = curbuf->b_startop;		/* restore curwin->w_cursor */
+		curwin->w_cursor = curbuf->b_startop;	/* restore curwin->w_cursor */
 		(void)dojoin(FALSE, TRUE);
 	}
 
@@ -705,9 +712,11 @@ dochange()
 	register colnr_t 		   l;
 
 	l = curbuf->b_startop.col;
+	if (mtype == MLINE)
+		l = 0;
 
 	if (!no_op)
-		dodelete();
+		dodelete();			/* delete the text and take care of undo */
 
 	if ((l > curwin->w_cursor.col) && !lineempty(curwin->w_cursor.lnum))
 		inc_cursor();
@@ -741,7 +750,7 @@ free_yank(n)
 
 		for (i = n; --i >= 0; )
 		{
-			if (i % 1000 == 999)					/* this may take a while */
+			if ((i & 1023) == 1023)					/* this may take a while */
 				smsg((char_u *)"freeing %ld lines", i + 1);
 			free(y_current->y_array[i]);
 		}
@@ -953,7 +962,7 @@ doput(dir, count, fix_indent)
 	int			oldlen;
 	int			totlen = 0;		/* init for gcc */
 	linenr_t	lnum;
-	int			col;
+	colnr_t		col;
 	long 		i;		/* index in y_array[] */
 	int 		y_type;
 	long 		y_size;
@@ -1052,11 +1061,12 @@ doput(dir, count, fix_indent)
 	{
 		if (dir == FORWARD && gchar_cursor() != NUL)
 		{
-			col = getvcol(curwin, &curwin->w_cursor, 3) + 1;
+			getvcol(curwin, &curwin->w_cursor, NULL, NULL, &col);
+			++col;
 			++curwin->w_cursor.col;
 		}
 		else
-			col = getvcol(curwin, &curwin->w_cursor, 2);
+			getvcol(curwin, &curwin->w_cursor, &col, NULL, NULL);
 		for (i = 0; i < y_size; ++i)
 		{
 			startspaces = 0;
@@ -1279,18 +1289,41 @@ error:
 	curwin->w_set_curswant = TRUE;
 }
 
+/* Return the character name of the register with the given number */
+	int
+get_register_name(num)
+	int num;
+{
+	if (num == -1)
+		return '"';
+	else if (num < 10)
+		return num + '0';
+	else if (num == 36)
+		return '-';
+	else
+		return num + 'a' - 10;
+}
+
 /*
  * display the contents of the yank buffers
  */
 	void
-dodis()
+dodis(arg)
+	char_u *arg;
 {
 	register int			i, n;
 	register long			j;
 	register char_u			*p;
 	register struct yankbuf *yb;
+	char_u name;
+  
+	if (arg != NULL && *arg == NUL)
+		arg = NULL;
 
-	msg_outstr((char_u *)"\n--- Registers ---");
+	set_highlight('t');		/* Highlight title */
+	start_highlight();
+	MSG_OUTSTR("\n--- Registers ---");
+	stop_highlight();
 	for (i = -1; i < 37; ++i)
 	{
 		if (i == -1)
@@ -1302,33 +1335,24 @@ dodis()
 		}
 		else
 			yb = &(y_buf[i]);
-		if (yb->y_array != NULL)
+		name = get_register_name(i);
+		if (yb->y_array != NULL && (arg == NULL || STRCHR(arg, name) != NULL))
 		{
 			msg_outchar('\n');
-			if (i == -1)
-				msg_outstr((char_u *)"\"\"");
-			else
-			{
-				msg_outchar('"');
-				if (i < 10)
-					msg_outchar(i + '0');
-				else if (i == 36)
-					msg_outchar('-');
-				else
-					msg_outchar(i + 'a' - 10);
-			}
-			msg_outstr((char_u *)"   ");
+			msg_outchar('"');
+			msg_outchar(name);
+			MSG_OUTSTR("   ");
 
 			n = (int)Columns - 6;
 			for (j = 0; j < yb->y_size && n > 1; ++j)
 			{
 				if (j)
 				{
-					msg_outstr((char_u *)"^J");
+					MSG_OUTSTR("^J");
 					n -= 2;
 				}
 				for (p = yb->y_array[j]; *p && (n -= charsize(*p)) >= 0; ++p)
-					msg_outtrans(p, 1);
+					msg_outtrans_len(p, 1);
 			}
 			flushbuf();				/* show one line at a time */
 		}
@@ -1337,27 +1361,28 @@ dodis()
 	/*
 	 * display last inserted text
 	 */
-	if ((p = get_last_insert()) != NULL)
+	if ((p = get_last_insert()) != NULL &&
+		(arg == NULL || STRCHR(arg, '.') != NULL))
 	{
-		msg_outstr((char_u *)"\n\".   ");
+		MSG_OUTSTR("\n\".   ");
 		dis_msg(p, TRUE);
 	}
 
 	/*
 	 * display last command line
 	 */
-	if (last_cmdline != NULL)
+	if (last_cmdline != NULL && (arg == NULL || STRCHR(arg, ':') != NULL))
 	{
-		msg_outstr((char_u *)"\n\":   ");
+		MSG_OUTSTR("\n\":   ");
 		dis_msg(last_cmdline, FALSE);
 	}
 
 	/*
 	 * display current file name
 	 */
-	if (curbuf->b_xfilename != NULL)
+	if (curbuf->b_xfilename != NULL && (arg == NULL || STRCHR(arg, '%') != NULL))
 	{
-		msg_outstr((char_u *)"\n\"%   ");
+		MSG_OUTSTR("\n\"%   ");
 		dis_msg(curbuf->b_xfilename, FALSE);
 	}
 }
@@ -1376,7 +1401,7 @@ dis_msg(p, skip_esc)
 	n = (int)Columns - 6;
 	while (*p && !(*p == ESC && skip_esc && *(p + 1) == NUL) &&
 						(n -= charsize(*p)) >= 0)
-		msg_outtrans(p++, 1);
+		msg_outtrans_len(p++, 1);
 }
 
 /*
@@ -1550,34 +1575,38 @@ doformat()
 {
 	char_u		*ptr;
 	long		old_line_count = curbuf->b_ml.ml_line_count;
-	int			is_blank = FALSE;
-	int			next_is_blank = FALSE;
+	int			prev_is_blank = FALSE;
+	int			is_blank = TRUE;
+	int			next_is_blank;
 	char_u		*leader = NULL;
-	int			leader_len = 0;
-	int			next_leader_len = 0;
+#ifdef ADDED_BY_WEBB_COMPILE
+	int			leader_len = 0;				/* init for gcc */
+#else
+	int			leader_len;
+#endif /* ADDED_BY_WEBB_COMPILE */
+	int			next_leader_len;
 	int			advance = TRUE;
 	int			i;
+	int			second_indent = -1;
+	int			do_second_indent = FALSE;
+	int			first_par_line = TRUE;
 
 	if (u_save((linenr_t)(curwin->w_cursor.lnum - 1),
 							(linenr_t)(curwin->w_cursor.lnum + nlines)) == FAIL)
 		return;
-	if (curbuf->b_p_fo != NULL && STRCHR(curbuf->b_p_fo, FO_Q_COMS) != NULL)
-		fo_do_comments = TRUE;
 
-	/*
-	 * Blank lines, and lines containing only the comment leader, are left
-	 * untouched by the formatting.  The variable is_blank is TRUE in this
-	 * case.  It is also set when a line starts with the end of a C comment
-	 * (star-slash), so that this line is skipped, and not joined to the
-	 * previous line.  A new paragraph starts after a blank line, or when the
-	 * comment leader changes -- webb.
-	 */
-	ptr = ml_get(curwin->w_cursor.lnum);
-	skipwhite(&ptr);
-	next_leader_len = get_leader_len(ptr);
-	next_is_blank = (ptr[next_leader_len] == NUL ||
-			(next_leader_len > 0 && ptr[0] == '*' && ptr[1] == '/') ||
-			startPS(curwin->w_cursor.lnum, NUL, FALSE));
+	/* check for 'q' and '2' in 'formatoptions' */
+	if (curbuf->b_p_fo != NULL)
+	{
+		fo_do_comments = (STRCHR(curbuf->b_p_fo, FO_Q_COMS) != NULL);
+		do_second_indent = (STRCHR(curbuf->b_p_fo, FO_Q_SECOND) != NULL);
+	}
+
+	if (curwin->w_cursor.lnum > 1)
+		is_blank = fmt_is_blank(curwin->w_cursor.lnum - 1, &ptr,
+															&next_leader_len);
+	next_is_blank = fmt_is_blank(curwin->w_cursor.lnum, &ptr, &next_leader_len);
+
 	curwin->w_cursor.lnum--;
 	while (--nlines >= 0)
 	{
@@ -1586,6 +1615,7 @@ doformat()
 			curwin->w_cursor.lnum++;
 			ptr = ml_get(curwin->w_cursor.lnum);
 			skipwhite(&ptr);
+			prev_is_blank = is_blank;
 			is_blank = next_is_blank;
 			free(leader);
 			leader = NULL;
@@ -1604,8 +1634,6 @@ doformat()
 					STRNCPY(leader, ptr, leader_len);
 					leader[leader_len] = NUL;
 				}
-				else
-					leader_len = 0;
 			}
 		}
 		if (nlines == 0)
@@ -1614,15 +1642,23 @@ doformat()
 			next_leader_len = 0;
 		}
 		else
-		{
-			ptr = ml_get(curwin->w_cursor.lnum + 1);
-			skipwhite(&ptr);
-			next_leader_len = get_leader_len(ptr);
-			next_is_blank = (nlines == 0 || ptr[next_leader_len] == NUL ||
-					(next_leader_len > 0 && ptr[0] == '*' && ptr[1] == '/') ||
-					startPS(curwin->w_cursor.lnum + 1, NUL, FALSE));
-		}
+			next_is_blank = fmt_is_blank(curwin->w_cursor.lnum + 1,
+													&ptr, &next_leader_len);
 		advance = TRUE;
+
+		/*
+		 * For the first line of a paragraph, check indent of second line.
+		 * Don't do this for comments.
+		 */
+		if (first_par_line && do_second_indent && prev_is_blank && !is_blank &&
+				curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count &&
+				leader_len == 0 && next_leader_len == 0)
+		{
+			++curwin->w_cursor.lnum;
+			second_indent = get_indent();
+			--curwin->w_cursor.lnum;
+		}
+
 		if (is_blank)
 		{
 			/* Skip blank lines */
@@ -1638,8 +1674,10 @@ doformat()
 
 				/* do the formatting */
 			State = INSERT;		/* for Opencmd() */
-			insertchar(NUL, TRUE);
+			insertchar(NUL, TRUE, second_indent);
 			State = NORMAL;
+			first_par_line = TRUE;
+			second_indent = -1;
 		}
 		else
 		{
@@ -1661,6 +1699,7 @@ doformat()
 				beep_flush();
 				break;
 			}
+			first_par_line = FALSE;
 		}
 	}
 	fo_do_comments = FALSE;
@@ -1668,6 +1707,28 @@ doformat()
 	beginline(TRUE);
 	updateScreen(NOT_VALID);
 	msgmore(curbuf->b_ml.ml_line_count - old_line_count);
+}
+
+/*
+ * Blank lines, and lines containing only the comment leader, are left
+ * untouched by the formatting.  The variable is_blank is TRUE in this
+ * case.  It is also set when a line starts with the end of a C comment
+ * (star-slash), so that this line is skipped, and not joined to the
+ * previous line.  A new paragraph starts after a blank line, or when the
+ * comment leader changes -- webb.
+ */
+	static int
+fmt_is_blank(lnum, ptr, leader_len)
+	linenr_t	lnum;
+	char_u		**ptr;
+	int			*leader_len;
+{
+	*ptr = ml_get(lnum);
+	skipwhite(ptr);
+	*leader_len = get_leader_len(*ptr);
+	return ((*ptr)[*leader_len] == NUL ||
+			(*leader_len > 0 && (*ptr)[0] == '*' && (*ptr)[1] == '/') ||
+			startPS(lnum, NUL, FALSE));
 }
 
 /*
@@ -1798,12 +1859,14 @@ doaddsub(command, Prenum1)
 {
 	register int 	col;
 	char_u			buf[NUMBUFLEN];
-	int				hex;		/* 'x' or 'X': hexadecimal; '0': octal */
+	int				hex;			/* 'X': hexadecimal; '0': octal */
 	static int		hexupper = FALSE;	/* 0xABC */
 	long			n;
 	char_u			*ptr;
 	int				i;
 	int				c;
+	int				zeros = 0;		/* number of leading zeros */
+	int				digits = 0;		/* number of digits in the number */
 
 	ptr = ml_get(curwin->w_cursor.lnum);
 	col = curwin->w_cursor.col;
@@ -1828,7 +1891,8 @@ doaddsub(command, Prenum1)
 
 	if (isdigit(ptr[col]) && u_save_cursor() == OK)
 	{
-		ptr = ml_get(curwin->w_cursor.lnum);	/* get it again, because of undo */
+		ptr = ml_get(curwin->w_cursor.lnum);	/* get it again, because
+												   u_save may have changed it */
 		curwin->w_set_curswant = TRUE;
 
 		hex = 0;								/* default is decimal */
@@ -1871,10 +1935,17 @@ doaddsub(command, Prenum1)
 
 		if (hex == 'X')					/* skip the '0x' */
 			col += 2;
+		else if (hex == '0')
+			col++;						/* skip the '0' */
 		curwin->w_cursor.col = col;
+
 		c = gchar_cursor();
 		do								/* delete the old number */
 		{
+			if (digits == 0 && c == '0')
+				++zeros;				/* count the number of leading zeros */
+			else
+				++digits;				/* count the number of digits */
 			if (isalpha(c))
 			{
 				if (isupper(c))
@@ -1885,16 +1956,32 @@ doaddsub(command, Prenum1)
 			(void)delchar(FALSE);
 			c = gchar_cursor();
 		}
-		while (hex ? (hex == '0' ? c >= '0' && c <= '7' : isxdigit(c)) : isdigit(c));
+		while (hex ? (hex == '0' ? c >= '0' && c <= '7' :
+										isxdigit(c)) : isdigit(c));
 
-		if (hex == '0')
-			sprintf((char *)buf, "0%lo", n);
-		else if (hex && hexupper)
-			sprintf((char *)buf, "%lX", n);
-		else if (hex)
-			sprintf((char *)buf, "%lx", n);
-		else
+		if (hex == 0)
 			sprintf((char *)buf, "%ld", n);
+		else
+		{
+			if (hex == '0')
+				sprintf((char *)buf, "%lo", n);
+			else if (hex && hexupper)
+				sprintf((char *)buf, "%lX", n);
+			else if (hex)
+				sprintf((char *)buf, "%lx", n);
+			/* adjust number of zeros to the new number of digits, so the
+			 * total length of the number remains the same */
+			if (zeros)
+			{
+				zeros += digits - STRLEN(buf);
+				if (zeros > 0)
+				{
+					memmove(buf + zeros, buf, STRLEN(buf) + 1);
+					for (col = 0; zeros > 0; --zeros)
+						buf[col++] = '0';
+				}
+			}
+		}
 		insstr(buf);					/* insert the new number */
 		--curwin->w_cursor.col;
 		updateline();

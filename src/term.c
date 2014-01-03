@@ -530,6 +530,7 @@ struct builtin_term builtin_termcaps[] = {
 	{KS_SF10,    "[SF10]"},
 	{KS_HELP,    "[HELP]"},
 	{KS_UNDO,    "[UNDO]"},
+	{KS_BS,		 "[BS]"},
 	{KS_INS,	 "[INS]"},
 	{KS_DEL,	 "[DEL]"},
 	{KS_HOME,    "[HOME]"},
@@ -564,19 +565,19 @@ struct builtin_term builtin_termcaps[] = {
  * DEFAULT_TERM is used, when no terminal is specified with -T option or $TERM.
  */
 #ifdef AMIGA
-# define DEFAULT_TERM	"amiga"
+# define DEFAULT_TERM	(char_u *)"amiga"
 #endif /* AMIGA */
 
 #ifdef NT
-# define DEFAULT_TERM	"ntconsole"
+# define DEFAULT_TERM	(char_u *)"ntconsole"
 #else
 # ifdef MSDOS
-#  define DEFAULT_TERM	"pcterm"
+#  define DEFAULT_TERM	(char_u *)"pcterm"
 # endif /* MSDOS */                                   
 #endif /* NT */ 
 
 #ifdef UNIX
-# define DEFAULT_TERM	"ansi"
+# define DEFAULT_TERM	(char_u *)"ansi"
 #endif /* UNIX */
 
 /*
@@ -586,7 +587,7 @@ struct builtin_term builtin_termcaps[] = {
  */
 Tcarr term_strings;
 
-static char	*termleader;			/* for check_termcode() */
+static char_u	*termleader;			/* for check_termcode() */
 
 	static struct builtin_term *
 find_builtin_term(name)
@@ -764,6 +765,7 @@ set_term(term)
 			term_strings.t_sf10 = TGETSTR("FA", &tp);
 			term_strings.t_help = TGETSTR("%1", &tp);
 			term_strings.t_undo = TGETSTR("&8", &tp);
+			term_strings.t_bs = TGETSTR("kb", &tp);
 			term_strings.t_ins = TGETSTR("kI", &tp);
 			term_strings.t_del = TGETSTR("kD", &tp);
 			term_strings.t_home = TGETSTR("kh", &tp);
@@ -834,14 +836,30 @@ set_term(term)
 		T_CSC = NULL;
 
 	/*
+	 * Always set defaults for BS and DEL
+	 */
+	if (term_strings.t_bs == NULL)
+#ifdef ADDED_BY_WEBB_COMPILE
+		term_strings.t_bs = strsave((char_u *)"\010");
+#else
+		term_strings.t_bs = strsave("\010");
+#endif /* ADDED_BY_WEBB_COMPILE */
+	if (term_strings.t_del == NULL)
+#ifdef ADDED_BY_WEBB_COMPILE
+		term_strings.t_del = strsave((char_u *)"\177");
+#else
+		term_strings.t_del = strsave("\177");
+#endif /* ADDED_BY_WEBB_COMPILE */
+
+	/*
 	 * recognize mouse events in the input stream for xterm or msdos
 	 */
 #ifdef UNIX
 	if (is_xterm(term))
-		term_strings.t_mouse = strsave("\033[M");
+		term_strings.t_mouse = strsave((char_u *)"\033[M");
 #endif
 #ifdef MSDOS
-	term_strings.t_mouse = strsave("\233M");
+	term_strings.t_mouse = strsave((char_u *)"\233M");
 #endif
 
 #if defined(AMIGA) || defined(MSDOS)
@@ -976,6 +994,8 @@ tgoto(cm, x, y)
 termcapinit(term)
 	char_u *term;
 {
+	if (not_full_screen)
+		return;
 	if (!term)
 		term = vimgetenv((char_u *)"TERM");
 	if (!term || !*term)
@@ -1249,52 +1269,62 @@ inchar(buf, maxlen, wait_time)
 }
 
 /*
- * Check if typestr[] contains a terminal key code.
+ * Check if typebuf[] contains a terminal key code.
+ * Check from typebuf[typeoff] to typebuf[typeoff + max_offset].
  * Return 0 for no match, -1 for partial match, > 0 for full match.
  * With a match, the match is removed, the replacement code is inserted in
- * typestr[] and the number of characters in typestr[] is returned.
+ * typebuf[] and the number of characters in typebuf[] is returned.
  */
 	int
-check_termcode()
+check_termcode(max_offset)
+	int		max_offset;
 {
-	char_u 	**p;
-	int		slen;
-	int		len;
-	int		offset;
+	char_u 		**p;
+	char_u		*tp;
+	int			slen;
+	int			len;
+	int			offset;
+#if defined(UNIX) || defined(MSDOS)
+	static int	last_mouse_code;
+#endif
 
 	/*
-	 * Check at all positions in typestr[], to catch something like "x<C_UP>"
+	 * Check at several positions in typebuf[], to catch something like
+	 * "x<C_UP>" that can be mapped. Stop at max_offset, because characters
+	 * after that cannot be used for mapping, and with @r commands typebuf[]
+	 * can become very long.
 	 */
-	for (offset = 0; typestr[offset] != NUL; ++offset)
+	for (offset = 0; offset < typelen && offset < max_offset; ++offset)
 	{
+		tp = typebuf + typeoff + offset;
 		/*
 		 * Skip this position if the character does not appear as the first
 		 * character in term_strings. This speeds up a lot, since most
-		 * termcodes start with the same character.
+		 * termcodes start with the same character (ESC or CSI).
 		 */
-		if (STRCHR(termleader, typestr[offset]) == NULL)
+		if (STRCHR(termleader, *tp) == NULL)
 			continue;
 
 		/*
-		 * skip this position if p_ek is not set and typestr[offset] is an ESC
-		 * and we are in insert mode
+		 * skip this position if p_ek is not set and typebuf[typeoff + offset]
+		 * is an ESC and we are in insert mode
 		 */
-		if (typestr[offset] == ESC && !p_ek && (State & INSERT))
+		if (*tp == ESC && !p_ek && (State & INSERT))
 			continue;
-		len = STRLEN(typestr + offset);
+		len = typelen - offset;
+
 		for (p = (char_u **)&term_strings.T_FIRST_KEY;
 						p != (char_u **)&term_strings.T_LAST_KEY + 1; ++p)
 		{
 			/*
 			 * Ignore the entry if it is blank or when we are not at the
-			 * start of typestr[] and there are not enough characters to make
+			 * start of typebuf[] and there are not enough characters to make
 			 * a match
 			 */
 			if (*p == NULL || (slen = STRLEN(*p)) == 0 ||
 											(offset && len < slen))
 				continue;
-			if (STRNCMP(*p, typestr + offset, (size_t)(slen > len ?
-														len : slen)) == 0)
+			if (STRNCMP(*p, tp, (size_t)(slen > len ?  len : slen)) == 0)
 			{
 				if (len < slen)				/* got a partial sequence */
 					return -1;				/* need to get more chars */
@@ -1309,29 +1339,49 @@ check_termcode()
 				 *
 				 * The coordinates are passed on through global variables. Ugly,
 				 * but this avoids trouble with mouse clicks at an unexpected
-				 * moment.
+				 * moment and allows for mapping them.
 				 */
 				if (p == (char_u **)&term_strings.t_mouse)
 				{
+					/* if previous mouse click not processed yet, don't
+					 * recognize this one */
+					if (mouse_code)
+						continue;
 					if (len < slen + 3)		/* not enough coordinates */
 						return -1;
-					mouse_code = typestr[slen + offset];
-					mouse_col = typestr[slen + offset + 1] - '!';
-					mouse_row = typestr[slen + offset + 2] - '!';
-					slen += 3;
+					mouse_code = tp[slen];
+					++slen;
+					mouse_col = tp[slen] - '!';
+					++slen;
+					mouse_row = tp[slen] - '!';
+
+					/* replace last char by the button code */
+					if ((mouse_code & MOUSE_MASK) == MOUSE_LEFT)
+						last_mouse_code = 'L';
+					else if ((mouse_code & MOUSE_MASK) == MOUSE_MIDDLE)
+						last_mouse_code = 'M';
+					else if ((mouse_code & MOUSE_MASK) == MOUSE_RIGHT)
+						last_mouse_code = 'R';
+					else if ((mouse_code & MOUSE_MASK) == MOUSE_RELEASE)
+						last_mouse_code = tolower(last_mouse_code);
+					tp[slen] = last_mouse_code;
 				}
 #endif
 				if (slen > 2)
 						/* remove matched chars, taking care of noremap */
-					del_typestr(slen - 2, offset);
+					del_typebuf(slen - 2, offset);
 				else if (slen == 1)
 						/* insert an extra space for K_SPECIAL */
-					ins_typestr((char_u *)" ", FALSE, offset, FALSE);
+					ins_typebuf((char_u *)" ", FALSE, offset, FALSE);
 
+				/*
+				 * Careful: del_typebuf() and ins_typebuf() may have
+				 * reallocated typebuf[]
+				 */
+				typebuf[typeoff + offset] = K_SPECIAL;
 					/* this relies on the Key numbers to be consecutive! */
-				typestr[offset] = K_SPECIAL;
-				typestr[offset + 1] = KS_UARROW +
-								(p - (char_u **)&term_strings.T_FIRST_KEY);
+				typebuf[typeoff + offset + 1] =
+						KS_UARROW + (p - (char_u **)&term_strings.T_FIRST_KEY);
 				return (len - slen + 2 + offset);
 			}
 		}
@@ -1493,15 +1543,13 @@ set_winsize(width, height, mustset)
 	}
 	else
 		check_winsize();		/* always check, to get p_scroll right */
-	if (State == HELP)
-		(void)redrawhelp();
-	else if (!starting)
+	if (!starting)
 	{
 		comp_Botline_all();
 		if (State == ASKMORE)	/* don't redraw, just adjust screen size */
 		{
 			screenalloc(FALSE);
-			msg_moremsg();		/* display --more-- message again */
+			msg_moremsg(TRUE);	/* display --more-- message again */
 			msg_row = Rows - 1;
 		}
 		else
@@ -1525,30 +1573,39 @@ settmode(raw)
 {
 	static int		oldraw = FALSE;
 
-	if (oldraw == raw)		/* skip if already in desired mode */
-		return;
-	oldraw = raw;
+	if (!not_full_screen)
+	{
+		if (oldraw == raw)		/* skip if already in desired mode */
+			return;
+		oldraw = raw;
 
-	mch_settmode(raw);	/* machine specific function */
+		mch_settmode(raw);	/* machine specific function */
+	}
 }
 
 	void
 starttermcap()
 {
-	outstr(T_TS);	/* start termcap mode */
-	outstr(T_KS);	/* start "keypad transmit" mode */
-	flushbuf();
-	termcap_active = TRUE;
+	if (!not_full_screen && !termcap_active)
+	{
+		outstr(T_TS);	/* start termcap mode */
+		outstr(T_KS);	/* start "keypad transmit" mode */
+		flushbuf();
+		termcap_active = TRUE;
+	}
 }
 
 	void
 stoptermcap()
 {
-	outstr(T_KE);	/* stop "keypad transmit" mode */
-	flushbuf();
-	termcap_active = FALSE;
-	cursor_on();	/* just in case it is still off */
-	outstr(T_TE);	/* stop termcap mode */
+	if (!not_full_screen && termcap_active)
+	{
+		outstr(T_KE);	/* stop "keypad transmit" mode */
+		flushbuf();
+		termcap_active = FALSE;
+		cursor_on();	/* just in case it is still off */
+		outstr(T_TE);	/* stop termcap mode */
+	}
 }
 
 /*
@@ -1574,7 +1631,7 @@ static int cursor_is_off = FALSE;
 	void
 cursor_on()
 {
-	if (cursor_is_off && (VIsual.lnum == 0 || highlight == NULL))
+	if (cursor_is_off && (!VIsual_active || highlight == NULL))
 	{
 		outstr(T_CV);
 		cursor_is_off = FALSE;

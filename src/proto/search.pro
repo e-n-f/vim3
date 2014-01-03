@@ -14,6 +14,6 @@ int fwd_word __PARMS((long count, int type, int eol));
 int bck_word __PARMS((long count, int type));
 int end_word __PARMS((long count, int type, int stop));
 int skip_chars __PARMS((int class, int dir));
-void find_pattern_in_path __PARMS((char_u *ptr, int len, int whole, int type, int count, int action, linenr_t start_lnum, linenr_t end_lnum));
+void find_pattern_in_path __PARMS((char_u *ptr, int len, int whole, int skip_comments, int type, long count, int action, linenr_t start_lnum, linenr_t end_lnum));
 int read_viminfo_search_pattern __PARMS((char_u *line, linenr_t *lnum, FILE *fp, int force));
 void write_viminfo_search_pattern __PARMS((FILE *fp));

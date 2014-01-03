@@ -10,7 +10,7 @@ void windgoto __PARMS((int row, int col));
 void setcursor __PARMS((void));
 void ttest __PARMS((int pairs));
 int inchar __PARMS((char_u *buf, int maxlen, int wait_time));
-int check_termcode __PARMS((void));
+int check_termcode __PARMS((int max_offset));
 void replace_termcodes __PARMS((char_u *buf));
 void outnum __PARMS((register long n));
 void check_winsize __PARMS((void));

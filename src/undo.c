@@ -271,8 +271,6 @@ u_undo(count)
 		count = 1;
 	}
 
-	curbuf->b_startop.lnum = 0;			/* unset '[ mark */
-	curbuf->b_endop.lnum = 0;				/* unset '] mark */
 	u_newcount = 0;
 	u_oldcount = 0;
 	while (count--)
@@ -347,6 +345,10 @@ u_undoredo()
 	 * save marks before undo/redo
 	 */
 	memmove((char *)namedm, (char *)curbuf->b_namedm, sizeof(FPOS) * NMARKS); 
+	curbuf->b_startop.lnum = curbuf->b_ml.ml_line_count;
+	curbuf->b_startop.col = 0;
+	curbuf->b_endop.lnum = 0;
+	curbuf->b_endop.col = 0;
 
 	for (uep = curbuf->b_u_curhead->uh_entry; uep != NULL; uep = nuep)
 	{
@@ -423,9 +425,20 @@ u_undoredo()
 		/* adjust marks */
 		if (oldsize != newsize)
 		{
-			mark_adjust(top, top + oldsize - 1, MAXLNUM);
-			mark_adjust(top + oldsize, MAXLNUM, (long)newsize - (long)oldsize);
+			mark_adjust(top + 1, top + oldsize, MAXLNUM);
+			mark_adjust(top + oldsize + 1, MAXLNUM, (long)newsize - (long)oldsize);
+			if (curbuf->b_startop.lnum > top + oldsize)
+				curbuf->b_startop.lnum += newsize - oldsize;
+			if (curbuf->b_endop.lnum > top + oldsize)
+				curbuf->b_endop.lnum += newsize - oldsize;
 		}
+		/* set '[ and '] mark */
+		if (top + 1 < curbuf->b_startop.lnum)
+			curbuf->b_startop.lnum = top + 1;
+		if (newsize == 0 && top + 1 > curbuf->b_endop.lnum)
+			curbuf->b_endop.lnum = top + 1;
+		else if (top + newsize > curbuf->b_endop.lnum)
+			curbuf->b_endop.lnum = top + newsize;
 
 		u_newcount += newsize;
 		u_oldcount += oldsize;

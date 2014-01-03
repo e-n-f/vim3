@@ -32,7 +32,7 @@
 #endif
 
 #ifndef VIM_HLP
-# define VIM_HLP		"vim:vim.hlp"
+# define VIM_HLP		"vim:vim_help.txt"
 #endif
 
 #ifdef VIMINFO

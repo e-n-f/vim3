@@ -67,6 +67,7 @@
 #include "proto.h"
 #include "param.h"
 #include <fcntl.h>
+#include <time.h>
 
 #ifdef SASC
 # include <proto/dos.h>		/* for Open() and Close() */
@@ -132,7 +133,7 @@ struct data_block
  * The mark has to be in this place to keep it with the correct line when other
  * lines are inserted or deleted.
  */
-#define DB_MARKED		(1 << ((sizeof(unsigned) * 8) - 1))
+#define DB_MARKED		((unsigned)1 << ((sizeof(unsigned) * 8) - 1))
 #define DB_INDEX_MASK	(~DB_MARKED)
 
 #define INDEX_SIZE	(sizeof(unsigned))		/* size of one db_index entry */
@@ -188,7 +189,7 @@ static void ml_lineadd __ARGS((BUF *, int));
 ml_open()
 {
 	MEMFILE		*mfp = NULL;
-	char_u		*fname = NULL;
+	char_u		*fname;
 	BHDR		*hp = NULL;
 	ZERO_BL		*b0p;
 	PTR_BL		*pp;
@@ -228,6 +229,7 @@ ml_open()
 		i = 1;		/* try once */
 	for ( ; i < 2 && (mfp = mf_open(fname, TRUE, i == 0)) == NULL; ++i)
 	{
+		free(fname);
 		fname = findswapname(curbuf, TRUE);		/* NULL detected below */
 	}
 	if (mfp == NULL)
@@ -387,7 +389,7 @@ ml_setname()
 	}
 	if (mfp->mf_fd == -1)
 	{
-		mfp->mf_fd = open(mfp->mf_fname, O_RDWR);
+		mfp->mf_fd = open((char *)mfp->mf_fname, O_RDWR);
 		if (mfp->mf_fd == -1)
 		{
 			/* what can we do???? */
@@ -426,8 +428,9 @@ ml_open_files()
 	/*
 	 * open the memfile
 	 *
-	 * If a file name given, 'directory' option is set and does not start with '>'
-	 * may try twice: first in current dir and if that fails in 'directory'.
+	 * If a file name given, 'directory' option is set and does not start with
+	 * '>' may try twice: first in current dir and if that fails in
+	 * 'directory'.
 	 */
 		if (fname != NULL && *p_dir != NUL && *p_dir != '>')
 			i = 0;		/* try twice */
@@ -435,10 +438,12 @@ ml_open_files()
 			i = 1;		/* try once */
 		for ( ; i < 2 && mf_open_file(mfp, fname) == FAIL; ++i)
 		{
+			free(fname);
 			fname = findswapname(buf, TRUE);		/* NULL detected below */
 		}
 		if (mfp->mf_fname == NULL)
 		{
+			free(fname);
 			need_wait_return = TRUE;		/* call wait_return later */
 			++no_wait_return;
 			(void)EMSG2("Unable to open swap file for \"%s\", recovery impossible",
@@ -490,8 +495,8 @@ ml_close_all(delete)
 ml_timestamp(buf)
 	BUF			*buf;
 {
-	MEMFILE		*mfp = NULL;
-	BHDR		*hp = NULL;
+	MEMFILE		*mfp;
+	BHDR		*hp;
 	ZERO_BL		*b0p;
 	struct stat	st;
 
@@ -521,7 +526,7 @@ ml_recover()
 {
 	BUF			*buf = NULL;
 	MEMFILE		*mfp = NULL;
-	char_u		*fname = NULL;
+	char_u		*fname;
 	BHDR		*hp = NULL;
 	ZERO_BL		*b0p;
 	PTR_BL		*pp;
@@ -546,22 +551,59 @@ ml_recover()
 
 /*
  * If the file name ends in ".sw?" we use it directly.
- * Otherwise ".swp" is appended.
+ * Otherwise a search is done to find the swap file(s).
  */
 	fname = curbuf->b_xfilename;
+	if (fname == NULL)				/* When there is no file name */
+#ifdef ADDED_BY_WEBB_COMPILE
+		fname = (char_u *)"";
+#else
+		fname = "";
+#endif /* ADDED_BY_WEBB_COMPILE */
 	len = STRLEN(fname);
-	if (len >= 4 && vim_strnicmp(fname + len - 4, (char_u *)".sw", (size_t)3) == 0)
+	if (len >= 4 && vim_strnicmp(fname + len - 4,
+									(char_u *)".sw", (size_t)3) == 0)
 	{
-		fname = strsave(fname);		/* make a copy for mf_open */
 		directly = TRUE;
+		fname = strsave(fname);		/* make a copy for mf_open */
 	}
 	else
 	{
-		fname = makeswapname(curbuf, FALSE);
 		directly = FALSE;
+
+			/* count the number of matching swap files */
+		len = recover_names(&fname, FALSE, 0);
+		if (len == 0)				/* no swap files found */
+		{
+			EMSG2("No swap file found for %s", fname);
+			fname = NULL;
+			goto theend;
+		}
+		if (len == 1)				/* one swap file found, use it */
+			i = 1;
+		else						/* several swap files found, choose */
+		{
+				/* list the names of the swap files */
+			(void)recover_names(&fname, TRUE, 0);
+			msg_outchar('\n');
+			MSG_OUTSTR("Enter number of swap file to use (0 to quit): ");
+			i = get_number();
+			if (i < 1 || i > len)
+			{
+				fname = NULL;
+				goto theend;
+			}
+		}
+				/* get the swap file name that will be used */
+		(void)recover_names(&fname, FALSE, i);
 	}
 	if (fname == NULL)
 		goto theend;					/* out of memory */
+
+			/* When called from main() still need to initialize storage
+			 * structure */
+	if (curbuf->b_ml.ml_mfp == NULL && ml_open() == FAIL)
+		getout(1);
 
 /*
  * allocate a buffer structure (only the memline in it is really used)
@@ -581,22 +623,9 @@ ml_recover()
 	buf->b_ml.ml_flags = 0;
 
 /*
- * open the memfile
- *
- * If swap file name not given directly, 'directory' option is set and
- * does not start with '>' may try twice: first in current dir and if that
- * fails in 'directory'.
+ * open the memfile from the old swap file
  */
-	if (!directly && *p_dir != NUL && *p_dir != '>')
-		i = 0;		/* try twice */
-	else
-		i = 1;		/* try once */
-	for ( ; i < 2 && (mfp = mf_open(fname, FALSE, i == 0)) == NULL; i++)
-	{
-		fname = makeswapname(curbuf, TRUE);
-		if (fname == NULL)
-			goto theend;
-	}
+	mfp = mf_open(fname, FALSE, TRUE);
 	if (mfp == NULL || mfp->mf_fd < 0)
 	{
 		EMSG2("Cannot open %s", fname);
@@ -610,9 +639,9 @@ ml_recover()
 	if ((hp = mf_get(mfp, (blocknr_t)0, 1)) == NULL)
 	{
 		msg_start();
-		msg_outstr((char_u *)"Unable to read block 0 from ");
-		msg_outstr(fname);
-		msg_outstr((char_u *)"\nMaybe no changes were made or Vim did not update the .swp file");
+		MSG_OUTSTR("Unable to read block 0 from ");
+		msg_outtrans(fname);
+		MSG_OUTSTR("\nMaybe no changes were made or Vim did not update the swap file");
 		msg_end();
 		goto theend;
 	}
@@ -642,8 +671,15 @@ ml_recover()
 	if (directly && setfname(b0p->b0_fname, NULL, TRUE) == FAIL)
 		goto theend;
 
-	smsg((char_u *)"Using swap file \"%s\", original file \"%s\"", fname,
-				curbuf->b_filename == NULL ? "No File" : (char *)curbuf->b_filename);
+	home_replace(fname, NameBuff, MAXPATHL);
+	smsg((char_u *)"Using swap file \"%s\"", NameBuff);
+
+	if (curbuf->b_filename == NULL)
+		STRCPY(NameBuff, "No File");
+	else
+		home_replace(curbuf->b_filename, NameBuff, MAXPATHL);
+	smsg((char_u *)"Original file \"%s\"", NameBuff);
+	msg_outchar((char_u)'\n');
 
 /*
  * check date of swap file and original file
@@ -850,7 +886,7 @@ ml_recover()
 	 */
 	ml_delete(curbuf->b_ml.ml_line_count, FALSE);
 
-	recoverymode = 0;
+	recoverymode = FALSE;
 	if (got_int)
 		EMSG("Recovery Interrupted");
 	else if (error)
@@ -858,9 +894,9 @@ ml_recover()
 	else
 	{
 		MSG("Recovery completed. Check if everything is OK.");
-		msg_outstr("\n(You might want to write out this file under another name\n");
-		msg_outstr("and run diff with the original file to check for changes)\n");
-		msg_outstr("Delete the .swp file afterwards.\n\n");
+		MSG_OUTSTR("\n(You might want to write out this file under another name\n");
+		MSG_OUTSTR("and run diff with the original file to check for changes)\n");
+		MSG_OUTSTR("Delete the .swp file afterwards.\n\n");
 		cmdline_row = msg_row;
 	}
 
@@ -875,6 +911,253 @@ theend:
 		free(fname);
 	free(buf);
 	return;
+}
+
+/*
+ * Find the names of swap files in current directory and the directory given
+ * with the 'directory' option.
+ *
+ * Used to:
+ * - list the swap files for "vim -r"
+ * - count the number of swap files when recovering
+ * - list the swap files when recovering
+ * - find the name of the n'th swap file when recovering
+ */
+	int
+recover_names(fname, list, nr)
+	char_u		**fname;	/* base for swap file name */
+	int			list;		/* when TRUE, list the swap file names */
+	int			nr;			/* when non-zero, return nr'th swap file name */
+{
+	int			num_names;
+	char_u		*(names[6]);
+	char_u		*tail;
+#ifdef ADDED_BY_WEBB_COMPILE
+/* Apollo compiler complains about value assigned never being used.  Gcc
+ * doesn't complain anyway about no initialisation in this case.
+ */
+	char_u		*p;
+#else
+	char_u		*p = NULL;	/* init to stop compiler warnings */
+#endif /* ADDED_BY_WEBB_COMPILE */
+	int			num_files;
+	int			file_count = 0;
+	char_u		**files;
+	int			i;
+	int			dir_num;
+	struct stat st;
+
+	if (list)
+	{
+			/* use msg() to start the scrolling properly */
+		msg((char_u *)"Swap files found:");
+		msg_outchar('\n');
+	}
+	expand_interactively = TRUE;
+	for (dir_num = 0; dir_num <= 1; ++dir_num)
+	{
+		if (dir_num == 0)			/* check current dir */
+		{
+			if (*p_dir == '>')		/* not using current dir */
+				continue;
+			if (fname == NULL || *fname == NULL)
+			{
+				names[0] = strsave((char_u *)"*.sw?");
+#ifdef UNIX
+					/* for Unix names starting with a dot are special */
+				names[1] = strsave((char_u *)".*.sw?");
+				names[2] = strsave((char_u *)".sw?");
+				num_names = 3;
+#else
+				num_names = 1;
+#endif
+			}
+			else
+			{
+				names[0] = concat_fnames(*fname, (char_u *)".sw?", FALSE);
+				/*
+				 * Also make the shortname version of the file name.
+				 * Only use it if it is different.
+				 */
+				i = curbuf->b_shortname;
+				curbuf->b_shortname = TRUE;
+				names[1] = modname(*fname, (char_u *)".sw?");
+				curbuf->b_shortname = i;
+				if (STRCMP(names[0], names[1]) == 0)
+				{
+					free(names[1]);
+					num_names = 1;
+				}
+				else
+					num_names = 2;
+			}
+		}
+		else						/* check 'directory' dir */
+		{
+			p = p_dir;
+			if (*p == '>')
+				++p;
+			if (STRLEN(p) == 0)
+				num_names = 0;
+			else if (fname == NULL || *fname == NULL)
+			{
+				names[0] = concat_fnames(p, (char_u *)"*.sw?", TRUE);
+#ifdef UNIX
+					/* for Unix names starting with a dot are special */
+				names[1] = concat_fnames(p, (char_u *)".*.sw?", TRUE);
+				names[2] = concat_fnames(p, (char_u *)".sw?", TRUE);
+				num_names = 3;
+#else
+				num_names = 1;
+#endif
+			}
+			else
+			{
+				tail = gettail(*fname);
+				tail = concat_fnames(p, tail, TRUE);
+				if (tail == NULL)
+					num_names = 0;
+				else
+				{
+					names[0] = concat_fnames(tail, (char_u *)".sw?", FALSE);
+					/*
+					 * Also make the shorname version of the file name.
+					 * Only use it if it is different.
+					 */
+					i = curbuf->b_shortname;
+					curbuf->b_shortname = TRUE;
+					names[1] = modname(tail, (char_u *)".sw?");
+					curbuf->b_shortname = i;
+					if (STRCMP(names[0], names[1]) == 0)
+					{
+						free(names[1]);
+						num_names = 1;
+					}
+					else
+						num_names = 2;
+					free(tail);
+				}
+			}
+		}
+
+			/* check for out-of-memory */
+		for (i = 0; i < num_names; ++i)
+		{
+			if (names[i] == NULL)
+			{
+				for (i = 0; i < num_names; ++i)
+					free(names[i]);
+				num_names = 0;
+			}
+		}
+		if (num_names == 0)
+			num_files = 0;
+		else if (ExpandWildCards(num_names, names,
+							&num_files, &files, TRUE, FALSE) == FAIL)
+		{
+			MSG_OUTSTR(files);		/* print error message */
+			num_files = 0;
+		}
+		/*
+		 * remove swapfile name of the current buffer, it must be ignored
+		 */
+		if (curbuf->b_ml.ml_mfp != NULL &&
+								(p = curbuf->b_ml.ml_mfp->mf_fname) != NULL)
+		{
+			for (i = 0; i < num_files; ++i)
+				if (fullpathcmp(p, files[i]) == FALSE)
+				{
+					free(files[i]);
+					--num_files;
+					for ( ; i < num_files; ++i)
+						files[i] = files[i + 1];
+					break;
+				}
+		}
+		if (nr)
+		{
+			file_count += num_files;
+			if (nr <= file_count)
+			{
+				*fname = strsave(files[nr - 1 + num_files - file_count]);
+				dir_num = 3;					/* stop searching */
+			}
+		}
+		else if (list)
+		{
+			if (dir_num == 0)
+			{
+				if (fname == NULL || *fname == NULL)
+					MSG_OUTSTR("   In current directory:\n");
+				else
+					MSG_OUTSTR("   Using specified name:\n");
+			}
+			else
+			{
+				MSG_OUTSTR("   In directory ");
+				home_replace(*p_dir == '>' ? p_dir + 1 : p_dir,
+													NameBuff, MAXPATHL);
+				msg_outstr(NameBuff);
+				MSG_OUTSTR(":\n");
+			}
+
+			if (num_files)
+			{
+				for (i = 0; i < num_files; ++i)
+				{
+					/* print the swap file name */
+					msg_outnum((long)++file_count);
+					MSG_OUTSTR(".    ");
+					msg_outstr(gettail(files[i]));
+					msg_outchar('\n');
+					/* print the swap file date */
+					if (stat((char *)files[i], &st) != -1)
+					{
+						MSG_OUTSTR("         dated:     ");
+						MSG_OUTSTR(ctime(&st.st_mtime));
+					}
+					/* print the original file name */
+					{
+						int				fd;
+						struct block0	b0;
+
+						fd = open(files[i], O_RDONLY);
+						if (fd >= 0)
+						{
+							if (read(fd, &b0, sizeof(b0)) == sizeof(b0))
+							{
+								if (b0.b0_id != BLOCK0_ID)
+									MSG_OUTSTR("         [is not a swap file]");
+								else
+								{
+									MSG_OUTSTR("         file name: ");
+									home_replace(b0.b0_fname, NameBuff, MAXPATHL);
+									msg_outstr(NameBuff);
+								}
+							}
+							else
+								MSG_OUTSTR("         [cannot be read]");
+							close(fd);
+						}
+						else
+							MSG_OUTSTR("         [cannot be opened]");
+						msg_outchar('\n');
+					}
+				}
+			}
+			else
+				MSG_OUTSTR("      -- none --\n");
+			flushbuf();
+		}
+		else
+			file_count += num_files;
+
+		for (i = 0; i < num_names; ++i)
+			free(names[i]);
+		FreeWild(num_files, files);
+	}
+	expand_interactively = FALSE;
+	return file_count;
 }
 
 /*
@@ -1127,7 +1410,7 @@ ml_append_int(buf, lnum, line, len, newfile)
 	int			page_size;
 	int			page_count;
 	int			db_idx;			/* index for lnum in data block */
-	BHDR		*hp = NULL;
+	BHDR		*hp;
 	MEMFILE		*mfp;
 	DATA_BL		*dp;
 	PTR_BL		*pp;
@@ -1646,10 +1929,11 @@ ml_delete_int(buf, lnum, message)
  */
 	if (buf->b_ml.ml_line_count == 1)		/* file becomes empty */
 	{
-		buf->b_ml.ml_flags |= ML_EMPTY;
 		if (message)
-			emsg("No lines in buffer");
-		return ml_replace(1, (char_u *)"", TRUE);
+			keep_msg = (char_u *)"No lines in buffer";
+		i = ml_replace(1, (char_u *)"", TRUE);
+		buf->b_ml.ml_flags |= ML_EMPTY;
+		return i;
 	}
 
 /*
@@ -2336,7 +2620,7 @@ makeswapname(buf, second_try)
 		pdir = p_dir + 1;
 	else
 		pdir = p_dir;
-	s = concat_fnames(pdir, fname);
+	s = concat_fnames(pdir, fname, TRUE);
 	free(r);
 	return s;
 }
@@ -2403,14 +2687,14 @@ findswapname(buf, second_try)
 			struct stat		s1, s2;
 			int				f1, f2;
 			int				created1 = FALSE, created2 = FALSE;
-			int				equal = FALSE;
+			int				same = FALSE;
 
 			/*
 			 * Check if swapfilename does not fit in 8.3:
 			 * It either contains two dots or it is longer than 8 chars.
 			 */
 			tail = gettail(curbuf->b_xfilename);
-			if (STRCHR(tail, '.') != NULL || STRLEN(tail) > 8)
+			if (STRCHR(tail, '.') != NULL || STRLEN(tail) > (size_t)8)
 			{
 				fname2 = alloc(n + 1);
 				if (fname2 != NULL)
@@ -2423,18 +2707,18 @@ findswapname(buf, second_try)
 					/*
 					 * may need to create the files to be able to use stat()
 					 */
-					f1 = open(fname, O_RDONLY);
+					f1 = open((char *)fname, O_RDONLY);
 					if (f1 < 0)
 					{
-						f1 = open(fname, O_RDWR|O_CREAT|O_EXCL);
+						f1 = open((char *)fname, O_RDWR|O_CREAT|O_EXCL);
 						created1 = TRUE;
 					}
 					if (f1 >= 0)
 					{
-						f2 = open(fname2, O_RDONLY);
+						f2 = open((char *)fname2, O_RDONLY);
 						if (f2 < 0)
 						{
-							f2 = open(fname, O_RDWR|O_CREAT|O_EXCL);
+							f2 = open((char *)fname, O_RDWR|O_CREAT|O_EXCL);
 							created2 = TRUE;
 						}
 						if (f2 >= 0)
@@ -2447,7 +2731,7 @@ findswapname(buf, second_try)
 										fstat(f2, &s2) != -1 &&
 										s1.st_dev == s2.st_dev &&
 										s1.st_ino == s2.st_ino)
-								equal = TRUE;
+								same = TRUE;
 							close(f2);
 							if (created2)
 								remove((char *)fname2);
@@ -2457,7 +2741,7 @@ findswapname(buf, second_try)
 							remove((char *)fname);
 					}
 					free(fname2);
-					if (equal)
+					if (same)
 					{
 						buf->b_shortname = TRUE;
 						free(fname);
@@ -2519,17 +2803,17 @@ findswapname(buf, second_try)
 #endif
 			/*
 			 * If we get here ".swp" file really exists.
-			 * Give an error message, unless recovering, no file name or when
-			 * the path of the file is different (happens when all .swp files
-			 * are in one directory).
+			 * Give an error message, unless recovering, no file name, we are
+			 * viewing a help file or when the path of the file is different
+			 * (happens when all .swp files are in one directory).
 			 */
-			if (!recoverymode && buf->b_xfilename != NULL)
+			if (!recoverymode && buf->b_xfilename != NULL && !buf->b_help)
 			{
 				int				fd;
 				struct block0	b0;
 				int				differ = FALSE;
 
-				fd = open(fname, O_RDONLY);
+				fd = open((char *)fname, O_RDONLY);
 				if (fd >= 0)
 				{
 					if (read(fd, &b0, sizeof(b0)) == sizeof(b0) &&
@@ -2545,31 +2829,31 @@ findswapname(buf, second_try)
 					++dont_sleep;
 					(void)EMSG("ATTENTION");
 					--dont_sleep;
-					msg_outstr("\nFound a swap file by the name \"");
-					msg_outstr(fname);
-					msg_outstr("\"\n");
+					MSG_OUTSTR("\nFound a swap file by the name \"");
+					msg_outtrans(fname);
+					MSG_OUTSTR("\"\n");
 					if (stat((char *)fname, &st) != -1)
 					{
-						msg_outstr((char_u *)"                        dated ");
-						msg_outstr((char_u *)ctime(&st.st_mtime));
+						MSG_OUTSTR("                        dated ");
+						MSG_OUTSTR(ctime(&st.st_mtime));
 					}
-					msg_outstr("           while opening file \"");
-					msg_outstr(buf->b_xfilename);
-					msg_outstr("\"\n");
+					MSG_OUTSTR("           while opening file \"");
+					msg_outtrans(buf->b_xfilename);
+					MSG_OUTSTR("\"\n");
 					if (stat((char *)buf->b_xfilename, &st) != -1)
 					{
-						msg_outstr((char_u *)"                        dated ");
-						msg_outstr((char_u *)ctime(&st.st_mtime));
+						MSG_OUTSTR("                        dated ");
+						MSG_OUTSTR(ctime(&st.st_mtime));
 					}
-					msg_outstr("\n(1) Another program may be editing the same file.\n");
-					msg_outstr("    If this is the case, quit this edit session to avoid problems.\n");
-					msg_outstr("\n(2) An edit session for this file crashed.\n");
-					msg_outstr("    If this is the case, use \":recover\" or \"Vim -r ");
-					msg_outstr(buf->b_xfilename);
-					msg_outstr("\"\n    to recover the changes.\n");
-					msg_outstr("    If you did this already, delete the swap file \"");
-					msg_outstr(fname);
-					msg_outstr("\"\n    to avoid this message.\n\n");
+					MSG_OUTSTR("\n(1) Another program may be editing the same file.\n");
+					MSG_OUTSTR("    If this is the case, quit this edit session to avoid problems.\n");
+					MSG_OUTSTR("\n(2) An edit session for this file crashed.\n");
+					MSG_OUTSTR("    If this is the case, use \":recover\" or \"Vim -r ");
+					msg_outtrans(buf->b_xfilename);
+					MSG_OUTSTR("\"\n    to recover the changes.\n");
+					MSG_OUTSTR("    If you did this already, delete the swap file \"");
+					msg_outtrans(fname);
+					MSG_OUTSTR("\"\n    to avoid this message.\n\n");
 					cmdline_row = msg_row;
 					--no_wait_return;
 					need_wait_return = TRUE;		/* call wait_return later */

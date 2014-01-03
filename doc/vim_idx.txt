@@ -1,3 +1,5 @@
+*vim_idx.txt*
+
 index of vim commands for
  1. insert mode
  2. VI commands (normal mode)
@@ -190,14 +192,14 @@ ZZ			store current file, if modified, and exit
 [{		1	cursor N times back to unmatched '{' (vi: not)
 [(		1	cursor N times back to unmatched '(' (vi: not)
 [f			edit file name under the cursor
-[p		2	like "p", but adjust indent to current line
+[p		2	like "P", but adjust indent to current line
 \			error
 ]]		1	cursor N sections forward
 ][		1	cursor N SECTIONS forward
 ]}		1	cursor N times forward to unmatched '}' (vi: not)
 ])		1	cursor N times forward to unmatched ')' (vi: not)
 ]f			edit file name under the cursor
-]p		2	like "P", but adjust indent to current line
+]p		2	like "p", but adjust indent to current line
 ^		1	cursor to the first CHAR of the line
 _		1	cursor to the first CHAR N - 1 lines lower
 `<a-zA-Z>	1	cursor to the mark <a-zA-Z>
@@ -214,8 +216,11 @@ b		1	cursor N words backward
 <"x>dd		2	delete N lines [into buffer x]
 e		1	cursor forward to the end of word N
 f<char>		1	cursor to Nth occurrence of <char> to the right
+ga			print ascii value of character under the cursor (vi:
+			not)
+gf			edit file name under the cursor (vi: not)
+gg		1	cursor to line N, default first line (vi: not)
 gs			goto sleep for N seconds (default 1) (vi: not)
-gf			edit file name under the cursor
 h		1	cursor N chars to the left
 i		2	insert text before the cursor N times
 j		1	cursor N lines downward
@@ -257,7 +262,8 @@ zz			redraw, cursor line at center of window
 ~<move>			option tildeop: switch case of Nmove text (vi: no tildeop
 			option)
 <DEL>			when entering a number: remove the last digit
-<HELP>			show the file vim:vim.hlp page by page (vi: no help)
+<HELP>			open a new window on the file vim:vim_help.txt (vi: no
+				help)
 <C_UP>		1	move cursor N lines upwards
 <C_DOWN>	1	move cursor N lines downwards
 <C_LEFT>	1	move cursor N chars to the left
@@ -273,26 +279,28 @@ zz			redraw, cursor line at center of window
 
 Get to the command line with the ':', '!', '/' or '?' commands.
 Normal characters are inserted at the current cursor position.
+"Completion" below refers to context-sensitive completion.  It will complete
+filenames, tags, commands etc as appropriate.
 (vi: can only alter last character in the line)
 
-^A		do filename completion on the pattern in front of the cursor
-		and insert all matches
+^A		do completion on the pattern in front of the cursor and
+		insert all matches
 ^B		cursor to begin of command line
-^D		list filenames that match the pattern in front of the cursor
+^D		list completions that match the pattern in front of the cursor
 ^E		cursor to end of command line
 ^H		delete the character in front of the cursor
-^L		do filename completion on the pattern in front of the cursor
-		and insert the longest common part
-^N		after an <ESC> with multiple matches: go to next match
+^L		do completion on the pattern in front of the cursor and
+		insert the longest common part
+^N		after using 'wildchar' with multiple matches: go to next match
 		otherwise: same as <C_DOWN>
-^P		after an <ESC> with multiple matches: go to previous match
-		otherwise: same as <C_UP>
+^P		after using 'wildchar' with multiple matches: go to previous
+		match otherwise: same as <C_UP>
 ^U		remove all characters
 ^V		insert next non-digit literally, insert three digit decimal 
 		number as a single byte. {Vi: type the CTRL-V twice to get one}
 ^W		delete the word in front of the cursor
 'wildchar' option (default <TAB>)
-		do filename completion on the pattern in front of the cursor
+		do completion on the pattern in front of the cursor
 <DEL>		delete the character under the cursor
 <C_UP>		recall previous command line from history
 <C_DOWN>	recall next command line from history

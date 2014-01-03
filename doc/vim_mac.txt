@@ -1,0 +1,409 @@
+*vim_mac.txt*
+
+VIM Release Notes
+Initial Macintosh release, VIM version 3.0
+19 October 1994
+
+Eric Fischer
+enf1@midway.uchicago.edu, eric@jcp.uchicago.edu, etaoin@uchicago.edu
+5759 N. Guilford Ave
+Indianapolis IN 46220 USA
+
+
+
+I've tried to test Vim under as many conditions as possible, but
+there are certainly bugs and incompatibilities which still exist.
+If it doesn't work on your machine, sorry...  but if you'll let
+me know what's wrong with it, I'll try to fix it.
+
+Vim has been verified to perform at least its most basic of functions
+on Quadras 650 and 660AV, PowerMac 6100, and Macintosh IIci, all under
+System 7.5.  It also definitely works on my Quadra 605 (System 7.1,
+virtual memory enabled).
+
+It has been verified NOT to perform its most basic of functions on
+my roommate's Mac Plus (System 6, no hard disk).  The editor actually
+worked -- it was just saving and loading files that broke (see below).
+
+See the file uganda.txt for Bram Moolenaar's requests with regard to
+redistributing Vim.  Since Think C was used to compile the Mac version,
+Symantec copyright applies to the standard libraries included as part
+of this distribution.
+
+I hope that if you give copies to other people you'll include this
+file so that people will know why the Mac version works the way it
+does and so they can get bug reports and such back to me.
+
+Thanks to Alain Roy and Corey Liss for beta testing.
+
+
+Vim Doesn't Run Right Under System 6
+--- ------- --- ----- ----- ------ -
+
+I don't know why, though.  You can edit text, but you can't load or
+save it.  It does, however, feature the most informative system bomb
+dialog I've ever seen in all my days of Macintosh use: when you do
+a command that would open a Standard File dialog box, it bombs and
+tells you that the trap is missing, which it is in System 6.  Quite
+a refreshing change from the usual meaningless "The application
+``unknown'' has unexpectedly quit with an error of type 1"...
+
+Feel free to try it with System 5 or System 4 and tell me how it goes,
+though I have no great hopes...  Pre-HFS Systems I think are definitely
+a lost cause.
+
+
+
+Since Vim was originally written to operate on computers very different
+from Macintoshes, there are some changes from the "traditional" behavior
+that you should be aware of.
+
+File System Support
+---- ------ -------
+
+One really majorly different thing about the Macintosh and Unix systems
+is the way the file systems work.  Both are nominally hierarchical systems,
+but while Unix does everything by directory names, the Mac system software
+prefers to refer to disks and directories by reference number.
+
+Since Vim needs to be able to use ordinary text strings to refer to files,
+instead of the Macintosh FSSpec data structure, a compromise is made:
+whenever a file is selected in a Macintosh-style way (with the OpenI,
+InsertI, or Save AsI menu items), the FSSpec returned to the program is
+converted into a text string, and when a file is written or read, the text
+string that Vim uses for the name is turned back into an FSSpec.
+
+In the earliest versions (about a week ago) this was done by searching the
+directory tree for each parent folder of the one you're interested in and
+returning a stream of folder names, for instance
+
+   disk:Desktop Folder:vim D:doc:mac documentation
+
+or whatever.  For short paths, this works great.  For long paths, it's
+a real problem, because several of the Mac file system routines are
+limited to strings 63 characters long.  Back to the drawing board...
+
+What Vim does now is to take the numerical fields that are part of the
+FSSpec structure and convert them into ASCII format so that they can be
+passed to the Unixy parts of Vim, then convert them directly back to
+FSSpecs when saving Macintosh files, without going through the entire
+directory structure.  So the file mentioned above would be referred to
+(on my Mac) as
+
+   -1:6193:mac documentation
+
+where -1 is the volume number (it's drive number one) and 6193 is the
+folder number (I guess this means the 6193rd folder on my hard drive).
+It's kinda ugly, but it *works*, which is more important, in my
+humble opinion.
+
+Special directories
+------- -----------
+
+There are also a few special-purpose directories defined for the sake
+of easy access to special files.  "s:" is defined as meaning the
+Preferences folder on your startup disk (s stands for System), and
+"t:" the Temporary Items folder, where Vim's swap files are stored
+when memory gets low.  You can use these if you want, though there's
+not really much reason to except for quick access to your _exrc
+file (s:_exrc).
+
+If you chance to specify a filename without a path, the ordinary Mac
+file system search path takes effect.  This essentially means that
+for *reading* files it will find them in the directory from which you
+launched Vim or in your System Folder, while for *writing* them they'll
+turn up in the folder you launched Vim from.
+
+File conversion
+---- ----------
+
+There's one other substantial difference between the way Unix handles
+files and the way the Macintosh does: on Unix, control-J is the newline
+character, while on the Mac, the character is control-M.  In Vim, this
+conversion is handled transparently whenever you save a file: any ^M
+characters in your file are turned into ^Js, and the newlines end up
+as Mac carriage returns.  The same thing happens, in reverse, when
+you open a file: all the ^Ms in the file become newlines in the editor,
+and all the ^Js in the file show up as ^Ms which will be turned back
+into ^Js when you save.  Ordinary text, including Mac special characters,
+passes through unscathed.
+
+The only time this makes much of a difference in practice is in files
+of Vim macros.  If there are any references to ^M in the macro (for
+instance to end a : command or search, or to remap the action of the
+Return key) this will be saved in the file as ^J.  If you then copy
+the file in "text mode" by FTP to another variety of computer, you
+stand a good chance of both ^J *and* ^M ending up as whatever the
+destination computer's newline character is, screwing up the 
+functioning of your macro.  It's not something you need to worry
+about much, but something you should be aware of.
+
+
+Macintosh Menus
+--------- -----
+
+In order to make this a usable Macintosh program, Vim has to support
+the basic menus that Mac programs are supposed to have.  I'll describe
+them in order:
+
+    Apple menu
+        About VimI
+            This puts up a dialog box telling Bram Moolenaar's and my
+            e-mail addresses.
+
+        HelpI
+            This executes the Vim command, :help.  See below for the
+            help file information.
+
+    File menu
+        New Subwindow
+            This opens a new window inside the Vim window, in which
+            you can edit text or do whatever you'd do in a full-screen
+            vi.  See windows.doc for more information about how Vim
+            does windows; this command does Control-W n.
+
+        OpenI
+            Puts up a Macintosh file selector dialog.  If you don't
+            cancel, types :new <filename> to edit your file.
+
+        Open in the Same SubwindowI
+            Does the same as OpenI, but types :vi <filename> instead.
+
+        InsertI
+            Yet another file-opening dialog; this one does :r.
+
+        Close
+            Types :q, which closes the current window, leaving the
+            others intact.
+
+        Save
+            Types :w.
+
+        Save A Copy AsI
+            Puts up a Macintosh dialog for saving files, then, if it's
+            not cancelled, types :w! <filename>
+
+        Quit
+            Types :qall.
+
+    Edit menu
+        Undo
+            Types u
+
+        Redo
+            Types Control-R
+
+        Previous Subwindow
+            Types Control-W k
+
+        Next Subwindow
+            Types Control-W j
+
+    Font and Size menus
+        do what you'd expect them to do.
+
+Most of these commands also type Escape before doing their job, to ensure
+that you're not inserting text or typing a search or : command on the
+bottom of the screen when they execute.  Until you press a key, beeps
+(either real or visual) are disabled so that you don't get the speaker
+beeping or the window flashing every time you use a menu item.
+
+Vim responds to Open Apple Events with :vi <filename> for the first file,
+:new <filename> for the rest.  It responds to a Quit Apple Event with :qall.
+
+Mouse use
+----- ---
+
+The mouse gets to be used for a bit more than just selecting from menus,
+too.  One job it has is resizing the Vim window, which happens when you
+drag on the lower-right corner of the window.  It works just like a
+regular Macintosh grow box, but it's not visible.  A gross violation of
+Human Interface Guidelines, of course, but so is the general way vi
+works...
+
+The mouse can also be used to move the cursor inside the window.  This
+doesn't work quite as well as I'd like, because the up arrow and down
+arrow move by *file* line instead of by *screen* line, but it does a
+pretty good job.  And (as suggested by Alain Roy), if you click where
+the cursor already is and start dragging, the Vim visual select mode
+(the v command) is turned on and the region you drag through is selected
+for use by any of the visual mode commands.  Clicking again removes the
+selection and moves the cursor toward where you clicked.
+
+The cursor movement, by the way, is not instantaneous -- you need to hold
+down the button for a small fraction of a second until the cursor gets
+there.  This has the useful side effect that you can click the mouse
+button and then move above or below the edge of the window and have a
+scrolling selection just like any other Mac program.  Not as fast as
+using the paging keys, but nice for quickly looking through a file.
+
+Macintosh Keys
+--------- ----
+
+Currently the Mac arrow keys *are* supported in Vim but the other movement
+keys (Help, Forward Delete, Home, End, Page Up, Page Down) and the
+function keys on the top row are *not*.  A future release should remedy
+this, I hope.  There isn't really any support for old Macs that don't
+have Escape and Control keys, either, though the Control-C that the
+Enter key sends can usually be used in place of Escape.
+
+The usual Option-key combinations can be used to type Macintosh special
+high-ASCII characters.  If you want all of them to appear normally on
+the screen, make sure to :set graphic, because otherwise Vim will assume
+some of them to be control characters instead of actual real ones and
+display them as ~@, ~A, ..., ~Z instead of what they really should be.
+
+Fonts and Sizes
+----- --- -----
+
+Vim has fairly minimal support for changing fonts and sizes.  The default
+is Monaco-9, but you can select your favorite font and size from the menus.
+Monospaced fonts all work fine, but proportional ones will probably look
+a bit bizarre, since almost all your letters, numbers, and symbols will
+certainly be either wider or narrower than the space they have been
+allotted.  Proportional text is also considerably slower than monospaced,
+since Vim must move to *each* character position and draw a single character
+rather than spewing out a full line in one fell swoop as it can do with
+monospaced type.  But if you want to edit in Zapf Chancery 36, you can do
+it...
+
+If you don't like Monaco-9 (who does?), you can set a font and size that
+you do like in your _exrc file (see below).  You can also do it from
+the : command line if you really want to.  Mac Vim, since it only supports
+the computer console, uses the term variable to set the font and size,
+so, for instance you could set the font and size to Helvetica 17 with
+
+   :set term=helvetica
+   :set term=17
+
+The font and size menus aren't done very carefully and don't have the check
+marks and outlining a proper Mac program should put on them.  Also, if you
+have a font named "17" (or any other number) it'll be misinterpreted as a
+size instead.
+
+The window size can also be set from the keyboard, for instance if you
+want a different default than the standard 80x25 one.  You could set
+it to 90x10 with
+
+  :set lines=10
+  :set rows=90
+
+or whatever other numbers you enjoy.
+
+
+System Files
+------ -----
+
+Vim is pretty much self-contained.  There are only two instances where
+it absolutely needs an external support file: to get configuration 
+information at startup, and to get the help file.  It also uses files
+for virtual memory and backups while editing files.
+
+The search path for startup files goes as follows:
+
+   s:_vimrc
+   s:_exrc
+   _vimrc  (if :set exrc)
+   _exrc   (if :set exrc)
+
+This means that first it looks in the Preferences folder for first _vimrc
+and then _exrc, then in the Vim startup folder for the same.  The reason
+there are both _vimrc and _exrc files is because on a Unix system you
+might want different configuration settings for Vim and Ex, and Ex will
+ignore the .vimrc, and Vim the .exrc (if there's a .vimrc).  There's no
+Ex on the Macintosh, but you can still use its name if you want.  I've
+enclosed a sample _exrc that sets Vim to work the way I want it to,
+but feel free not to use it.
+
+The other file Vim needs is called vim_help.txt, and is just referred to as
+vim_help.txt, with no pathname at all.  This means that you can keep it
+either in your Vim startup folder or in your System Folder.  It
+won't be found in the Prefences folder, though.  The vim_help.txt file is
+used by the :help command and the HelpI menu item.
+
+While you're editing files, Vim creates swap files called <filename>_swp
+in your Temporary Items directory.  These are used to allow you to make
+more changes to files than would reasonably fit in memory and still allow
+lots of undos.  If you prefer your swap files to go somewhere else, you
+can :set directory= the directory where you want them to go (make sure
+to include a '>' at the start of the name to force it there) or set
+it to null to make the swap files go in the same directory as the file
+you're editing.
+
+Vim also creates backup files for files you save, by default.  If you
+don't like this, :set nobackup and it'll stop cluttering up your
+directories with backup files.  Probably a future version should make
+the word "bak" (or whatever) go at the start of the name instead of
+the end, because none of the Finder views are especially useful for
+selecting all the files that *end* with a particular string.
+
+
+What Vim Doesn't Do
+---- --- ------- --
+
+The Mac port doesn't support printing, pipes to external filters, filename
+globbing, filename completion in : commands, or external shells.  It also
+doesn't support proper Mac-style Copy and Paste.  All of these go on the
+Maybe Someday list.
+
+There's no mapping of another key to Control to support those old Macs
+without Control keys.  The Enter key sends a Control-C and can usually
+be used in place of Escape, though.
+
+Vim's digraph feature isn't supported.  You'll have to use the usual
+Mac option-keys to type extended ASCII characters.  :set graphic
+if you want them to all show up properly.
+
+A major problem is that the Mac interface doesn't really have a clue
+about any of the internal data structures, mostly because #I# don't
+have much of a clue about the internal data structures.  Almost everything
+that the Mac interface does is by faking keystrokes to the parts of
+Vim that do the real work.  This is functional, but probably the wrong
+way to go about things in the long run.
+
+A more pressing problem is that Vim is, at its heart, not a Macintosh
+program.  It allocates all its memory with malloc(), not NewHandle(),
+so when memory gets low, there's not much it can do.  Fortunately, the
+swapping is smart enough that memory doesn't get too badly fragmented,
+but if you do really large deletes and pastes, it's possible that Vim
+will fill up its partition and be unable to continue.
+
+As the MS-DOS documentation puts it,
+> A swap file is used to store most of the text. You should be able to edit
+> very large files. However, memory is used for undo and other things. If you
+> delete a lot of text you can still run out of memory.
+> 
+> If Vim gives an "Out of memory" warning you should stop editing. Result of
+> further editing actions is unpredictable. Setting 'undolevels' to 0 saves
+> some memory. Running the maze macros on a big maze is guaranteed to run out
+> of memory, because each change is remembered for undo. In this case set
+> 'undolevels' to a negative number. This will switch off undo completely. In
+> a future release extended memory will be used to avoid these problems.
+
+Things to Do, Someday
+------ -- --- -------
+
+Clipboard conversion, Vim <-> Mac
+Printing
+New malloc() and free() that can use MultiFinder temporary memory when the real
+    stuff gets low
+Filename completion and globbing, support for :set path
+Better Font and Size menus
+Add an option to put the backup files in the Trash instead of in the
+    folder which they're backing up
+
+Things to Do, probably not for a very long time
+------ -- --- -------- --- --- - ---- ---- ----
+
+Shell escapes and filters
+Either much more Mac-like or much more Unix-like file system model
+
+
+What's the Icon Supposed To Be?
+------ --- ---- -------- -- ---
+
+It's supposed to look like an ADDS Viewpoint, the kind of terminals they
+had for the Prime minicomputer at my high school.  On second thought,
+though, the keyboard bears a remarkable resemblance to the old Timex-
+Sinclair 1000 (I think it's the lack of a space bar in the picture that
+does it), so maybe that had some sublimnal influence.

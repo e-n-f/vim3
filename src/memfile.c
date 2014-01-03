@@ -95,6 +95,7 @@ static void mf_do_open __ARGS((MEMFILE *, char_u *, int));
  * The functions for using a memfile:
  *
  * mf_open()		open a new or existing memfile
+ * mf_open_file()	open a swap file for an existing memfile
  * mf_close()		close (and delete) a memfile
  * mf_new()			create a new block in a memfile and lock it
  * mf_get()			get an existing block and lock it
@@ -111,7 +112,7 @@ static void mf_do_open __ARGS((MEMFILE *, char_u *, int));
  *
  *	fname:		name of file to use (NULL means no file at all)
  *				Note: fname must have been allocated, it is not copied!
- *						If opening the file fails, fname is freed.
+ *						If opening the file fails, fname is NOT freed.
  *  new:		if TRUE: file should be truncated when opening
  *  fail_nofile:	if TRUE: if file cannot be opened, fail.
  *
@@ -131,10 +132,7 @@ mf_open(fname, new, fail_nofile)
 #endif
 
 	if ((mfp = (MEMFILE *)alloc((unsigned)sizeof(MEMFILE))) == NULL)
-	{
-		free(fname);
 		return NULL;
-	}
 
 	if (fname == NULL)		/* no file for this memfile, use memory only */
 	{
@@ -200,7 +198,7 @@ mf_open(fname, new, fail_nofile)
  *
  *	fname:		name of file to use (NULL means no file at all)
  *				Note: fname must have been allocated, it is not copied!
- *						If opening the file fails, fname is freed.
+ *						If opening the file fails, fname is NOT freed.
  *
  * return value: FAIL if file could not be opened, OK otherwise
  */
@@ -906,11 +904,10 @@ mf_write(mfp, hp)
 		if (hp2 != NULL)					/* written a non-dummy block */
 			hp2->bh_flags &= ~BH_DIRTY;
 
-		if (nr + page_count > mfp->mf_infile_count)		/* appended to the file */
+		if (nr + page_count > mfp->mf_infile_count)	/* appended to the file */
 			mfp->mf_infile_count = nr + page_count;
 		if (nr == hp->bh_bnum)				/* written the desired block */
 			break;
-		nr += page_count;
 	}
 	return OK;
 }
@@ -1127,7 +1124,6 @@ mf_do_open(mfp, fname, new)
 	 */
 	if (mfp->mf_fd < 0)
 	{
-		free(fname);
 		free(mfp->mf_xfname);
 		mfp->mf_fname = NULL;
 		mfp->mf_xfname = NULL;

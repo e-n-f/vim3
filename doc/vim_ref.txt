@@ -1,28 +1,29 @@
-
+*vim_ref.txt*
 
 
 			    Vim reference manual
 
 			     By Bram Moolenaar
 
-				version 3.6
+				version 3.9
 
 
 There is a contents listing at the end of this document.
 
 The commands and options for multiple windows and buffers are explained in a
-separate document: windows.doc
+separate document: See |vim_win.txt|
 
 You can use tags to jump to the explanation of a subject.  Position the
-cursor on an item name between bars (e.g. |intro|) or quotes (e.g.
-`textwidth`) and hit CTRL-]. Special characters in the names of the tags are
-not allowed, therefore they have been replaced by letters, e.g. "ctrl_e" for
-CTRL-E, "star" for "*".
+cursor on an item name between bars (e.g. |intro|) or an option name in
+quotes (e.g.  'textwidth' ) and hit CTRL-]. Some special characters in the
+names of the tags are not allowed, therefore they have been replaced by
+letters: "bar for "|", "star" for "*".
 	  mode 		    tag starts with	example
-	Normal			nothing		"x"
-	Command line		"c_"		"c_quit"
-	Insert mode		"i_"		"i_esc"
-	Command line editing	"e_"		"e_del"
+	Normal and Visual	nothing		|x|
+	Visual			"v_"		|v_u|
+	Command line		":"		|:quit|
+	Insert mode		"i_"		|i_<ESC>|
+	Command line editing	"e_"		|e_<DEL>|
 
 
 	1. Introduction					*intro*
@@ -36,18 +37,29 @@ gives the advantage that you can keep your fingers on the keyboard and your
 eyes on the screen.
 
 Throughout this manual the differences between Vi and Vim are mentioned in 
-curly braces. Read the file "difference.doc" for a summary of the 
-differences.
+curly braces. See |vim_diff.txt| for a summary of the differences.
 
 This manual refers to Vim on the Commodore Amiga computer. On other 
-computers and on terminals there may be small differences. For MSDOS this 
-is documented in msdos.doc. For UNIX this is in unix.doc.
+computers and on terminals there may be small differences. Besides the
+remarks given in this document there is a separate document for each
+supported system:
+	system		    see
+	Amiga		|vim_ami.txt|
+	Archimedes	|vim_arch.txt|
+	Macintosh	|vim_mac.txt|
+	MS-DOS		|vim_dos.txt|
+	Unix		|vim_unix.txt|
+	Windows-NT	|vim_nt.txt|
 
-This manual is a reference for all the Vim commands and options. A basic
-knowledge of "Vi" is assumed. A summary of this manual can be found in the 
-file vim.hlp. It can be accessed from within Vim with the <HELP> key (in 
-MSDOS <F1>) and with the command ":help". The 'helpfile' option can be 
-set to the name of the help file, so you can put it in any place you like.
+This manual is a reference for all the Vim commands and options. This is not
+an introduction to the use of Vim. There are books that contain an
+introduction to Vi.
+
+A summary of this manual can be found in the file "vim_help.txt"
+|vim_help.txt|. It can be accessed from within Vim with the <HELP> key (in
+MSDOS <F1>) and with the command ":help" |:help|. The 'helpfile' option can
+be set to the name of the help file, so you can put it in any place you
+like.
 
 
 	2. Notation					*notation*
@@ -162,7 +174,7 @@ translated into "128 32". Both codes have the same effect.
 
 Most often Vim is started to edit a single file with the command
 
-	vim file
+	vim file					*cl_vim*
 
 More generally Vim is started with:
 
@@ -172,10 +184,12 @@ If the filelist is missing, the editor will start with an empty buffer.
 Otherwise exactly one out of the following three may be used to choose one
 or more files to be edited.
 
+							*cl_file*
 file ..		A list of file names. The first one will be the current file 
 		and read into the buffer. The cursor will be positioned on 
 		the first line of the buffer.
 
+							*cl_tag*
 -t {tag}	A tag. "tag" is looked up in the tags file, the associated 
 		file becomes the current file and the associated command is 
 		executed. Mostly this is used for C programs. In that case 
@@ -184,6 +198,7 @@ file ..		A list of file names. The first one will be the current file
 		cursor is positioned on the start of the function (see the 
 		section on tags |tags|).
 
+							*cl_qf*
 -e [errorfile]	QuickFix mode. The file with the name [errorfile] is read
 		and the first error is displayed. If [errorfile] is not
 		given, the 'errorfile' option is used for the file name
@@ -194,75 +209,95 @@ file ..		A list of file names. The first one will be the current file
 The options, if present, must precede the filelist. The options may be given 
 in any order.
 
+							*cl_+*
 +[num]		The cursor will be positioned on line "num" for the first
 		file being edited. If "num" is missing, the cursor will be
 		positioned on the last line.
 
+							*cl_+/*
 +/{pat}		The cursor will be positioned on the first line containing
 		"pat" in the first file being edited (see the section
 		"pattern searches" for the available search patterns
 		|search_pattern|).
 
-+{command}
++{command}						*cl_+c*
 -c {command}	"command" will be executed after the first file has been
 		read. "command" is interpreted as an Ex command. If the
 		"command" contains spaces it must be enclosed in double
 		quotes (this depends on the shell that is used). Example:
 		vim "+set si" main.c
 
+							*cl_r*
 -r		Recovery mode. Without a file name argument a list of
 		existing swap files is given. With a file name a swap file
 		is read to recover a crashed editing session. See the
 		chapter "Recovery after a crash" |crash_recovery|.
 
--v		View mode. The 'readonly' option will be set and no 
-		swap file will be written (see -n below). You can 
-		still edit the buffer, but will be prevented from 
-		accidentally overwriting a file. If you forgot that you are 
-		in View mode and did make some changes, you can overwrite 
-		a file by adding an exclamation mark to the Ex command, as in 
-		":w!". The 'readonly' option can be reset with ":set noro" 
-		(see the options chapter |options|). Calling the executable
-		"view" has the same effect as the -v option. If your system
-		does not support links and you do not want to have the
-		executable twice you could make an alias: "alias view vim
-		-v".
+							*cl_v*
+-v		View mode. The 'readonly' option will be set for all the
+		files being edited.  You can still edit the buffer, but will
+		be prevented from accidentally overwriting a file. If you
+		forgot that you are in View mode and did make some changes,
+		you can overwrite a file by adding an exclamation mark to
+		the Ex command, as in ":w!". The 'readonly' option can be
+		reset with ":set noro" (see the options chapter |options|).
+		Calling the executable "view" has the same effect as the -v
+		option. If your system does not support links and you do not
+		want to have the executable twice you could make an alias:
+		"alias view vim -v". The 'updatecount' option will be set to
+		10000, meaning that the swap file will not be updated
+		automatically very often.
 
+							*cl_b*
 -b		Binary mode. The 'textauto', 'textmode' and 'expandtab'
 		options will be reset. The 'textwidth' option is set to 0.
 		'modelines' is set to 0. The 'binary' option is set. This is
 		done after reading the .vimrc/.exrc files but before reading
 		a file. See also 5.6: "Editing binary files" |edit_binary|.
 
+							*cl_n*
 -n		No swap file will be used. Recovery after a crash will be
 		impossible. Handy if you want to view or edit a file on a
 		very slow medium (e.g. floppy). Can also be done with ":set
-		uc=0". You can switch it on again by setting the 'uc' option
-		to some value, e.g. ":set uc=100". Any files already being
-		edited will not be affected by this.
+		updatecount=0". You can switch it on again by setting the
+		'updatecount' option to some value, e.g. ":set uc=100".
 
+							*cl_o*
 -o[N]		Open N windows. If [N] is not given, one window is opened
 		for every file given as argument. If there is not enough
 		room, only the first few files get a window. If there are
 		more windows than arguments, the last few windows will be
 		editing an empty file.
 
+							*cl_T*
 -T {terminal}	Set the terminal type to "terminal". This influences the 
 		codes that Vim will send to your terminal. This is normally 
 		not needed, because Vim will be able to find out what type 
 		of terminal you are using (See chapter 20) |terminal_info|.
 
+							*cl_d*
 -d {device}	Amiga only: The "device" is opened to be used for editing.
 		Normally you would use this to set the window position and
 		size: "-d con:x/y/width/height", e.g.
 		"-d con:30/10/600/150". But you can also use it to start
 		editing on another device, e.g. AUX:.
 
+							*cl_x*
 -x		Amiga only: Do not restart Vim to open a new window. This
 		option should be used when Vim is started by a program that
 		will wait for the edit session to finish (e.g. mail or
 		readnews). See section 3.3 |amiga_window|.
 
+							*cl_u*
+-u {vimrc}	The file "vimrc" is read for initializations. Other
+		initializations are skipped, see |initialization|. This can
+		be used to start Vim in a special mode, with special
+		mappings and settings. A shell alias can be used to make
+		this easy to use. For example:
+			"alias vimc vim -u ~/.c_vimrc !*".
+		Also consider using autocommands, see |autocommand|.
+
+							*cl_s*
 -s {scriptin}	The script file "scriptin" is read. The characters in the 
 		file are interpreted as if you had typed them. The same can 
 		be done with the command ":source! {scriptin}". If the end 
@@ -270,6 +305,7 @@ in any order.
 		characters are read from the keyboard. See also the section 
 		"complex repeats" |complex_repeat|.
 
+							*cl_w*
 -w {scriptout}	All the characters that you type are recorded in the file
 		"scriptout", until you exit Vim. This is useful if you want 
 		to create a script file to be used with "vim -s" or 
@@ -349,26 +385,29 @@ each line is executed as an Ex command line.
 
 1.  The environment variable SHELL, if it exists, is used to set the 
     'shell' option. With MSDOS the COMPSPEC variable is used if SHELL does
-    not exist. The 'shellpipe' and 'shellredir' options are set according to
-    the name of the shell.
+    not exist.
 
 2.  The environment variable TERM, if it exists, is used to set the 'term'
     option.
 
-3.  Four places are searched for initializations. The first that exists is 
+3.  Five places are searched for initializations. The first that exists is 
     used, the others are ignored.
-     1. The environment variable VIMINIT
-     2. The file "s:.vimrc" (for Unix: "$HOME/.vimrc")
-     3. The environment variable EXINIT
-     4. The file "s:.exrc" (for Unix: "$HOME/.exrc")
+     1. The file given with the -u command-line option.
+     2. The environment variable VIMINIT
+     3. The file "s:.vimrc" (for Unix: "$HOME/.vimrc")
+     4. The environment variable EXINIT
+     5. The file "s:.exrc" (for Unix: "$HOME/.exrc")
 
-4.  If the 'exrc' option is set (default is 'noexrc'), the current directory
-    is searched for two files. The first that exists is used, the other is
-    ignored.
+4.  If the 'exrc' option is set (default is 'noexrc'), and the -u
+    command-line option u is not used, the current directory is searched for
+    two files.  The first that exists is used, the other is ignored.
      1. The file ".vimrc"
      2. The file ".exrc"
 
-5.  If the 'viminfo' option is set to non-zero by the previous
+5.  The 'shellpipe' and 'shellredir' options are set according to
+    the value of the 'shell' option, unless they have been set before.
+
+6.  If the 'viminfo' option is set to non-zero by the previous
     initializations, the viminfo file is read. See |viminfo_file|.
 
 The third can be used to set your default settings and mappings for all edit 
@@ -394,9 +433,9 @@ While reading the ".vimrc" or the ".exrc" file in the current directory some
 commands can be disabled for security reasons by setting the 'secure'
 option. Otherwise it would be possible to create a .exrc that contains nasty
 commands, which another user may automatically execute when he starts Vim it
-that directory. The disabled commands are the ones that start a shell and
-the ones that write to a file. The ":map" commands are echoed, so you can
-see which keys are being mapped.
+that directory. The disabled commands are the ones that start a shell,
+the ones that write to a file and ":autocmd". The ":map" commands are
+echoed, so you can see which keys are being mapped.
 
 You can reset the 'secure' option in the EXINIT or VIMINIT environment
 variable or in the global ".exrc" or ".vimrc" file. This is not possible in
@@ -411,21 +450,21 @@ option.
 
 3.5 Suspending						*suspend*
 
-							*ctrl_z*
+							*CTRL-Z*
 CTRL-Z			On Unix systems: Suspend Vim. On other systems: 
 			start a new shell (like ":sh"). Same as ":stop".
 
 
-:sus[pend][!]	or				*c_suspend* *c_stop*
+:sus[pend][!]	or				*:suspend* *:stop*
 :st[op][!]		Suspend the editor. If the <!> is not given, the
 			buffer was changed, autowrite is set and a filename
 			is known, the buffer will be written.
 
 On many UNIX systems it is possible to suspend Vim with CTRL-Z. This is only 
-possible in Command mode (see next chapter |edit_modes|). Vim will continue
-if you make it the foreground job again. On other systems CTRL-Z will start
-a new shell.   This is the same as the ":sh" command. Vim will continue if
-you exit from the shell.
+possible in Normal and Visual mode (see next chapter |edit_modes|). Vim will
+continue if you make it the foreground job again. On other systems CTRL-Z
+will start a new shell. This is the same as the ":sh" command. Vim will
+continue if you exit from the shell.
 
 
 3.6 The viminfo file					*viminfo_file*
@@ -435,6 +474,7 @@ The viminfo file is used to store:
 - The search string history.
 - Contents of registers.
 - Marks in several files.
+- Last search/substitute pattern (for 'n' and '&').
 
 When Vim is started and the 'viminfo' option is non-zero, the contents of
 the viminfo file is read and the info can be used at the appropriate places.
@@ -456,12 +496,30 @@ can be given.
 
 Two commands can be used to read and write the viminfo file manually. This
 can be used to exchange registers between two running Vim programs: First
-type ":wv" in one and then ":rv" in the other.
+type ":wv" in one and then ":rv" in the other.  Note that if the register
+already contained something, then ":rv!" would be required.  Also note
+however that this means everything will be overwritten with information from
+the first vim, including the command line history etc.
 
+The viminfo file itself can be edited by hand too, although we suggest you
+start with an existing one to get the format right.  It is reasonably
+self-explanatory once you're in there.  This can be useful in order to
+create a second file, say "~/.my_viminfo" which could contain certain
+settings that you always want when you first start vim.  For example, you
+can preload registers with particular data, or put certain commands in the
+command line history.  A line in your .vimrc file like
+"rviminfo! ~/.my_viminfo" can be used to load this information.  You could
+even have different vim-info for different types of files (eg C code) and
+load them based on the file name using the ":autocmd" command (see
+|:autocmd|).
+
+                           *:rviminfo*
 :rviminfo[!] [file]	Read from viminfo file [file] (default see above).
-			If [!] is given, registers that are already in use
-			are overwritten. {not in Vi}
+			If [!] is given, then any information that is
+			already set (eg registers etc) will be overwritten.
+			{not in Vi}
 
+                           *:wviminfo*
 :wviminfo[!] [file]	Write to viminfo file [file] (default see above).
 			The information in the file is first read in to make
 			a merge between old and new info. When [!] is used
@@ -476,15 +534,27 @@ type ":wv" in one and then ":rv" in the other.
 
 Vim has four basic modes:
 
-Command mode		In Command mode you can enter all the editor
+Normal mode		In Normal mode you can enter all the editor
 			commands. If you start the editor you are in this 
 			mode (unless you have set the 'insertmode' option, 
 			see below).
+
+Visual mode		This is like Normal mode, but the movement commands
+			extend a highlighted area. When a non-movement
+			command is used it is executed for the highlighted
+			area. See |visual_mode|.
 
 Insert mode		In Insert mode the text you type is inserted into the
 			buffer. If the 'showmode' option is set (which is
 			default), the string "-- INSERT --" is shown at the
 			bottom of the window.
+
+Command_line mode	In Command_line mode you can enter one line of text
+			at the bottom of the window. This is for the Ex
+			commands <:>, the pattern search commands <?></> and
+			the filter command <!>.
+
+There is one additional mode:
 
 Replace mode		Replace mode is a special case of Insert mode. You
 			can do the same things as in Insert mode, but for 
@@ -494,33 +564,32 @@ Replace mode		Replace mode is a special case of Insert mode. You
 			default), the string "-- REPLACE --" is shown at the 
 			bottom of the window.
 
-Command_line mode	In Command_line mode you can enter one line of text
-			at the bottom of the window. This is for the Ex
-			commands <:>, the pattern search commands <?></> and
-			the filter command <!>.
-
-More explanation on the insert, replace and Command_line mode is further on 
+More explanation on the Insert, Replace and Command_line mode is further on 
 in this chapter.
 
 
 4.2 Switching from mode to mode				*mode_switching*
 
 If for any reason you do not know in which mode you are, you can always get
-back to Command mode by typing <ESC> twice. You will know you are back in
-Command mode when you see the screen flash or hear the bell after you type
+back to Normal mode by typing <ESC> twice. You will know you are back in
+Normal mode when you see the screen flash or hear the bell after you type
 <ESC>.
 
-- go from Command mode to Insert mode by giving one of the commands
+- go from Normal mode to Visual mode by giving one of the commands "vV^V"
+- go from Normal mode to Insert mode by giving one of the commands
   "iIaAoOcCsS".
-- go from Command mode to Replace mode with the "R" command (not the "r"
+- go from Normal mode to Replace mode with the "R" command (not the "r"
   command!).
-- go from Command mode to Command_line mode with the one of the commands
+- go from Normal mode to Command_line mode with the one of the commands
   ":/?!".
 
 							*i_esc*
-- go from insert or Replace mode to Command mode with <ESC> (twice in some
+- go from Insert or Replace mode to Normal mode with <ESC> (twice in some
   rare cases).
-- go from Command_line mode to Command mode by:
+- go from Visual mode to Normal mode by giving a non-movement command, which
+  causes the command to be executed, or by hitting <ESC> or 'v', which does
+  nothing.
+- go from Command_line mode to Normal mode by:
    - hitting <CR> or <LF>, which causes the entered command to be executed
    - deleting the complete line (e.g. with CTRL-U) and giving a final <BS>
    - hitting CTRL-C or <ESC>, which quits the command line without executing
@@ -531,6 +600,11 @@ Command mode when you see the screen flash or hear the bell after you type
   unexpected for most people, therefore it was changed in Vim. But when the
   <ESC> is part of a mapping the command line is executed. If you want the
   vi behaviour also when typing <ESC> use ":cmap ^V<ESC> ^V^M"}
+
+- go from Insert mode to Replace mode by hitting <INSERT>.
+- go from Replace mode to Insert mode by hitting <INSERT>.
+- go from Visual mode to Command_line mode by hitting ':'. The line numbers
+  of the highlighted area will be inserted in the command line.
 
 If the 'insertmode' option is set, editing a file will start in Insert mode.
 
@@ -547,46 +621,52 @@ use "CTRL-V 003" to insert a CTRL-C.
 
 char		action
 -----------------------------------------------------------------------
-						*i_ctrl_at*
+						*i_CTRL-[* *i_<ESC>*
+<ESC> or CTRL-[	End insert or Replace mode, back to Normal mode. Finish
+		abbreviation.
+						*i_CTRL-C*
+CTRL-C		Quit insert mode, back to Normal mode. Do not check for
+		abbreviations.
+
+						*i_CTRL-@*
 CTRL-@		Insert previously inserted text and stop insert. {Vi: only
 		when typed as first char, only up to 128 chars}
-						*i_ctrl_a*
+						*i_CTRL-A*
 CTRL-A		Insert previously inserted text. {not in Vi}
-						*i_ctrl_b*
-CTRL-B		Toggle the 'revins' option (B for Backwards). {not in Vi}
-						*i_ctrl_c*
-CTRL-C		Quit insert mode, back to command mode. Do not check for
-		abbreviations.
-						*i_ctrl_d*
-CTRL-D		Delete one shiftwidth of indent at the start of the current 
-		line. See also 'shiftround' option. When preceded with <^>
-		or <0> delete all indent in the current line. With <^> the
-		indent is restored in the next line. This is useful when
-		inserting a label. {Vi: CTRL-D works only when used after
-		autoindent}
-						*i_ctrl_e*
-CTRL-E		Insert the character which is below the cursor. {not in Vi}
-						*i_ctrl_h* *i_bs*
-CTRL-H <BS>	Delete the character before the cursor (see below). {Vi: 
+
+						*i_CTRL-H* *i_<BS>*
+<BS> or CTRL-H	Delete the character before the cursor (see below). {Vi: 
 		does not delete autoindents}
-						*i_ctrl_i* *i_tab*
-CTRL-I <TAB>    Insert a tab. If the 'expandtab' option is on, the
+						*i_<DEL>*
+<DEL>		Delete the character under the cursor. If the cursor is at
+		the end of the line, and the 'backspace' option is non-zero,
+		delete the newline. The next line is appended after the
+		current one. {not in Vi}
+						*i_CTRL-W*
+CTRL-W		Delete the word before the cursor (see below). See the 
+		section "word motions" |word_motions| for the definition of
+		a word.
+						*i_CTRL-U*
+CTRL-U		Delete all entered characters in the current line (see 
+		below).
+
+						*i_CTRL-I* *i_<TAB>*
+<TAB> or CTRL-I Insert a tab. If the 'expandtab' option is on, the
 		equivalent number of spaces is inserted (use CTRL-V <TAB> to
 		avoid the expansion). See also the 'smarttab' option and
 		section 4.3.4 |ins_expandtab|.
-						*i_ctrl_j* *i_lf*
-CTRL-J <LF>	Begin new line.
-						*i_ctrl_k*
+						*i_CTRL-J* *i_<LF>*
+<LF> or CTRL-J	Begin new line.
+						*i_CTRL-M* *i_<CR>*
+<CR> or CTRL-M	Begin new line.
+						*i_CTRL-K*
 CTRL-K {char1} {char2}
 		Enter digraph (see 4.7 |digraphs|). {not in Vi}
-						*i_ctrl_m* *i_cr*
-CTRL-M <CR>	Begin new line.
-CTRL-N		Find next keyword (see 4.3.7 |i_ctrl_n|). {not in Vi}
-CTRL-O		Execute one Command mode command. See below |i_ctrl_o|. {not
-		in Vi}
-CTRL-P		Find previous keyword (see 4.3.7 |i_ctrl_p|). {not in
-		Vi}
-CTRL-R <0-9a-z"%:>				*i_ctrl_r*
+
+CTRL-N		Find next keyword (see 4.3.7 |i_CTRL-N|). {not in Vi}
+CTRL-P		Find previous keyword (see 4.3.7 |i_CTRL-P|). {not in Vi}
+
+CTRL-R <0-9a-z"%:>				*i_CTRL-R*
 		Insert the contents of a numbered or named register. The
 		text is inserted as if you typed it, but mappings and
 		abbreviations are not used. If you have options like
@@ -596,35 +676,40 @@ CTRL-R <0-9a-z"%:>				*i_ctrl_r*
 		the current file name.  Use <:> for the last command line.
 		See the chapter on copying |copy_move| and moving text about
 		registers.  {<%>, <"> and <:> not in Vi}
-						*i_ctrl_t*
+
+						*i_CTRL-T*
 CTRL-T		Insert one shiftwidth of indent at the start of the current 
 		line. See also 'shiftround' option. {Vi: only when in 
 		autoindent}
-						*i_ctrl_u*
-CTRL-U		Delete all entered characters in the current line (see 
-		below).
-						*i_ctrl_v*
+						*i_CTRL-D*
+CTRL-D		Delete one shiftwidth of indent at the start of the current 
+		line. See also 'shiftround' option. {Vi: CTRL-D works only
+		when used after autoindent}
+						*i_0_CTRL-D*
+0 CTRL-D	Delete all indent in the current line.  {Vi: CTRL-D works
+		only when used after autoindent}
+						*i_^_CTRL-D*
+^ CTRL-D	Delete all indent in the current line. The indent is
+		restored in the next line. This is useful when inserting a
+		label. {Vi: CTRL-D works only when used after autoindent}
+
+						*i_CTRL-V*
 CTRL-V		Insert next non-digit literally. Up to three digits form the 
-		decimal value of a single byte (see below |i_ctrl_v_digit|.
+		decimal value of a single byte (see below |i_CTRL-V_digit|.
 		The non-digit and the three digits are not considered for
 		mapping. {Vi: no decimal byte entry}
-						*i_ctrl_w*
-CTRL-W		Delete the word before the cursor (see below). See the 
-		section "word motions" |word_motions| for the definition of
-		a word.
 CTRL-X		Enter CTRL-X mode. This is a sub mode where a commands can
 		be given to complete words or scroll the window. See below
-		|i_ctrl_x| and in 4.3.7 |ins_completion|. {not in Vi}
-						*i_ctrl_y*
+		|i_CTRL-X| and in 4.3.7 |ins_completion|. {not in Vi}
+
+						*i_CTRL-E**
+CTRL-E		Insert the character which is below the cursor. {not in Vi}
+						*i_CTRL-Y*
 CTRL-Y		Insert the character which is above the cursor. {not in Vi}
-						*i_ctrl_l_sbracket* *i_esc*
-CTRL-[ or <ESC>	End insert or Replace mode, back to Command mode.
-						*i_del*
-<DEL>		Delete the character under the cursor. If the cursor is at
-		the end of the line, and the 'backspace' option is non-zero,
-		delete the newline. The next line is appended after the
-		current one. {not in Vi}
-						*i_insert*
+
+						*i_CTRL-B*
+CTRL-B		Toggle the 'revins' option (B for Backwards). {not in Vi}
+						*i_<INSERT>*
 <INSERT>	Toggle between insert and replace mode. {not in Vi}
 -----------------------------------------------------------------------
 
@@ -643,7 +728,7 @@ of the three keys is used, the current line is joined with the previous
 line. This effectively deletes the newline in front of the cursor. {Vi: does 
 not cross lines, does not delete past start position of insert}
 
-						*i_ctrl_v_digit*
+						*i_CTRL-V_digit*
 With CTRL-V followed by one, two or three digits you can enter the decimal 
 value of a byte, except 10. Normally CTRL-V is followed by three digits. The 
 formed byte is inserted as soon as you type the third digit. If you type 
@@ -656,15 +741,15 @@ When writing the buffer to a file the <LF> character is translated into
 want to insert a <LF> character in a file you will have to make a line
 break.
 
-						*i_ctrl_x*
+						*i_CTRL-X*
 CTRL-X enters a sub-mode, where several commands can be used. Most of these
 commands do keyword completion, see 4.3.7 |ins_completion|. Two commands can
 be used to scroll the window up or down, without exiting insert mode:
 
-						*i_ctrl_x_ctrl_e*
+						*i_CTRL-X_CTRL-E*
 CTRL-X CTRL-E		scroll window one line up.
 
-						*i_ctrl_x_ctrl_y*
+						*i_CTRL-X_CTRL-Y*
 CTRL-X CTRL-Y		scroll window one line down.
 
 The scrolling is not done if this makes the cursor scroll of the window or
@@ -678,7 +763,7 @@ is handled as in normal insert mode.
 The following keys are special. They stop the current insert, do something 
 and then restart insertion. This means you can do something without getting 
 out of Insert mode. This is very handy if you prefer to use the Insert mode 
-all the time, just like editors that don't have a separate Command mode. You 
+all the time, just like editors that don't have a separate Normal mode. You 
 may also want to set the 'backspace' option to 2 and set the 'insertmode' 
 option. You can use CTRL-O if you want to map a function key to a command.
 
@@ -688,20 +773,20 @@ like an "i" command.
 
 char		action
 -----------------------------------------------------------------------
-<C_UP>		cursor one line up			     *i_cur_up*
-<C_DOWN>	cursor one line down			     *i_cur_down*
-<C_LEFT>	cursor one character left		     *i_cur_left*
-<C_RIGHT>	cursor one character right		     *i_cur_right*
-<SC_LEFT>	cursor one word back (like "b" command)	     *i_scur_left*
-<SC_RIGHT>	cursor one word forward (like "w" command)   *i_scur_right*
-<HOME>		cursor to first char in the line	     *i_home*
-<END>		cursor to after last char in the line	     *i_end*
-mouse-click	cursor to position of mouse click.           *i_mouse_click*
-<SC_UP>		move window one page up			     *i_scur_up*
-<PAGE_UP>	move window one page up			     *i_page_up*
-<SC_DOWN>	move window one page down		     *i_scur_down*
-<PAGE_DOWN>	move window one page down		     *i_page_down*
-CTRL-O		execute one command and return to Insert mode*i_ctrl_o*
+<C_UP>		cursor one line up			     *i_<C_UP>*
+<C_DOWN>	cursor one line down			     *i_<C_DOWN>*
+<C_LEFT>	cursor one character left		     *i_<C_LEFT>*
+<C_RIGHT>	cursor one character right		     *i_<C_RIGHT>*
+<SC_LEFT>	cursor one word back (like "b" command)	     *i_<SC_LEFT>*
+<SC_RIGHT>	cursor one word forward (like "w" command)   *i_<SC_RIGHT>*
+<HOME>		cursor to first char in the line	     *i_<HOME>*
+<END>		cursor to after last char in the line	     *i_<END>*
+mouse-click	cursor to position of mouse click.           *i_<MOUSE>*
+<SC_UP>		move window one page up			     *i_<SC_UP>*
+<PAGE_UP>	move window one page up			     *i_<PAGE_UP>*
+<SC_DOWN>	move window one page down		     *i_<SC_DOWN>*
+<PAGE_DOWN>	move window one page down		     *i_<PAGE_DOWN*
+CTRL-O		execute one command and return to Insert mode*i_CTRL-O*
 -----------------------------------------------------------------------
 
 The CTRL-O command has one side effect: If the cursor was beyond the end of 
@@ -834,7 +919,7 @@ a bit easier:
 
 
 Completing whole lines:					*compl_whole_line*
-							*i_ctrl_x_ctrl_l*
+							*i_CTRL-X_CTRL-L*
 CTRL-X CTRL-L		Search backwards for a line that starts with the
 			same characters as in the current line before the
 			cursor. Indent is ignored. The found line is
@@ -848,8 +933,8 @@ CTRL-X CTRL-L		Search backwards for a line that starts with the
 
 Completing identifiers in current file:			*compl_current*
 
-							*i_ctrl_p*
-							*i_ctrl_n*
+							*i_CTRL-P*
+							*i_CTRL-N*
 The keys CTRL-N and CTRL-P can be used to complete the keyword that is in
 front of the cursor. This is useful if you are writing a program that has
 complicated variable names, and you want to copy a name from the text before
@@ -914,15 +999,18 @@ Completing identifiers in the current and included files:	*compl_ident*
 The 'include' option is used to specify a line that contains an include file
 name. The 'path' option is used to search for include files.
 
-							*i_ctrl_x_ctrl_g*
-CTRL-X CTRL-G		Search for the first identifier in the current and
+							*i_CTRL-X_CTRL-I*
+CTRL-X CTRL-I		Search for the first identifier in the current and
 			included files that starts with the same characters
 			as before the cursor. The found identifier is
 			inserted in front of the cursor.
-	CTRL-G	or
+
 	CTRL-N		Search forwards for next matching identifier. This
 			This identifier replaces the previous matching
-			identifier.
+			identifier. Note: CTRL-I is the same as TAB, which
+			is likely to be typed after a succesful completion,
+			therefore CTRL-I is not used for searching for the
+			next match.
 
 	CTRL-P		Search backward for previous matching macro name.
 			This identifier replaces the previous matching
@@ -930,7 +1018,7 @@ CTRL-X CTRL-G		Search for the first identifier in the current and
 
 
 Completing tags:					*compl_tag*
-						*i_ctrl_x_ctrl_r_sbracket*
+						*i_CTRL-X_CTRL-]*
 CTRL-X CTRL-]		Search for the first tag that starts with the same
 			characters as before the cursor. The found tag is
 			inserted in front of the cursor.
@@ -943,7 +1031,7 @@ CTRL-X CTRL-]		Search for the first tag that starts with the same
 
 
 Completing file names:					*compl_filename*
-							*i_ctrl_x_ctrl_f*
+							*i_CTRL-X_CTRL-F*
 CTRL-X CTRL-F		Search for the first file name that starts with the
 			same characters as before the cursor. The found file
 			name is inserted in front of the cursor.
@@ -962,7 +1050,7 @@ The 'define' option is used to specify a line that contains a definition.
 The 'include' option is used to specify a line that contains an include file
 name. The 'path' option is used to search for include files.
 
-							*i_ctrl_x_ctrl_d*
+							*i_CTRL-X_CTRL-D*
 CTRL-X CTRL-D		Search in the current and included files for the
 			first definition (or macro) name that starts with
 			the same characters as before the cursor. The found
@@ -1006,64 +1094,64 @@ descision is made from the last key that was typed for the line, normally
 There is an automatic completion of names on the command line, see 4.4.2
 |cmdline_completion|.
 
-						*e_ctrl_v*
+						*e_CTRL-V*
 CTRL-V		Insert next non-digit literally. Up to three digits form the 
 		decimal value of a single byte. The non-digit and the three
 		digits are not considered for mapping. This works the same
-		way as in Insert mode (see above |i_ctrl_v|).
-						*e_cur_left*
+		way as in Insert mode (see above |i_CTRL-V|).
+						*e_<C_LEFT>*
 <C_LEFT>	cursor left
-						*e_cur_right*
+						*e_<C_RIGHT*
 <C_RIGHT>	cursor right
-						*e_scur_left*
+						*e_<SC_LEFT>*
 <SC_LEFT>	cursor one word left
-						*e_scur_right*
+						*e_<SC_RIGHT*
 <SC_RIGHT>	cursor one word right
-CTRL-B or <HOME>				*e_ctrl_b* *e_home*
+CTRL-B or <HOME>				*e_CTRL-B* *e_<HOME>*
 		cursor to begin of command line
-CTRL-E or <END>					*e_ctrl_e* *e_end*
+CTRL-E or <END>					*e_CTRL-E* *e_<END>*
 		cursor to end of command line
 
-						*e_mouse_click*
+						*e_<MOUSE>*
 mouse-click	cursor to position of mouse click.
 
-						*e_bs*
+						*e_<BS>*
 <BS>		delete the character in front of the cursor
-						*e_del*
+						*e_<DEL>*
 <DEL>		delete the character under the cursor (at end of line:
 		character in front of the cursor)
-						*e_ctrl_w*
+						*e_CTRL-W*
 CTRL-W		delete the word in front of the cursor
-						*e_ctrl_u*
+						*e_CTRL-U*
 CTRL-U		remove all characters
 
 		Note: if the command line becomes empty with one of the
 		delete commands, command line mode is quit.
-						*e_insert*
+						*e_<INSERT>*
 <INSERT>	Toggle between insert and overstrike. {not in Vi}
 
 {char1} <BS> {char2}	or			*e_digraph*
-CTRL-K {char1} {char2}				*e_ctrl_k*
+CTRL-K {char1} {char2}				*e_CTRL-K*
 		enter digraph (see 4.7 |digraphs|). {not in Vi}
 
-						*e_lf* *e_cr*
+						*e_<LF>* *e_<CR>*
 <CR> or <LF>	start entered command
-						*e_esc*
+						*e_<ESC>*
 <ESC>		when typed: quit command line without executing
 		in macros: start entered command
-						*e_ctrl_c*
+						*e_CTRL-C*
 CTRL-C		quit command line without executing
 
-						*e_cur_up*
+						*e_<C_UP>*
 <C_UP>		recall older command line from history
-						*e_cur_down*
+						*e_<C_DOWN>*
 <C_DOWN>	recall more recent command line from history
 
-						*e_scur_up* *e_page_up*
+						*e_<SC_UP>* *e_<PAGE_UP>*
 <SC_UP> or <PAGE_UP>
 		recall older command line from history, which begin matches 
 		the current command line (see below).
-						*e_scur_down* *e_page_down*
+						*e_<SC_DOWN>* *e_<PAGE_DOWN>*
 <SC_DOWN> or <PAGE_DOWN>
 		recall more recent command line from history, which begin 
 		matches the current command line (see below).
@@ -1100,7 +1188,7 @@ word before the cursor. This is available for:
 
 These are the commands that can be used:
 
-							*e_ctrl_d*
+							*e_CTRL-D*
 CTRL-D		List names that match the pattern in front of the cursor.
 		When showing file names, directories are highlighted (see
 		'highlight' option)
@@ -1114,17 +1202,17 @@ CTRL-D		List names that match the pattern in front of the cursor.
 		When typed again, and there were multiple matches, the next
 		match is inserted. After the last match the first is used
 		again (wrap around).
-							*e_ctrl_n*
+							*e_CTRL-N*
 CTRL-N		After using 'wildchar' which got multiple matches: go to next
 		match. Otherwise: Recall more recent command line from history.
-							*e_ctrl_p*
+							*e_CTRL-P*
 CTRL-P		After using 'wildchar' which got multiple matches: go to
 		previous match. Otherwise: Recall older command line from
 		history.
-							*e_ctrl_a*
+							*e_CTRL-A*
 CTRL-A		All names that match the pattern in front of the cursor are
 		inserted.
-							*e_ctrl_l*
+							*e_CTRL-L*
 CTRL-L		A match is done on the pattern in front of the cursor. If
 		there is one match, it is inserted in place of the pattern.
 		If there are multiple matches the longest common part is
@@ -1164,7 +1252,7 @@ that take a file name.
 
 The Ex commands have a few specialties:
 
-							*c_quotes*
+							*:"*
 <"> at the start of a line causes the whole line to be ignored. <"> 
 after a command causes the rest of the line to be ignored. This can be used 
 to add comments. Example:
@@ -1173,24 +1261,29 @@ It is not possible to add a comment to a shell command ":!cmd" or to the
 ":map" command and friends, because they see the <"> as part of their
 argument.
 
-							*c_bar*
+							*:bar*
 <|> can be used to separate commands, so you can give multiple commands in 
-one line. The commands ":global", "vglobal" and  ":!" see the <|> as their
-argument, and can therefore not be followed by another command. If you want
-<|> to be included in a command, precede it with <\>. Note that this is
-confusing (inherited from vi). If you give a command with ":!" you don't
-have to use a backslash, with ":r !" you have to. And with ":g" the <|> is
-included in the command, with ":s" it is not. Examples:
+one line. The commands ":global", "vglobal", ":!" and "autocmd" see the <|>
+as their argument, and can therefore not be followed by another command. If
+you want <|> to be included in one of the other commands, precede it with
+<\>. Note that this is confusing (inherited from vi). If you give a command
+with ":!" you don't have to use a backslash, with ":r !" you have to. And
+with ":g" the <|> is included in the command, with ":s" it is not. There is
+one execption: With the ":map" and ":abbr" commands and friends CTRL-V needs
+to be used instead of <\>.
+Examples:
 	:!ls | wc		view the output of two commands
 	:r !ls \| wc		insert the same output in the text
 	:%g/foo/p|>		moves all matching lines one shiftwidth
 	:%s/foo/bar/|>		moves one line one shiftwidth
+	:map q 10^V|		map "q" to "10|"
+	:map q 10\|map \ l	map "q" to "10\" and map "\" to "l"
 You can also use <LF> to separate commands in the same way as with <|>. But
 using <|> is the preferred method.
 
 When the character <%> or <#> is used where a filename is expected, they are 
 expanded to the current and alternate filename (see the chapter "editing 
-files" |c_percent| |c_pound|).
+files" |:%| |:#|).
 
 Embedded spaces in filenames are allowed if one filename is expected as
 argument. Trailing spaces will be ignored, unless escaped with a backslash
@@ -1214,7 +1307,7 @@ most commands is the cursor position, but the commands ":write" and
 ":global" have the whole file (1,$) as default. If more line specifiers are 
 given than required for the command, the first one(s) will be ignored.
 
-Line numbers may be specified with:
+Line numbers may be specified with:			*:range*
 	{number}	an absolute line number
 	.		the current line
 	$		the last line in the file
@@ -1261,11 +1354,16 @@ A range should have the lower line number first. If this is not the case, Vim
 will ask you if it should swap the line numbers. This is not done within the
 global command ":g".
 
+							*N:*
 When giving a count before entering ":", this is translated into:
 		:.,.+(count - 1)
 In words: The 'count' lines at and after the cursor. Example: To delete
 three lines:
 		3:d<CR>		is translated into: .,.+2d<CR>
+
+							*v_:*
+{visual}:	starts a command line with the visual selected lines as a
+		range.
 
 
 4.5 The window contents					*window_contents*
@@ -1409,7 +1507,7 @@ recursive abbreviations, for no apparent reason}
 
 Abbreviations are disabled if the 'paste' option is set.
 
-						*c_abbreviate*
+						*:abbreviate*
 :ab[breviate]		list all abbreviations. The character in the first
 			column indicates the mode where the abbreviation is
 			used: 'i' for insert mode, 'c' for Command_line
@@ -1422,35 +1520,35 @@ Abbreviations are disabled if the 'paste' option is set.
 			existed it is replaced with the new <rhs>. <rhs> may
 			contain spaces.
 
-						*c_unabbreviate*
+						*:unabbreviate*
 :una[bbreviate] <lhs>	remove abbreviation for <lhs> from the list
 
-						*c_noreabbrev*
+						*:noreabbrev*
 :norea[bbrev] [lhs] [rhs]
 			same as ":ab", but no remapping for this <rhs> {not
 			in Vi}
 
-						*c_cabbrev*
+						*:cabbrev*
 :ca[bbrev] [lhs] [rhs]	same as ":ab", but for Command_line mode only. {not
 			in Vi}
 
-						*c_cunabbrev*
+						*:cunabbrev*
 :cuna[bbrev] <lhs>	same as ":una", but for Command_line mode only. {not
 			in Vi}
 
-						*c_cnoreabbrev*
+						*:cnoreabbrev*
 :cnorea[bbrev] [lhs] [rhs]
 			same as ":ab", but for Command_line mode only and no
 			remapping for this <rhs> {not in Vi}
 
-						*c_iabbrev*
+						*:iabbrev*
 :ia[bbrev] [lhs] [rhs]	same as ":ab", but for insert mode only. {not in Vi}
 
-						*c_iunabbrev*
+						*:iunabbrev*
 :iuna[bbrev] <lhs>	same as ":una", but for insert mode only. {not in
 			Vi}
 
-						*c_inoreabbrev*
+						*:inoreabbrev*
 :inorea[bbrev] [lhs] [rhs]
 			same as ":ab", but for insert mode only and no
 			remapping for this <rhs> {not in Vi}
@@ -1458,7 +1556,7 @@ Abbreviations are disabled if the 'paste' option is set.
 
 4.7 Digraphs						*digraphs*
 
-						*c_digraphs*
+						*:digraphs*
 :dig[raphs]		show currently defined digraphs. {not in Vi}
 
 :dig[raphs] {char1}{char2} {number} ...
@@ -1473,7 +1571,7 @@ that can be entered with CTRL-V (see above).
 Vim must have been compiled with the 'digraphs' option enabled. If not, the 
 ":digraph" command will display an error message.
 
-There are two methods to enter digraphs:
+There are two methods to enter digraphs:			*i_digraph*
 	CTRL-K {char1} {char2}		or
 	{char1} <BS> {char2}
 The first is always available. The second only when the 'digraph' option is 
@@ -1486,9 +1584,10 @@ Example:
 	<a> <BS> <^>	will enter an <a> with a hat (226)
 	CTRL-K <-> <->	will enter a minus sign (173)
 
-The default digraphs are listed in the file digraph.doc. They are meant for 
-the Amiga character set, which is some international standard. With another 
-character set they may be illogical.
+The default digraphs are listed in the file "vim_digr.txt" |digraph_table|.
+There are two sets: One that is used for MS-DOS and one for the
+international standrard character set that is mostly used on Unix systems
+and the Amiga. With the wrong character set they may be illogical.
 
 For CTRL-K there is one general digraph: CTRL-K <SPACE> {char} will enter
 {char} with the highest bit set. This can be used to enter meta-characters.
@@ -1500,6 +1599,98 @@ If you accidently typed an <a> that should be an <e>, you will type <a> <BS>
 <e>. But that is a digraph, so you will not get what you want. To correct
 this, you will have to type <BS> e again. To avoid this don't set the
 'digraph' option and use CTRL-K to enter digraphs.
+
+
+4.8 Using the mouse					*using_mouse*
+
+Currently the mouse is supported under MSDOS and Unix in an xterm terminal.
+Mouse clicks can be used to position the cursor and select the visual area.
+There are no menus.
+
+Clicking the left mouse button causes the cursor to be positioned. If the
+click is in another window that window is made the active window. When
+editing the command line the cursor can only be positioned on the command
+line.
+
+In Normal and Visual mode clicking the right mouse button causes the visual
+area to be extended. When clicking in a window which is editing another
+buffer, the Visual mode is stopped.
+
+Mouse clicks can be mapped. The codes for mouse clicks are:
+     code	  mouse click		  action
+   <MOUSE>L	left button pressed	set cursor position
+   <MOUSE>l	left button released
+   <MOUSE>M	middle button pressed
+   <MOUSE>m	middle button released
+   <MOUSE>R	right button pressed	set end of visual area
+   <MOUSE>r	right button released
+   <MOUSE>P	-			set cursor position in current
+					buffer
+
+Note: Only one button press is recognized at a time, it is not possible to
+use two buttons at the same time.
+
+The <MOUSE>P code is not produced by the use of the mouse. It can be used in
+a mapping to position the cursor at the coordinates of a mouse click,
+without side effects. It differs from <MOUSE>L in that it does not exit
+visual mode, there is no scrolling if the click is in the first or last line
+of the window and clicks in other buffers are ignored.
+
+The coordinates for the click are not available. Exactly one of the existing
+mouse clicks must be used to get the coordinates. Failing to do so will
+result in further mouse clicks not to be recognized, causing the
+untranslated terminal codes from the mouse clicks to be interpreted as
+commands. Use <MOUSE>P to just position the cursor at the click.
+
+Examples:
+	:map <MOUSE>l	<MOUSE>L
+Use a left button release in the same way as a left button press.
+	:map <MOUSE>M	mc<MOUSE>Px`c
+The middle mouse button is used to delete a character, without moving the
+cursor. Note that this only works correctly when clicking in the current
+window.
+	:noremap <MOUSE>L   ms<MOUSE>Lme`sv`e
+The left mouse button is used to select a visual area, between the current
+cursor position and the position of the click. Note the use of ":noremap"
+instead of "map" to avoid a recursive mapping.
+
+
+4.9 On-line help					*online_help*
+
+<HELP>		or					*help* *:help*
+:h[elp]			Split the window and display the help file in
+			read-only mode.  {not in Vi}
+
+:h[elp] {subject}	Like ":help", additionally jump to the tag
+			"subject". {not in Vi}
+
+The help file name can be set with the 'helpfile' option. The height of the
+help window can be set with the 'helpheight' option (default 20). Jump to
+specific subjects by using tags. This can be done in two ways:
+- Use the CTRL-] command while standing on the name of a command or option.
+  This only works when the tag is an identifier.
+- use the ":ta {subject}" command. This works with all characters.
+
+Use ":q" to close the help window.
+
+							*doc_files*
+All the help files should be in one directory. The files are:
+	vim_help.txt	overview and quick reference	      |vim_help.txt|
+	vim_idx.txt	alphabetical index of all commands    |vim_idx.txt|
+	vim_ref.txt	reference manual (this file)	      |vim_ref.txt|
+	vim_win.txt	reference manual for windows commands |vim_win.txt|
+	vim_diff.txt	main differences between Vim and Vi   |vim_diff.txt|
+	vim_digr.txt	list of available digraphs	      |vim_digr.txt|
+	vim_tips.txt	tips on using Vim		      |vim_tips.txt|
+
+	vim_unix.txt	unix specific remarks		      |vim_unix.txt|
+	vim_ami.txt	Amiga specific remarks		      |vim_ami.txt|
+	vim_dos.txt	MS-DOS specific remarks		      |vim_dos.txt|
+	vim_nt.txt	Windows-NT specific remarks	      |vim_nt.txt|
+	vim_arch.txt	Archimedes specific remarks	      |vim_arch.txt|
+	vim_mac.txt	Macintosh specific remarks	      |vim_mac.txt|
+
+	vim_tags	tags file for documentation
 
 
 	5. Editing files				*edit_files*
@@ -1524,7 +1715,7 @@ remember which files you edited and to quickly switch from one file to
 another with the CTRL-^ command (e.g. to copy text). First type the number
 of the file and then hit CTRL-^. {Vi: only one alternate filename}
 
-						*c_percent* *c_pound*
+						*:%* *:#* *:%<*
 In Ex commands (the ones that start with a colon) <%> is replaced by the
 current filename and <#> is replaced by the alternate filename. The older
 alternate filenames are "#1", "#2", etc. "#0" is the same as "#". If a
@@ -1538,7 +1729,7 @@ removed (everything after and including the last '.' in the file name).
 	#31		alternate file number 31
 	#31<		idem, without extension
 
-CTRL-G		or					*ctrl_g* *c_file*
+CTRL-G		or					*CTRL-G* *:file*
 :f[ile]			Prints the current filename (as typed) and the
 			cursor position (unless the 'ruler' option is set).
 			See also 'shortmess' option. {vi does not include
@@ -1549,15 +1740,15 @@ CTRL-G		or					*ctrl_g* *c_file*
 
 :f[ile] {name}		Sets the current filename to {name}.
 
-:buffers
-:files
+:buffers						*:buffers*
+:files							*:files* *:ls*
 :ls			List all the currently known file names. See
-			'windows.doc' |c_files| |c_buffers| |c_ls|. {not in
+			'vim_win.txt' |:files| |:buffers| |:ls|. {not in
 			Vi}
 
 Vim will remember the full path name of a file name that you enter. In most
 cases when the file name is displayed only the name you typed is shown, but
-the full path name is being used if you used the ":cd" command |c_cd|.
+the full path name is being used if you used the ":cd" command |:cd|.
 
 If the environment variable 'HOME' is set, and the file name starts with
 that string, it is often displayed with HOME replaced by "~". This was done
@@ -1621,27 +1812,34 @@ the string "[Modified]" if the buffer has been changed.
 
 5.2 Editing a file					*edit_a_file*
 
-							*c_edit*
+							*:edit*
 :e[dit] [+cmd]		Edit the current file, unless changes have been made.
 
+							*:edit!*
 :e[dit]! [+cmd]		Edit the current file always. Discard any changes to
 			the buffer.
 
+							*:edit_f*
 :e[dit] [+cmd] {file}	Edit {file}, unless changes have been made.
 
+							*:edit!_f*
 :e[dit]! [+cmd] {file}	Edit {file} always. Discard any changes to the
 			buffer.
 
 :e[dit] #[count]        Edit the [count]th alternate filename (as shown by
                         :files). This command does the same as [count] CTRL-^.
 
-							*c_ex*
+							*:ex*
 :ex [+cmd] [file]	Same as :edit. {Vi: go from visual to Ex mode}
 
-							*c_visual*
+							*:visual*
 :vi[sual] [+cmd] [file]	Same as :edit. {Vi: go from Ex to Visual mode}
 
-							*ctrl_hat*
+							*:view*
+:vie[w] [+cmd] file	Same as :edit, but set 'readonly' option for this
+			buffer. {not in Vi}
+
+							*CTRL-^*
 [count]CTRL-^		Edit [count]th alternate file (equivalent to ":e
 			#[count]"). Without count this gets you to the
 			previously edited file. This is a quick way to
@@ -1649,16 +1847,18 @@ the string "[Modified]" if the buffer has been changed.
 			'autowrite' option is set and the buffer was
 			changed, write it.
 
-]f							*r_sbracket_f*
-[f							*l_sbracket_f* *gf*
+]f							*]f*
+[f							*[f* *gf*
 gf			Edit the file whose name is under or after the
 			cursor. Mnemonic: "goto file". Uses the 'path'
 			variable as a list of directory names to look for
 			the file. Also looks for the file relative to the
 			current file. This command fails if the current file
-			cannot be abandoned. {not in Vi}
+			cannot be abandoned. If the name is a hypertext
+			link, that looks like "type://machine/path", only
+			"/path" is used.  {not in Vi}
 
-							*c_cd*
+							*:cd*
 :cd			On non-Unix systems: Print the current directory
 			name. On Unix systems: Change the current directory
 			to the home directory.
@@ -1667,10 +1867,10 @@ gf			Edit the file whose name is under or after the
 			change the meaning of an already entered file name,
 			because its full path name is remembered.
 
-							*c_chdir*
+							*:chdir*
 :chd[ir] [path]		Same as :cd.
 
-							*c_pwd*
+							*:pwd*
 :pwd			Print the current directory name. {Vi: no pwd}
 
 These commands are used to start editing a single file. This means that the
@@ -1745,18 +1945,18 @@ to do this is by starting Vim with the "-b" option.
 
 If you give more than one filename when starting Vim, this list is
 remembered as the argument list. Do not confuse this with the file list,
-which you can see with the ":files" command |c_files|. The argument list was
+which you can see with the ":files" command |:files|. The argument list was
 already present in vi, the file list is new in Vim. The file names in the
 argument list will also be present in the file list (unless they were
 deleted with ":bdel").
 
 You can use the argument list with the following commands:
 
-							*c_args*
+							*:args*
 :ar[gs]			Print the argument list, with the current file in
 			square brackets.
 
-							*c_argument*
+							*:argument*
 :[count]argu[ment] [count] [+cmd]
 			Edit file [count] in the argument list, unless
 			changes have been made and the 'autowrite' option is
@@ -1766,7 +1966,7 @@ You can use the argument list with the following commands:
 			Edit file [count] in the argument list, discard any
 			changes to the current buffer. {Vi: no such command}
 
-							*c_next*
+							*:next*
 :[count]n[ext] [+cmd]	Edit [count] next file, unless changes have been 
 			made and the 'autowrite' option is off {Vi: no 
 			count}.
@@ -1781,11 +1981,11 @@ You can use the argument list with the following commands:
 			'autowrite' option is off.
 
 :ar[gs]! [+cmd] {filelist}
-:n[ext]! [+cmd] {filelist}
+:n[ext]! [+cmd] {filelist}				*:next_f*
 			Define {filelist} as the new argument list and edit
 			the first one. Discard any changes to the buffer.
 
-:[count]N[ext] [count] [+cmd]				*c_Next*
+:[count]N[ext] [count] [+cmd]				*:Next*
 			Edit [count] previous file in argument list, unless 
 			changes have been made and the 'autowrite' option is 
 			off {Vi: no count}.
@@ -1794,10 +1994,10 @@ You can use the argument list with the following commands:
 			Edit [count] previous file in argument list. Discard
 			any changes to the buffer {Vi: no count}.
 
-:[count]pre[vious] [count] [+cmd]			*c_previous*
+:[count]pre[vious] [count] [+cmd]			*:previous*
 			Same as :Next {Vi: only in some versions}
 
-							*c_rewind*
+							*:rewind*
 :rew[ind] [+cmd]	Start editing the first file in the argument list,
 			unless changes have been made and the 'autowrite'
 			option is off.
@@ -1805,7 +2005,7 @@ You can use the argument list with the following commands:
 :rew[ind]! [+cmd]	Start editing the first file in the argument list.
 			Discard any changes to the buffer.
 
-							*c_last*
+							*:last*
 :la[st] [+cmd]		Start editing the last file in the argument list, unless
 			changes have been made and the 'autowrite' option is
 			off. {not in Vi}
@@ -1813,7 +2013,7 @@ You can use the argument list with the following commands:
 :la[st]! [+cmd]		Start editing the last file in the argument list.
 			Discard any changes to the buffer. {not in Vi}
 
-							*c_wnext*
+							*:wnext*
 :[count]wn[ext] [+cmd]	Write current file and start editing the [count] 
 			next file. {not in Vi}
 
@@ -1826,8 +2026,8 @@ You can use the argument list with the following commands:
 			Write current file to {file} and start editing the
 			[count] next file. {not in Vi}
 
-:[count]wN[ext][!] [+cmd] [file]			*c_wNext*
-:[count]wp[revous][!] [+cmd] [file]			*c_wprevious*
+:[count]wN[ext][!] [+cmd] [file]			*:wNext*
+:[count]wp[revous][!] [+cmd] [file]			*:wprevious*
 			Same as :wnext, but go to previous file instead of
 			next. {not in Vi}
 
@@ -1850,21 +2050,24 @@ command.
 
 5.4 Writing and quitting				*write_quit*
 
-							*c_write*
+							*:write*
 :[range]w[rite][!]	Write the specified lines to the current file.
 
+							*:write_f*
 :[range]w[rite]	{file}	Write the specified lines to {file}, unless it
 			already exists and the 'writeany' option is off.
 
 :[range]w[rite]! {file}	Write the specified lines to {file}. Overwrite an
 			existing file.
 
+							*:write_a*
 :[range]w[rite][!] >>	Append the specified lines to the current file.
 
 :[range]w[rite][!] >> {file}
 			Append the specified lines to {file}. <!> forces the
 			write even if file does not exist.
 
+							*:write_c*
 :[range]w[rite] !{cmd}	Execute {cmd} with [range] lines as standard input
 			(note the space in front of the <!>).
 
@@ -1873,18 +2076,18 @@ If a file name is give with ":w" it becomes the alternate file. This can be
 used when the write fails and you want to try again later with ":w #".
 
 
-							*c_quit*
+							*:quit*
 :q[uit]			Quit, unless changes have been made or not editing 
 			the last file in the argument list.
 
 :q[uit]!		Quit always, without writing.
 
-							*c_cq*
+							*:cq*
 :cq			Quit always, without writing, and return an error 
 			code. Used for Manx's QuickFix mode (see 5.5
 			|quickfix|).
 
-							*c_wq*
+							*:wq*
 :wq			Write the current file. Exit if not editing the
 			last file in the argument list.
 
@@ -1895,11 +2098,11 @@ used when the write fails and you want to try again later with ":w #".
 
 :wq! {file}		Write to {file} and exit.
 
-							*c_xit*
+							*:xit*
 :x[it][!] [file]	Like ":wq", but write only when changes have been
 			made.
 
-							*c_exit*
+							*:exit*
 :exi[t][!] [file]	Same as :xit.
 
 							*ZZ*
@@ -1973,25 +2176,25 @@ match the error messages from your compiler (see below).
 
 The following commands can be used if you are in QuickFix mode:
 
-							*c_cc*
+							*:cc*
 :cc [nr]		Display error [nr]. If [nr] is omitted, the same
 			error is displayed again. {not in Vi}
 
-							*c_cnext*
+							*:cnext*
 :[count]cn[ext]		Display the [count] next error in the list that
 			includes a file name. If there are no file names at
 			all, go the the [count] next error. {not in Vi}
 
-							*c_cprevious*
+							*:cprevious*
 :[count]cp[revious]	Display the [count] previous error in the list that
 			includes a file name. If there are no file names at
 			all, go the the [count] previous error. {not in Vi}
 
-							*c_cquit*
+							*:cquit*
 :cq[uit]		Quit Vim with an error code, so that the compiler
 			will not compile the same file again. {not in Vi}
 
-							*c_cfile*
+							*:cfile*
 :cf[ile] [errorfile]	Read the error file and jump to the first error.
 			This is done automatically when Vim is started with
 			the -e option. You can use this command when you
@@ -1999,12 +2202,12 @@ The following commands can be used if you are in QuickFix mode:
 			name of the errorfile, the 'errorfile' option will
 			be set to [errorfile] {not in Vi}
 
-							*c_clist*
+							*:clist*
 :cl[ist]		List all errors that inlcude a file name. {not in Vi}
 
 :cl[ist]!		List all errors. {not in Vi}
 
-							*c_make*
+							*:make*
 :make [arguments]	1. If the 'autowrite' option is set and the buffer
 			   was changed, write it.
 			2. Any existing 'errorfile' is deleted.
@@ -2077,7 +2280,7 @@ The backslashes before the pipe character are required to avoid it to be
 recognized as a command separator. The backslash before each space is
 required for the set command.
 
-						*c_make_makeprg*
+						*:make_makeprg*
 The ":make" command executes the command given with the 'makeprg' option.
 This is done by passing the command to the shell given with the 'shell'
 option. This works almost like typing
@@ -2165,10 +2368,10 @@ normally put in your .vimrc or .exrc file. {All this is not in Vi}
 The auto-commands are executed just before reading the file. Any modelines
 in the file overrule the auto-commands.
 
-Note: Any <|> and <LF> in this command must be escaped by a backslash,
-otherwise it will be seen as the start of another command (see |c_bar|).
+Note: This command cannot be followed by another command, since any '|' is
+considered part of the command.
 
-							*c_autocmd*
+							*:autocmd*
 :au[tocmd] {pat} {cmd}	Add {cmd} to the list of commands that will be
 			automatically executed when editing a file
 			matching {pat}.
@@ -2184,7 +2387,7 @@ otherwise it will be seen as the start of another command (see |c_bar|).
 
 :au[tocmd]!     	Remove ALL auto-commands.
 
-							*c_doautocmd*
+							*:doautocmd*
 :do[autocmd] [fname]	Apply the autocommands matching [fname] (default:
 			current file name) to the current buffer. This can
 			be used when the current file name does not match
@@ -2266,7 +2469,7 @@ looking at the keyboard. Think of j as an arrow pointing downwards.
 
 h		or					*h*
 <C_LEFT>	or					*cur_left*
-CTRL-H		or					*ctrl_h* *bs*
+CTRL-H		or					*CTRL-H* *bs*
 <BS>			[count] characters to the left (exclusive).
 			Note: If you prefer <BS> and <DEL> to delete a
 			character, use the mappings:
@@ -2279,14 +2482,14 @@ l		or					*l*
 <C_RIGHT>	or					*cur_right* *space*
 <SPACE>			[count] characters to the right (exclusive).
 
-							*zero* *home*
+							*0* *home*
 0 or <HOME>		To the first character of the line (exclusive).
 
-							*hat*
+							*^*
 ^			To the first non-blank character of the line
 			(exclusive).
 
-							*dollar* *end*
+							*$* *end*
 $  or <END>		To the end of line [count] from the cursor
 			(inclusive).
 
@@ -2311,10 +2514,10 @@ T<char>			Till after [count]'th occurrence of <char> to the
 			left. The cursor is placed on the character right of
 			<char> (inclusive).
 
-							*semicolon*
+							*;*
 ;			Repeat latest f, t, F or T [count] times.
 
-							*comma*
+							*,*
 ,			Repeat latest f, t, F or T in opposite direction
 			[count] times.
 
@@ -2326,25 +2529,25 @@ may move to one of the next lines.
 6.2 Up-down motions					*up_down_motions*
 
 k		or					*k*
-<C_UP>		or					*cur_up* *ctrl_p*
+<C_UP>		or					*cur_up* *CTRL-P*
 CTRL-P			[count] lines upward (linewise).
 
 j		or					*j*
 <C_DOWN>	or					*cur_down*
-CTRL-J		or					*ctrl_j*
-<LF>		or					*linefeed* *ctrl_n*
+CTRL-J		or					*CTRL-J*
+<LF>		or					*linefeed* *CTRL-N*
 CTRL-N			[count] lines downward (linewise).
 
-							*minus*
+							*-*
 -  <minus>		[count] lines upward, on the first non-blank
 			character (linewise).
 
-+		or					*plus*
-CTRL-M		or					*ctrl_m* *cr*
++		or					*+*
+CTRL-M		or					*CTRL-M* *cr*
 <CR>			[count] lines downward, on the first non-blank
 			character (linewise).
 
-							*underscore*
+							*_*
 _  <underscore>		[count] - 1 lines downward, on the first non-blank
 			character (linewise).
 
@@ -2353,10 +2556,15 @@ G			Goto line [count], default last line, on the first
 			non-blank character (linewise). If 'startofline' not
 			set, keep the same column.
 
+							*gg*
+gg			Goto line [count], default first line, on the first
+			non-blank character (linewise). If 'startofline' not
+			set, keep the same column.
+
 :[range]		Set the cursor on the (last) specified line number
 			(cannot be used with an operator).
 
-							*count_percent*
+							*N%*
 {count}%		Go to {count} percentage in the file, on the first
 			non-blank in the line (linewise). To compute the new
 			line number this formula is used: {count} *
@@ -2416,32 +2624,32 @@ between vi and Vim.
 
 6.4 Text object motions					*object_motions*
 
-							*l_paren*
+							*(*
 (			[count] sentences backward (exclusive).
 
-							*r_paren*
+							*)*
 )			[count] sentences forward (exclusive).
 
-							*l_bracket*
+							*{*
 {			[count] paragraphs backward (exclusive).
 
-							*r_bracket*
+							*}*
 }			[count] paragraphs forward (exclusive).
 
-						*r_sbracket_r_sbracket*
+							*]]*
 ]]			[count] sections forward or to the next <{> in the
 			first column. When used after an operator, then the
 			<}> in the first column. (linewise).
 
-						*r_sbracket_l_sbracket*
+							*][*
 ][			[count] sections forward or to the next <}> in the
 			first column (linewise).
 
-						*l_sbracket_l_sbracket*
+							*[[*
 [[			[count] sections backward or to the previous <{> in
 			the first column (linewise).
 
-						*l_sbracket_r_sbracket*
+							*[]*
 []			[count] sections backward or to the previous <}> in
 			the first column (linewise).
 
@@ -2472,20 +2680,45 @@ second character the type of brace found.
 
 6.5 Pattern searches					*pattern_searches*
 
-							*slash*
-/{pattern}[/]		Search forward for the [count]'th occurrence of
+							*/*
+/{pattern}[/]<CR>	Search forward for the [count]'th occurrence of
 			{pattern} (exclusive).
 
-/{pattern}/{offset}	Search forward for the [count]'th occurrence of
+/{pattern}/{offset}<CR>	Search forward for the [count]'th occurrence of
 			{pattern} and go {offset} lines up or down (see 
 			below). (linewise).
 
-/			Search forward for the [count]'th latest used
+							*/<CR>*
+/<CR>			Search forward for the [count]'th latest used
 			pattern with latest used {offset}.
 
-//{offset}		Search forward for the [count]'th latest used
+//{offset}<CR>		Search forward for the [count]'th latest used
 			pattern with new {offset}. If {offset} is empty no
 			offset is used.
+
+							*?*
+?{pattern}[?]<CR>	Search backward for the [count]'th previous
+			occurrence of {pattern} (exclusive).
+
+?{pattern}?{offset}<CR>	Search backward for the [count]'th previous
+			occurrence of {pattern} and go {offset} lines up or
+			down (see below) (linewise).
+
+							*?<CR>*
+?<CR>			Search backward for the [count]'th latest used
+			pattern with latest used {offset}.
+
+??{offset}<CR>		Search backward for the [count]'th latest used
+			pattern with new {offset}. If {offset} is empty no
+			offset is used.
+
+							*n*
+n			Repeat the latest "/" or "?" [count] times. {Vi: no
+			count}
+
+							*N*
+N			Repeat the latest "/" or "?" [count] times in
+			opposite direction. {Vi: no count}
 
 							*star*
 *			Search forward for the [count]'th occurrence of the
@@ -2495,7 +2728,7 @@ second character the type of brace found.
 			under the cursor, any non-blank word is used to
 			search for. {not in Vi}
 
-							*hatch*
+							*#*
 #			Same as "*", but search backward. {not in Vi}
 
 							*gd*
@@ -2520,30 +2753,7 @@ gD			Goto global Declaration. When the cursor is on a
 			just like "gd", except that the search for the
 			identifier always starts in line 1. {not in Vi}
 
-							*question*
-?{pattern}[?]		Search backward for the [count]'th previous
-			occurrence of {pattern} (exclusive).
-
-?{pattern}?{offset}	Search backward for the [count]'th previous
-			occurrence of {pattern} and go {offset} lines up or
-			down (see below) (linewise).
-
-?			Search backward for the [count]'th latest used
-			pattern with latest used {offset}.
-
-??{offset}		Search backward for the [count]'th latest used
-			pattern with new {offset}. If {offset} is empty no
-			offset is used.
-
-							*n*
-n			Repeat the latest "/" or "?" [count] times. {Vi: no
-			count}
-
-							*N*
-N			Repeat the latest "/" or "?" [count] times in
-			opposite direction. {Vi: no count}
-
-							*ctrl_c*
+							*CTRL-C*
 CTRL-C			Interrupt current (search) command.
 
 While typing the search pattern the current match will be shown if the
@@ -2651,6 +2861,7 @@ Patterns may contain special characters, depending on the setting of the
 				line
 	$	  $		at end of pattern or in front of '\|',
 				matches end of line
+	~         \~		matches the last given substitute pattern
     - A pattern enclosed by escaped parentheses (e.g. "\(^a\)").
     - A single character, with no special meaning, matches itself
     - A backslash followed by a single character, with no special meaning,
@@ -2701,15 +2912,15 @@ that typing CTRL_V CTRL_J also inserts a <LF>, thus also searches for a
 m<a-zA-Z>		Set mark <a-zA-Z> at cursor position (does not move 
 			the cursor, this is not a motion command).
 
-						*c_mark*
+						*:mark*
 :[range]mar[k] <a-zA-Z>	Set mark <a-zA-Z> at last line number in [range], 
 			column 0. Default is cursor line.
 
-						*c_k*
+						*:k*
 :[range]k<a-zA-Z>	Same as :mark, but the space before the mark name can
 			be omitted.
 
-						*quote*
+						*'*
 '<a-z>			To the first non-blank character on the line with
 			mark <a-z> (linewise).
 
@@ -2718,16 +2929,21 @@ m<a-zA-Z>		Set mark <a-zA-Z> at cursor position (does not move
 			same file, not a motion command when in other file). 
 			{not in Vi}
 
-						*backquote*
+						*`*
 `<a-z>			To the mark <a-z> (exclusive).
 
 `<A-Z>			To the mark <A-Z> in the correct file (exclusive 
 			when in same file, not a motion command when in 
 			other file). {not in Vi}
 
-						*c_marks*
-:marks			List the current marks (not a motion command). {not 
-			in Vi}
+						*:marks*
+:marks			List all the current marks (not a motion command).
+			{not in Vi}
+
+:marks {arg}		List the marks that are mentioned in {arg} (not a
+			motion command). For example:
+				:marks aB
+			to list marks 'a' and 'B'. {not in Vi}
 
 A mark is not visible in any way. It is just a position in the file that is
 remembered. Do not confuse marks with named registers, they are totally 
@@ -2751,21 +2967,21 @@ remains correct, even if you insert/delete lines or edit another file for a
 moment.
 
 
-						*quote_l_sbracket*
+						*'[*
 '[			To the first non-blank character on the first line 
 			of the previously operated text or start of the last 
 			putted text. {not in Vi}
 
-						*backquote_l_sbracket*
+						*`[*
 `[			To the first character of the previously operated 
 			text or start of the last putted text. {not in Vi}
 
-						*quote_r_sbracket*
+						*']*
 ']			To the first non-blank character on the last line of 
 			the previously operated text or end of the last 
 			putted text. {not in Vi}
 
-						*backquote_r_sbracket*
+						*`]*
 `]			To the last character of the previously operated 
 			text or end of the last putted text. {not in Vi}
 
@@ -2782,12 +2998,19 @@ when using blockwise Visual mode. These commands do not work when no
 operator or put command has been used yet in the current file. The position
 may be incorrect after inserting text and ".p.
 
+						*'<*
+'<			To the first non-blank character on the first line
+			of the last selected visual area. {not in Vi}.
 
-						*quote_quote*
+						*`<*
+`<			To the first character of the last selected visual
+			area. {not in Vi}.
+
+						*''*
 ''			To the first non-blank character of the line where
 			the cursor was before the latest jump (linewise).
 
-						*backquote_backquote*
+						*``*
 ``			To the position before latest jump (exclusive).
 
 A "jump" is one of the following commands: "'", "`", "G", "/", "?", "n", 
@@ -2797,15 +3020,15 @@ with one of these commands, the position of the cursor before the jump is
 remembered. You can return to that position with the "''" and "``" command,
 unless the line containing that position was changed or deleted.
 
-							*ctrl_o*
+							*CTRL-O*
 CTRL-O			Go to [count] Older cursor position in jump list
 			(not a motion command). {not in Vi}
 
-							*ctrl_i*
+							*CTRL-I*
 CTRL-I			Go to [count] newer cursor position in jump list
 			(not a motion command). {not in Vi}
 
-							*c_jumps*
+							*:jumps*
 :jumps			Print the jump list (not a motion command). {not in 
 			Vi} 
 
@@ -2863,7 +3086,7 @@ be wrong (keeping them correct would take too much time). If you want to
 avoid this use a :jumps command before changing files. This will update the 
 line numbers in the current file.
 
-							*percent*
+							*%*
 %			Find the next item in this line after or under the
 			cursor and jump to its match (inclusive). Items can
 			be:
@@ -2881,16 +3104,16 @@ line numbers in the current file.
 			Using '%' on #if/#else/#endif makes the movement
 			linewise.
 
-						*l_sbracket_l_paren*
+						*[(*
 [(			go to [count] previous unmatched <(>. {not in Vi}
 
-						*l_sbracket_l_bracket*
+						*[{*
 [{			go to [count] previous unmatched <{>. {not in Vi}
 
-						*r_sbracket_r_paren*
+						*])*
 ])			go to [count] next unmatched <)>. {not in Vi}
 
-						*r_sbracket_r_bracket*
+						*]}*
 ]}			go to [count] next unmatched <}>. {not in Vi}
 
 The above four commands can be used to go to the start or end of the current
@@ -2928,34 +3151,34 @@ left-mouse-click	Moves to the position on the screen where the mouse
 Move edit window downwards (this means that more lines downwards in the text
 buffer are seen):
 
-							*ctrl_e*
+							*CTRL-E*
 CTRL-E			Window [count] lines downwards in the buffer
 
-							*ctrl_d*
+							*CTRL-D*
 CTRL-D			Window Downwards in the buffer. The number of lines
 			comes from the 'scroll' option (default: half a
 			screen). If [count] given, first set 'scroll' option
 			to [count]. See also 'startofline' option.
 
 <SC_DOWN>	or					*scur_down*
-<PAGE_DOWN>	or					*page_down* *ctrl_f*
+<PAGE_DOWN>	or					*page_down* *CTRL-F*
 CTRL-F			Window [count] pages Forwards (downwards) in the
 			buffer. See also 'startofline' option.
 
 Move edit window upwards (this means that more lines upwards in the text
 buffer are seen): 
 
-							*ctrl_y*
+							*CTRL-Y*
 CTRL-Y			Window [count] lines upwards in the buffer.
 
-							*ctrl_u*
+							*CTRL-U*
 CTRL-U			Window Upwards in the buffer. The number of lines
 			comes from the 'scroll' option (default: half a
 			screen). If [count] given, first set 'scroll' option
 			to [count]. See also 'startofline' option.
 
 <SC_UP>		or					*scur_up*
-<PAGE_UP>	or					*page_up* *ctrl_b*
+<PAGE_UP>	or					*page_up* *CTRL-B*
 CTRL-B			Window [count] pages Backwards (upwards) in the
 			buffer. See also 'startofline' option.
 
@@ -2970,12 +3193,13 @@ z<CR>			Redraw, line [count] at top of window (default
 zt			Like "z<CR>", but leave the cursor in the same
 			column. {not in Vi}
 
+							*z<CR>*
 z{height}<CR>		Redraw, make window {height} lines tall. This is
 			useful to make the number of lines small when screen
 			updating is very slow. Cannot make the height more
 			than the physical screen height.
 
-							*z_dot*
+							*z.*
 z.			Redraw, line [count] at center of window (default 
 			cursor line). Put cursor at first non-blank in the
 			line.
@@ -2984,7 +3208,7 @@ z.			Redraw, line [count] at center of window (default
 zz			Like "z.", but leave the cursor in the same column.
 			{not in Vi}
 
-							*z_min*
+							*z-*
 z-			Redraw, line [count] at bottom of window (default 
 			cursor line). Put cursor at first non-blank in the
 			line.
@@ -3005,28 +3229,31 @@ in the buffer, the text in the window moves downwards on your screen.
 
 8.1 Tags						*tag_commands*
 
-							*c_tag*
+							*:tag*
 :ta[g][!] {ident}	Jump to the definition of {ident}, using the
 			information in the tags file. Put {ident} in the tag
 			stack. See below for [!].
 
-							*ctrl_r_sbracket*
+							*CTRL-]*
 CTRL-]			":ta" to the identifier under or after cursor. Put 
 			the identifier in the tag stack. {Vi: identifier 
 			after the cursor}
 
-							*ctrl_t*
+							*v_CTRL-]*
+{visual}CTRL-]		":ta" to the text that is highlighted. {not in Vi}
+
+							*CTRL-T*
 CTRL-T			Jump to [count] older entry in the tag stack
 			(default 1). {not in Vi}
 
-							*c_pop*
+							*:pop*
 :[count]po[p][!]	Jump to [count] older entry in tag stack (default 1).
 			See below for [!]. {not in Vi}
 
 :[count]ta[g][!]	Jump to [count] newer entry in tag stack (default 1).
 			See below for [!]. {not in Vi}
 
-							*c_tags*
+							*:tags*
 :tags			Show the contents of the tag stack. The active
 			entry is marked with a <>>. {not in Vi}
 
@@ -3098,11 +3325,14 @@ The lines in the tags file should have this format:
 
 The identifier normally is the name of a function, but it can be any
 identifier. There is one special form for local (static) functions:
-{filename}:{identifier}. In this case the identifier is only valid if the
-name of the current file matches the filename before the colon. In other
-files this identifier will be ignored. Some ctags programs make use of this
-to separate local (static) functions from global functions. (Detail: Vim
-compares only the last part of the filename and ignores any path before it).
+{filename}:{identifier}. Some ctags programs make use of this to separate
+local (static) functions from global functions. If this construction is
+present in the tags file, the following priority is used:
+	1. The first matching static tag for the current file
+	2. The first matching non-static tag
+	3. The first matching static tag for another file
+(Detail: Vim compares only the last part of the filename and ignores any
+path before it).
 
 The command can be any Ex command, but normally it is a search command like 
 "/^main(argc, argv)". If it is a search command, and the search fails,
@@ -3201,16 +3431,17 @@ variable, function or macro. If you don't want to search in included files,
 use the commands listed in |pattern_searches|.
 
 When a line is encountered that includes another file, that file is searched
-before continuing in the current file. Files included in included files are
+before continuing in the current file. Files included by included files are
 also searched. When an include file could not be found it is silently
 ignored. Use the ":checkpath" command to discover which files could not be
 found.
 
 The string can be any identifier or a defined macro. For the identifier any
 match will be found. For defined macros only lines that match with the
-'define' optionwill be found. The default is "\^#[ \t]*define", which is for
-C programs.  Also, when a match is found for a defined macro, the displaying
-of lines continues with the next line when a line ends in a backslash.
+'define' option will be found. The default is "\^#[ \t]*define", which is
+for C programs.  Also, when a match is found for a defined macro, the
+displaying of lines continues with the next line when a line ends in a
+backslash.
 
 The commands that start with "[" start searching from the start of the
 current file. The commands that start with "]" start at the current cursor
@@ -3226,9 +3457,9 @@ do not have an absolute path.
 
 The 'comments' option is used for the commands that display a single line or
 jump to a line. It defines that patterns that start a comment. Those lines
-are ignored for the search.
+are ignored for the search, unless [!] is used.
 
-							*l_sbracket_i*
+							*[i*
 [i			Display the first line that contains the identifier
 			under the cursor. The search starts at the beginning
 			of the file. Lines that look like a comment are
@@ -3236,33 +3467,37 @@ are ignored for the search.
 			given, the count'th matching line is displayed. {not
 			in Vi}
 
-							*r_sbracket_i*
+							*]i*
 ]i			like "[i", but start at the current cursor position.
 			{not in Vi}
 
-							*c_isearch*
-:[range]is[earch][!] ident
+							*:isearch*
+:[range]is[earch][!] [+] [count] pattern
 			Like "[i"  and "]i", but search in [range] lines
-			(default: whole file).  Without [!] only whole words
-			are matched. {not in Vi}
+			(default: whole file).  Without [!] lines that are
+			recognized as comments are skipped. Without [+]
+			only whole words are matched, using the pattern
+			"\<pattern\>". {not in Vi}
 
-							*l_sbracket_I*
+							*[I*
 [I			Display all lines that contain the identifier under
 			the cursor. File names and line numbers are
 			displayed for the found lines. The search starts at
 			the beginning of the file. {not in Vi}
 
-							*r_sbracket_I*
+							*]I*
 ]I			like "[I", but start at the current cursor position.
 			{not in Vi}
 
-							*c_ilist*
-:[range]il[ist][!] ident
+							*:ilist*
+:[range]il[ist][!] [+] pattern
 			Like "[I" and "]I", but search in [range] lines
-			(default: whole file). Without [!] only whole words
-			are matched. {not in Vi}
+			(default: whole file). Without [!] lines that are
+			recognized as comments are skipped. Without [+]
+			only whole words are matched, using the pattern
+			"\<pattern\>". {not in Vi}
 
-							*l_sbracket_ctrl_i*
+							*[_CTRL-I*
 [ CTRL-I		Jump to the first line that contains the identifier
 			under the cursor. The search starts at the beginning
 			of the file. Lines that look like a comment are
@@ -3270,89 +3505,104 @@ are ignored for the search.
 			given, the count'th matching line is jumped to. {not
 			in Vi}
 
-							*r_sbracket_ctrl_i*
+							*]_CTRL-i*
 ] CTRL-I		like "[ CTRL-I", but start at the current cursor
 			position.  {not in Vi}
 
-							*c_ijump*
-:[range]ij[ump][!] ident
+							*:ijump*
+:[range]ij[ump][!] [+] [count] pattern
 			Like "[ CTRL-I"  and "] CTRL-I", but search in
 			[range] lines (default: whole file).  Without [!]
-			only whole words are matched. {not in Vi}
+			lines that are recognized as comments are skipped.
+			Without [+] only whole words are matched, using the
+			pattern "\<pattern\>". {not in Vi}
 
-							*ctrl_w_g*
-CTRL-W g		Open a new window, with the cursor on the first line
+CTRL-W CTRL-I					*CTRL-W_CTRL-I* *CTRL-W_i*
+CTRL-W i		Open a new window, with the cursor on the first line
 			that contains the identifier under the cursor. The
 			search starts at the beginning of the file. Lines
 			that look like a comment line are ignored (see
 			'comments' option). If a count is given, the
 			count'th matching line is jumped to. {not in Vi}
 
-							*c_isplit*
-:[range]isp[lit][!] ident
+							*:isplit*
+:[range]isp[lit][!] [+] [count] pattern
 			Like "CTRL-W i"  and "CTRL-W i", but search in
 			[range] lines (default: whole file).  Without [!]
-			only whole words are matched. {not in Vi}
+			lines that are recognized as comments are skipped.
+			Without [+] only whole words are matched, using the
+			pattern "\<pattern\>". {not in Vi}
 
-							*l_sbracket_d*
+							*[d*
 [d			Display the first macro definition that contains the
 			macro under the cursor. The search starts from the
-			beginning of the file. {not in Vi}
+			beginning of the file. If a count is given, the
+			count'th matching line is displayed. {not in Vi}
 
-							*r_sbracket_d*
+							*]d*
 ]d			like "[d", but start at the current cursor position.
 			{not in Vi}
 
-							*c_dsearch*
-:[range]ds[earch][!] ident
+							*:dsearch*
+:[range]ds[earch][!] [+] [count] pattern
 			Like "[d"  and "]d", but search in [range] lines
-			(default: whole file).  Without [!] only whole words
-			are matched. {not in Vi}
+			(default: whole file).  Without [!] lines that are
+			recognized as comments are skipped.  Without [+]
+			only whole words are matched, using the pattern
+			"\<pattern\>". {not in Vi}
 
-							*l_sbracket_D*
+							*[D*
 [D			Display all macro definitions that contain the macro
 			under the cursor. File names and line numbers are
 			displayed for the found lines. The search starts
 			from the beginning of the file. {not in Vi}
 
-							*r_sbracket_D*
+							*]D*
 ]D			like "[D", but start at the current cursor position.
 			{not in Vi}
 
-							*c_dlist*
-:[range]dl[ist][!] ident
+							*:dlist*
+:[range]dl[ist][!] [+] pattern
 			Like "[D"  and "]D", but search in [range] lines
-			(default: whole file).  Without [!] only whole words
-			are matched. {not in Vi}
+			(default: whole file).  Without [!] lines that are
+			recognized as comments are skipped.  Without [+]
+			only whole words are matched, using the pattern
+			"\<pattern\>". {not in Vi}
 
-							*l_sbracket_ctrl-d*
+							*[_CTRL-D*
 [ CTRL-D		Jump to the first macro definition that contains the
 			identifier under the cursor. The search starts from
-			the beginning of the file. {not in Vi}
+			the beginning of the file. If a count is given, the
+			count'th matching line is jumped to. {not in Vi}
 
-							*r_sbracket_ctrl_d*
+							*]_CTRL-D*
 ] CTRL-D		like "[ CTRL-D", but start at the current cursor
 			position.  {not in Vi}
 
-							*c_djump*
-:[range]dj[ump][!] ident
+							*:djump*
+:[range]dj[ump][!] [+] [count] pattern
 			Like "[ CTRL-D"  and "] CTRL-D", but search  in
 			[range] lines (default: whole file).  Without [!]
-			only whole words are matched. {not in Vi}
+			lines that are recognized as comments are skipped.
+			Without [+] only whole words are matched, using the
+			pattern "\<pattern\>". {not in Vi}
 
-							*ctrl_w_d*
+							*CTRL-W_d*
 CTRL-W d		Open a new window, with the cursor on the first
 			macro definition line that contains the identifier
 			under the cursor. The search starts from the
-			beginning of the file. {not in Vi}
+			beginning of the file. If a count is given, the
+			count'th matching line is jumped to. {not in Vi}
 
-							*c_dsplit*
-:[range]dsp[lit][!] ident
+							*:dsplit*
+:[range]dsp[lit][!] [+] [count] pattern
 			Like "CTRL-W d", but search in [range] lines
-			(default: whole file).  Without [!] only whole words
-			are matched. {not in Vi}
+			(default: whole file).  Without [!] lines that are
+			recognized as comments are skipped.  Without [+]
+			only whole words are matched, using the pattern
+			"\<pattern\>". {not in Vi}
 
-							*c_checkpath*
+							*:checkpath*
 :che[ckpath]		List all the included files that could not be found.
 			{not in Vi}
 
@@ -3390,13 +3640,14 @@ repeated. You can end Insert mode with <ESC>. See the section "Insert and
 Replace mode" |mode_ins_repl| for the other special characters in Insert
 mode. The effect of [count] takes place after Insert mode is exited.
 
-							*c_read*
+							*:read*
 :r[ead] [name]		Insert the file [name] (default: current file) below
 			the cursor.
 
 :{range}r[ead] [name]	Insert the file [name] (default: current file) below
 			the specified line.
 
+							*:read!*
 :r[ead] !{cmd}		Execute {cmd} and insert its standard output below
 			the cursor. A temporary file is used to store the
 			output of the command which is then read into the
@@ -3423,10 +3674,16 @@ On non-MSDOS systems the message "[textmode]" is shown if a file is read in
 text mode, to remind you that something unusual is done. On MSDOS the
 message "[notextmode]" is shown if a file is read without text mode.
 
+An example on how to use ":r !":
+	:r !uuencode binfile binfile
+This command reads "binfile", uuencodes it and reads it into the current
+buffer. Useful when you are editing e-mail and want to include a binary
+file.
+
 
 	10. Deleting text				*deleting*
 
-["x]<DEL>	or					*del* *x*
+["x]<DEL>	or					*<DEL>* *x*
 ["x]x			Delete [count] characters under and after the cursor
 			[into register x] (not linewise).
 
@@ -3456,7 +3713,7 @@ message "[notextmode]" is shown if a file is read without text mode.
 			the chapter on Visual mode |visual_mode|). {not in
 			Vi}
 
-							*c_delete*
+							*:delete*
 :[range]d[elete] [x]	Delete [range] lines (default: current line) [into
 			register x].
 
@@ -3482,7 +3739,7 @@ J			Join [count] lines, with a minimum of two lines.
 {visual}J		Join the highlighted lines, with a minimum of two
 			lines. {not in Vi}
 
-							*c_join*
+							*:join*
 :[range]j[oin][!]	Join [range] lines. Same as "J", except when [!] is
 			given, then no spaces will be inserted or deleted.
 			When [range] is given and the start and end of the
@@ -3581,14 +3838,15 @@ r<char>			Replace the character under the cursor by <char>. If
 			<char> is a <CR> or <LF> the character will be
 			replaced by a line break. Replacing with a real <CR>
 			can be done by using CTRL-V <CR>. CTRL-V <LF> will
-			replace with a <NUL>.
+			replace with a <NUL>. {in vi CTRL-V does not make a
+			difference}
 			If a [count] is given that many characters will be
 			replaced by [count] <char>s or line breaks {Vi:
 			"5r<CR>" replaces five characters with a single line
 			break; CTRL-V <CR> still replaces with a line break,
 			cannot replace something with a <CR>}
 
-							*tilde*
+							*~*
 ~			'notildeop' option: switch case of the character
 			under the cursor and move the cursor to the right.
 			If a [count] is given do that many characters {Vi:
@@ -3597,7 +3855,10 @@ r<char>			Replace the character under the cursor by <char>. If
 ~{motion}		'tildeop' option: switch case of {motion} text. {Vi: 
 			tilde cannot be used as an operator}
 
-							*v_tilde*
+							*g~*
+g~{motion}		switch case of {motion} text. {Not in Vi}
+
+							*v_~*
 {visual}~		switch case of highlighted text (see the chapter on 
 			Visual mode |visual_mode|). {not in Vi}
 
@@ -3605,15 +3866,21 @@ r<char>			Replace the character under the cursor by <char>. If
 {visual}U		Make highlighted text uppercase (see the chapter on 
 			Visual mode |visual_mode|). {not in Vi}
 
+							*gU*
+gU{motion}		Make {motion} text uppercase. {not in Vi}
+
 							*v_u*
 {visual}u		Make highlighted text lowercase (see the chapter on 
 			Visual mode |visual_mode|). {not in Vi}
 
-							*ctrl_a*
+							*gu*
+gu{motion}		Make {motion} text lowercase. {not in Vi}
+
+							*CTRL-A*
 CTRL-A			Add [count] to the number at or after the cursor.
 			{not in Vi}
 
-							*ctrl_x*
+							*CTRL-X*
 CTRL-X			Subtract [count] from the number at or after the 
 			cursor. {not in Vi}
 
@@ -3627,6 +3894,13 @@ to be octal. Other numbers are decimal and may be preceded with a minus
 sign. If the cursor is on a number, that one will be used. Otherwise the 
 number right of the cursor will be used.
 
+For octal and hexadecimal numbers with leading zeros, the number of
+characters in the number remains equal (when possible). When doing CTRL-A on
+"0077" it becomes "0100", CTRL-X on "0x0100" becomes "0x00ff". Note that
+when there are no leading zeros this does not work, so CTRL-X on "0x100"
+results in "0xff". Note that decimal numbers with leading zeros are
+impossible, because they are recognized as octal numbers.
+
 The CTRL-A command is very useful in a macro. Example: How to make a 
 numbered list.
 
@@ -3638,30 +3912,29 @@ numbered list.
 6. q         - stop recording
 7. <count>@a - repeat the yank, put and increment <count> times
 
-
-							*smaller*
+							*<*
 <{motion}		Shift the {motion} lines one shiftwidth leftwards.
 
-							*smaller_smaller*
+							*<<*
 <<			Shift [count] lines one shiftwidth leftwards.
 
-							*v_smaller*
+							*v_<*
 {visual}<		Shift the highlighted lines [count] shiftwidth
 			leftwards (see the chapter on Visual mode
 			|visual_mode|). {not in Vi} 
 
-							*greater*
+							*>*
 >{motion}		Shift {motion} lines one shiftwidth rightwards.
 
-							*greater_greater*
+							*>>*
 >>			Shift [count] lines one shiftwidth rightwards.
 
-							*v_greater*
+							*v_>*
 {visual}>		Shift the highlighted lines [count] shiftwidth
 			rightwards (see the chapter on Visual mode
 			|visual_mode|). {not in Vi}
 
-							*c_smaller*
+							*:<*
 :[range]<		Shift [range] lines left. Repeat '<' for multiple
 			shifts.
 
@@ -3672,7 +3945,7 @@ numbered list.
 :[range]le[ft] [indent]	left align lines in [range]. Sets the indent in the
 			lines to [indent] (default 0). {not in Vi}
 
-							*c_greater*
+							*:>*
 :[range]>		Shift {count} [range] lines right. Repeat '>' for
 			multiple shifts.
 
@@ -3708,20 +3981,20 @@ commands. For example:
 
 11.3 Complex changes					*complex_change*
 
-							*bang*
+							*!*
 !{motion}{filter}	Filter {motion} text through the external program
 			{filter}.
 
-							*bang_bang*
+							*!!*
 !!{filter}		Filter [count] lines through the external program
 			{filter}.
 
-							*v_bang*
+							*v_!*
 {visual}!{filter}	Filter the highlighted lines through the external
 			program {filter} (see the chapter on Visual mode
 			|visual_mode|).  {not in Vi}
 
-:{range}![!]{filter} [!][arg]				*c_bang*
+:{range}![!]{filter} [!][arg]				*:range!*
 			Filter {range} lines through the external program
 			{filter}. The optional bangs are replaced with the
 			latest given command. The optional [arg] is
@@ -3730,18 +4003,18 @@ commands. For example:
 			buffer. The 'shellredir' option is used to write the
 			output of the filter in the temporary file.
 
-							*equal*
+							*=*
 ={motion}		Filter {motion} lines through the external program 
 			given with the 'equalprg' option (default: 
 			"indent"). {Vi: when 'lisp' option is set, autoindent 
 			{motion} lines}
 
-							*equal_equal*
+							*==*
 ==			Filter [count] lines through the external program
 			given with the 'equalprg' option (default: indent).
 			{not in Vi}
 
-							*v_equal*
+							*v_=*
 {visual}=		Filter the highlighted lines through the external
 			program given with the 'equalprg' option (default:
 			indent) (see the chapter on Visual mode
@@ -3758,23 +4031,23 @@ The filter commands can be redone with ".". There cannot be a comment (with
 <">) after the ":!" command.
 
 
-						*c_substitute*
+						*:substitute*
 :[range]s[ubstitute]/{pattern}/{string}/[g][c][r] [count]
 			For each line in [range] replace {pattern} by
 			{string}. See below for the flags.
 
 :[range]s[ubstitute] [g][c][r] [count]
-:[range]&[g][c][r] [count]			*c_and*
+:[range]&[g][c][r] [count]			*:&*
 			Repeat last :substitute with same search pattern and
 			substitute string. The flags may be different (see
 			below).
 
-:[range]~[g][c][r] [count]			*c_tilde*
+:[range]~[g][c][r] [count]			*:~*
 			Repeat last substitute with same substitute string
 			but with last used search pattern. This is like
 			"&r". See explanation for [r] below.
 
-						*and*
+						*&*
 &			Synonym for ":s//~/" (repeat last substitute).
 
 The arguments that can be given to the substitute commands:
@@ -3859,7 +4132,7 @@ either the first or second pattern in parentheses did not match, so either
 \1 or \2 is empty. Example:
 :s/\([ab]\)\|\([cd]\)/\1x/g   modifies "a b c d"  in "ax bx x x"
 
-							*c_retab*
+							*:retab*
 :[range]ret[ab] [!] [new_tabstop]
 			All sequences of white-space containing a tab are
 			replaced by new strings of white-space using the new
@@ -3876,17 +4149,17 @@ either the first or second pattern in parentheses did not match, so either
 
 11.4 Formatting text						*formatting*
 
-:[range]ce[nter] [width]				*c_center*
+:[range]ce[nter] [width]				*:center*
 			Center lines in [range] between [width] columns
 			(default 'textwidth' or 80 when 'textwidth' is 0).
 			{not in Vi}
 
-:[range]ri[ght] [width]					*c_right*
+:[range]ri[ght] [width]					*:right*
 			right align lines in [range] at [width] columns
 			(default 'textwidth' or 80 when 'textwidth' is 0).
 			{not in Vi}
 
-							*c_left*
+							*:left*
 :[range]le[ft] [indent]	left align lines in [range]. Sets the indent in the
 			lines to [indent] (default 0). {not in Vi}
 
@@ -3937,6 +4210,7 @@ The 'formatoptions' option can be set to influence the way how comments are
 formatted. It is a string option, that may contain any of these letters. The
 default is "tcq".
 
+							*fo_table*
 letter   meaning when present in 'formatoptions'
 
 t	Do text autowrapping using textwidth
@@ -3950,6 +4224,9 @@ q	Allow formatting of comments with Q.  Note that blank lines, or
 	lines containing only the comment leader will be left untouched.  A
 	new paragraph starts after such a line, or when the comment leader
 	changes.
+2	When formatting text the indent of the second line of a paragraph is
+	used for the rest of the paragraph. This allows for paragraphs with
+	a different indent for the first line.
 
 With 't' and 'c' you can decide when auto-wrapping is done:
 value	action
@@ -3988,14 +4265,19 @@ Some examples:
 
 	12. Copying and moving text			*copy_move*
 
-							*double_quote*
+							*"*
 "<a-zA-Z0-9.%:-">	Use register <a-zA-Z0-9.%:-"> for next delete, yank
 			or put (use uppercase character to append with
 			delete and yank) (<.> only works with put).
 
-							*c_display*
-:di[splay]		Display the contents of numbered and named registers.
-			{Vi: no such command}
+							*:display*
+:di[splay]		Display the contents of all numbered and named
+			registers.  {not in Vi}
+
+:di[splay] {arg}	Display the contents of the numbered and named
+			registers that are mentioned in {arg}. For example:
+				:dis 1a
+			to display registers '1' and 'a'. {not in Vi}
 
 							*y*
 ["x]y{motion}		Yank {motion} text [into register x].
@@ -4017,7 +4299,7 @@ Some examples:
 {visual}["x]Y		Yank the highlighted lines [into register x] (see the 
 			chapter on Visual mode |visual_mode|). {not in Vi}
 
-							*c_yank*
+							*:yank*
 :[range]y[ank] [x]	Yank [range] lines [into register x].
 
 :[range]y[ank] [x] {count}
@@ -4033,19 +4315,19 @@ Some examples:
 ["x]P			Put the text [from register x] before the cursor
 			[count] times. {Vi: no count}
 
-							*c_put*
+							*:put*
 :[line]pu[t] [x]	Put the text [from register x] after [line] (default
 			current line).
 
 :[line]pu[t]! [x]	Put the text [from register x] before [line] (default
 			current line).
 
-							*r_sbracket_p*
+							*]p*
 ["x]]p			like "p", but adjust the indent to the current line.
 			{not in Vi}
 
-["x][P		or					*l_sbracket_P*
-["x]]P		or			*r_sbracket_P* *l_sbracket_p*
+["x][P		or					*[P*
+["x]]P		or					*]P* *[p*
 ["x][p			like "P", but adjust the indent to the current line.
 			{not in Vi}
 
@@ -4121,14 +4403,14 @@ is labelled <">).
 
 The next three commands always work on whole lines.
 
-:[range]co[py] {address}				*c_copy*
+:[range]co[py] {address}				*:copy*
 			Copy the lines given by [range] to below the line
 			given by {address}.
 
-							*c_t*
+							*:t*
 :t			Synonym for copy.
 
-:[range]m[ove] {address}				*c_move*
+:[range]m[ove] {address}				*:move*
 			Move the lines given by [range] to below the line
 			given by {address}.
 
@@ -4145,7 +4427,7 @@ v			start Visual mode per character. {not in Vi}
 							*V*
 V			start Visual mode linewise. {not in Vi}
 
-							*ctrl_v*
+							*CTRL-V*
 CTRL-V			start Visual mode blockwise. {not in Vi}
 
 							*v_o*
@@ -4205,17 +4487,18 @@ When the "$" command is used with blockwise Visual mode, the right end of the
 highlighted text will be determined by the longest highlighted line. This
 stops when a motion command is used that does not move straight up or down.
 
-If you use ESC, click the left mouse button or use any command that does a
-jump to another buffer while in Visual mode, the highlighting stops and no
-text is affected.  If you hit CTRL-Z the highlighting stops and the editor
-is suspended or a new shell is started |ctrl_z|.
+							*v_v*
+If you use ESC, 'v', click the left mouse button or use any command that
+does a jump to another buffer while in Visual mode, the highlighting stops
+and no text is affected.  If you hit CTRL-Z the highlighting stops and the
+editor is suspended or a new shell is started |CTRL-Z|.
 
 For moving the end of the block many commands can be used, but you cannot 
 use Ex commands, commands that make changes or abandon the file. Commands 
 (starting with) ".pPiIaAO&", CTRL_^, "ZZ", CTRL-], CTRL-T, CTRL-R, CTRL-I 
 and CTRL-O cause a beep and Visual mode continues. 
 
-If visual mode is not active and the "v", "V" or CTRL-V is preceded with a
+If Visual mode is not active and the "v", "V" or CTRL-V is preceded with a
 count, the previously highlighted area is used for a start. You can then
 move the end of the highlighted area and give an operator. The type of the
 old area is used (character, line or blockwise).
@@ -4236,14 +4519,17 @@ The operators that can be used are:
 	d	delete						|v_d|
 	c	change						|v_c|
 	y	yank						|v_y|
-	>	shift right (1)(*)				|v_greater|
-	<	shift left (1)(*)				|v_smaller|
-	!	filter through external command (1)		|v_bang|
-	=	filter through 'equalprg' option command (1)	|v_equal|
+	>	shift right (1)(*)				|v_>|
+	<	shift left (1)(*)				|v_<|
+	!	filter through external command (1)		|v_!|
+	=	filter through 'equalprg' option command (1)	|v_=|
 	Q	format lines to 'textwidth' length (1)		|v_Q|
 
 Additionally the following commands can be used:
-	:	start ex command for highlighted lines (1)	|v_colon|
+	v	stop visual mode
+	V	switch between normal and linewise visual mode	*v_V*
+	CTRL-V	switch between normal and blockwise visual mode	*v_CTRL-V*
+	:	start ex command for highlighted lines (1)	|v_:|
 	r	change						|v_r|
 	s	change						|v_s|
 	C	change (2)					|v_C|
@@ -4256,11 +4542,15 @@ Additionally the following commands can be used:
 	J	join (1)					|v_J|
 	U	make uppercase					|v_U|
 	u	make lowercase					|v_u|
+	^]	find tag
 
 (1): always whole lines
 (2): whole lines when not using CTRL-V
 (*): in a future a blockwise shift will move the block only, not whole
      lines.
+
+Note that the ":vmap" command can be used to specifically map keys in Visual
+mode.
 
 If you want to give a register name using the """ command, do this just before 
 typing the operator character: "v{move around}"xd".
@@ -4282,18 +4572,8 @@ be applied up to the rightmost column of the longest line.
 
 	14. Various commands				*various*
 
-							*ctrl_l*
+							*CTRL-L*
 CTRL-L			Clear and redraw the screen.
-
-<HELP>		or					*help* *c_help*
-:h[elp]			Show the help file page by page. The help file name 
-			can be set with the 'helpfile' option. Type an index
-			character to go directly to a page. Type <SPACE> or
-			CTRL-F (with MSDOS: page-down) to go one page
-			forward. Type <b> or CTRL-B (with MSDOS: page-up) to
-			go one page back. Type <a> to go back to the index.
-			Type <CR> to get out of the help screen. {Vi: no
-			help}
 
 							*del*
 <DEL>			When entering a number: remove the last digit.
@@ -4301,39 +4581,46 @@ CTRL-L			Clear and redraw the screen.
 			mapping to your .vimrc:
 				:map! CTRL-V <BS>   CTRL-V <DEL>
 
-							*c_print*
+:ascii		or					*ga* *:ascii*
+ga			Print the ascii value of the character under the
+			cursor in decimal, hexadecimal and octal. For
+			example, when the cursor is on a 'R':
+				<R>  82,  Hex 52,  Octal 122
+			{not in vi}
+
+							*:print*
 :[range]p[rint]		Print [range] lines (default current line).
 
 :[range]p[rint] {count}
 			Print {count} lines, starting with [range] (default
 			current line |cmdline_ranges|).
 
-							*c_list*
+							*:list*
 :[range]l[ist] [count]
 			Same as :print, but display unprintable characters
 			with <^>.
 
-							*c_number*
+							*:number*
 :[range]nu[mber] [count]
 			Same as :print, but precede each line with its line
 			number. (See also 'highlight' option).
 
-							*c_hatch*
+							*:#*
 :[range]# [count]	synonym for :number.
 
-							*c_equal*
+							*:=*
 :=			Print the line number.
 
-							*c_shell*
+							*:shell*
 :sh[ell]		Escape to a shell (name from 'shell' option).
 
-							*c_bang*
+							*:!*
 :![!]{cmd} [!][arg]	Execute {cmd} with the shell. The optional bangs are
 			replaced with the previously given command. The 
 			optional [arg] is appended. See also the 'shell' and 
 			'shelltype' option.
 
-							*c_version*
+							*:version*
 :ve[rsion]		Print the version number of the editor. If the
 			compiler used understands "__DATE__" the compilation
 			date is mentioned. Otherwise a fixed release-date is
@@ -4353,7 +4640,7 @@ K			Run a program to lookup the identifier under the
 			simple spelling check. {not in Vi}
 
 [N]gs							*gs*
-							*c_sleep*
+							*:sleep*
 :[N]sleep [N]		Do nothing for [N] seconds. Can be interrupted with
 			CTRL-C (CTRL-break on MSDOS). "gs" stands for "goto
 			sleep". {not in Vi}
@@ -4363,6 +4650,7 @@ K			Run a program to lookup the identifier under the
 
 15.1 Single repeats					*single_repeat*
 
+							*.*
 .			Repeat last change with count replaced by [count].
 
 Simple changes can be repeated with the "." command. Without a count, the 
@@ -4374,7 +4662,7 @@ and redo for an example how to use this |undo_redo|.
 
 15.2 Multiple repeats					*multi_repeat*
 
-							*c_global*
+							*:global*
 :[range]g[lobal]/{pattern}/[cmd]
 			Execute the Ex command [cmd] (default ":p") on the
 			lines within [range] where {pattern} matches.
@@ -4415,17 +4703,17 @@ q<0-9a-zA-Z">		Record typed characters into register <0-9a-zA-Z">
 
 q			Stops recording. {Vi: no recording}
 
-							*at*
+							*@*
 @<0-9a-z">		Execute the contents of register <0-9a-z"> [count]
 			times. {Vi: only named registers}
 
-							*at_colon*
+							*@:*
 @:			Repeat last command line [count] times.
 
-							*at_at*
+							*@@*
 @@			Repeat the previous @<0-9a-z":> [count] times.
 
-							*c_at*
+							*:@*
 :[addr]@<0-9a-z">	Execute the contents of register <0-9a-z"> as
 			an Ex command. First set cursor at line [addr]
 			(default is current line). {Vi: only in some
@@ -4435,12 +4723,12 @@ q			Stops recording. {Vi: no recording}
 			cursor at line [addr] (default is current line).
 			{Vi: only in some versions}
 
-							*c_at_at*
+							*:@@*
 :[addr]@@		Repeat the previous :@<0-9a-z">. First set cursor at
 			line [addr] (default is current line). {Vi: only in
 			some versions}
 
-							*c_source*
+							*:source*
 :so[urce] {file}	Read Ex commands from {file}.
 
 :so[urce]! {file}	Read Vim commands from {file}. {not in Vi}
@@ -4493,14 +4781,14 @@ with CTRL-V followed by the three digit decimal code.
 <UNDO>		or					*undo* *u*
 u			Undo [count] changes. {Vi: only one level}
 
-							*c_undo*
+							*:undo*
 :u[ndo]			Undo one change. {Vi: only one level}
 
-							*ctrl_r*
+							*CTRL-R*
 CTRL-R			Redo [count] changes which were undone. {Vi: redraw 
 			screen}
 
-							*c_redo*
+							*:redo*
 :red[o]			Redo one change which was undone. {Vi: no redo}
 
 							*U*
@@ -4549,58 +4837,89 @@ first put, and repeat the put command for the second register. Repeat the
 
 	17. Key mapping					*key_mapping*
 
-							*c_map*
-:map {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in Command mode.
+							*:map*
+:map {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in Normal and
+			Visual mode.
 
+							*:map!*
 :map! {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in Insert and
 			Command_line mode.
 
-							*c_noremap*
-:noremap {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in Command mode. 
-			Disallow remapping of {rhs}. {not in Vi}
+							*:noremap*
+:no[remap] {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in Normal and
+			Visual mode. Disallow remapping of {rhs}. {not in
+			Vi}
 
-:noremap! {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in insert and
+:no[remap]! {lhs} {rhs}	Map the key sequence {lhs} to {rhs} in insert and
 			Command_line mode. Disallow remapping of {rhs}. {not 
 			in Vi}
 
-							*c_unmap*
-:unm[ap] {lhs}		Remove the mapping of {lhs} for Command mode.
+							*:unmap*
+:unm[ap] {lhs}		Remove the mapping of {lhs} for Normal and Visual
+			mode.
 
+							*:unmap!*
 :unm[ap]! {lhs}		Remove the mapping of {lhs} for Insert and
 			Command_line mode.
 
-:map			List all key mappings for Command mode.
+:map			List all key mappings for Normal and Visual mode.
 
 :map!			List all key mappings for Insert and Command_line
 			mode.
 
+							*:map_l*
 :map {lhs}		List the key mappings for the key sequences starting
-			with {lhs} in Command mode. {not in Vi}
+			with {lhs} in Normal and Visual mode. {not in Vi}
 
+							*:map_l!*
 :map! {lhs}		List the key mappings for the key sequences starting
 			with {lhs} in insert and Command_line mode. {not in Vi}
 
-							*c_cmap*
-:cm[ap]			Same as :map, but for Command_line mode only. {not
+							*:nmap*
+:nm[ap]			Same as :map, but for Normal mode only. {not
 			in Vi}
 
-							*c_cunmap*
-:cu[nmap]		Same as :unmap, but for Command_line mode only.
+							*:nunmap*
+:nun[map]		Same as :unmap, but for Normal mode only.
 			{not in Vi}
 
-							*c_cnoremap*
-:cno[remap]		Same as :noremap, but for Command_line mode only.
+							*:nnoremap*
+:nn[oremap]		Same as :noremap, but for Normal mode only.
 			{not in Vi}
 
-							*c_imap*
-:im[ap]			Same as :map, but for Insert mode only. {not in Vi}
+							*:vmap*
+:vm[ap]			Same as :map, but for Visual mode only. {not
+			in Vi}
 
-							*c_iunmap*
-:iu[nmap]		Same as :unmap, but for Insert mode only. {not in
+							*:vunmap*
+:vu[nmap]		Same as :unmap, but for Visual mode only.
+			{not in Vi}
+
+							*:vnoremap*
+:vn[oremap]		Same as :noremap, but for Visual mode only.
+			{not in Vi}
+
+							*:cmap*
+:cm[ap]			Same as :map!, but for Command_line mode only. {not
+			in Vi}
+
+							*:cunmap*
+:cu[nmap]		Same as :unmap!, but for Command_line mode only.
+			{not in Vi}
+
+							*:cnoremap*
+:cno[remap]		Same as :noremap!, but for Command_line mode only.
+			{not in Vi}
+
+							*:imap*
+:im[ap]			Same as :map!, but for Insert mode only. {not in Vi}
+
+							*:iunmap*
+:iu[nmap]		Same as :unmap!, but for Insert mode only. {not in
 			Vi}
 
-							*c_inoremap*
-:ino[remap]		Same as :noremap, but for Insert mode only. {not in
+							*:inoremap*
+:ino[remap]		Same as :noremap!, but for Insert mode only. {not in
 			Vi}
 
 These commands are used to map a key or key sequence to a string of 
@@ -4608,18 +4927,28 @@ characters. You can use this to put command sequences under function keys,
 translate one key into another, etc. See the "Options" chapter below for how 
 to save and restore the current mapping |options|.
 
-There are three sets of mappings
+There are four sets of mappings
 - For Insert mode. These are also used in Replace mode.
 - For Command_line mode: When entering a ":" or "/" command.
-- For Command mode: When typing commands.
+- For Normal mode: When typing commands.
+- For Visual mode: When typing commands while the visual area is highlighted.
 
-The original vi did not have separate mappings for Insert mode and
-Command_line mode. Therefore the ":map!" command enters and displays
-mappings for both. In Vim you can use the ":cmap" and ":imap" commands to
-enter mappings for each mode separately. When listing mappings with ":map!",
-":cmap" or ":imap" the character in column 1 is <!> for mappings in both
-Insert and Command_line mode, <i> for Insert mode only and <c> for
-Command_line mode only.
+The original vi did not have separate mappings for Normal/Visual mode and
+Insert/Command_line mode. Therefore the ":map" and ":map!" commands enter
+and display mappings for both. In Vim you can use the ":nmap", "vmap",
+":cmap" and ":imap" commands to enter mappings for each mode separately.
+When listing mappings the character in column 1 is
+
+	char		mode
+	<SPACE>		Normal and Visual
+	 n		Normal
+	 v		Visual
+	 !		Insert and Command_line
+	 i		Insert
+	 c		Command_line
+
+Note: When using mappings for Visual mode, you can use the '<' mark, which
+is the start of the last selected visual area |'<|.
 
 Everything from the first non-blank after {lhs} up to the end of the line
 (or <|>) is considered to be part of {rhs}. This allows the {rhs} to end
@@ -4677,13 +5006,16 @@ If you want to exchange the meaning of two keys you should use the :noremap
 command. For example:
 	:noremap k j
 	:noremap j k
-This will exchange the cursor up and down commands. With the normal :map 
-command, when the 'remap' option is set, mapping takes place until the text 
-is found not to be a part of a {lhs}. For example, if you use:
+This will exchange the cursor up and down commands.
+
+With the normal :map command, when the 'remap' option is set, mapping takes
+place until the text is found not to be a part of a {lhs}. For example, if
+you use:
 	:map x y
 	:map y x
-Vim will replace x by y, and then y by x, etc. When this has happened 1000 
-times, Vim will give an error message.
+Vim will replace x by y, and then y by x, etc. When this has happened
+'maxmapdepth' times (default 1000), Vim will give the error message
+"recursive mapping".
 
 See the file "index" for keys that are not used and thus can be mapped 
 without losing any builtin function.
@@ -4703,10 +5035,10 @@ There are two ways to map a function key:
    way of mapping.
 2. The second method is to use the internal code for the function key. To
    enter such a mapping just hit the function key, without CTRL-V, or use
-   the form "#1", "#2", .. "#9", "#0", "<C_UP>", "<SC_DOWN>", "<SF_7>", etc.
+   the form "#1", "#2", .. "#9", "#0", "<C_UP>", "<SC_DOWN>", "<SF7>", etc.
    (see table of keys |key_notation|, all keys from <C_UP> can be used). The
    first ten function keys can be defined in two ways: Just the number, like
-   "#2", and with "<F_>", like "<F_2>". Both stand for function key 2. "#0"
+   "#2", and with "<F>", like "<F2>". Both stand for function key 2. "#0"
    refers to function key 10, defined with option 't_f10', which may be
    function key zero on some keyboards.
 The advantage of the second method is that the mapping will work on
@@ -4741,7 +5073,7 @@ you started from plus the swap file you can mostly recover your work.
 
 You can see the name of the current swap file being used with the command:
 
-	:sw[apname]					*c_swapname*
+	:sw[apname]					*:swapname*
 
 The name of the swap file is normally the same as the file you are editing, 
 with the extension ".swp". On MSDOS machines and when the 'shortname' option 
@@ -4783,14 +5115,16 @@ the time with the 'updatetime' option. The time is given in milliseconds.
 
 If the writing to the swap file is not wanted, it can be switched off by
 setting the 'updatecount' option to 0. The same is done when starting Vim 
-with the "-n" or "-v" option. Writing can be switched back on by setting the 
-'updatecount' option to non-zero. But this will only affect files that will
-be opened after this.
+with the "-n" option. Writing can be switched back on by setting the
+'updatecount' option to non-zero. Swap files will be created for all buffers
+when doing this. But when setting 'updatecount' to zero, the existing swap
+files will not be removed, it will only affect files that will be opened
+after this.
 
 If you want to make sure that your changes are in the swap file use this
 command:
 
-							*c_preserve*
+							*:preserve*
 :pres[erve]		Write all text for all buffers into swap file. The
 			original file is no longer needed for recovery. {Vi:
 			emergency exit}
@@ -4805,13 +5139,22 @@ In most cases recovery is quite easy: Start Vim on the same file you were
 editing when the crash happened, with the "-r" option added. Vim will read
 the ".swp" file and may read bits and pieces of the original file.
 
-Example:	vim -r reference.doc
+Example:	vim -r vim_ref.txt
 
-If the swap file does not end in ".swp" but in something else, you can
-recover by giving the swap file name. Vim will then find out the name of the
-original file from the swap file.
+If you were editing without a file name, give an empty string as argument:
+		vim -r ""
 
-Example:	Vim -r reference.doc.swo
+If there are several swap files that look they may be the one you want to
+use, a list is given of these swap files and you are requested to enter the
+number of the one you want to use. In case you don't know which one to use,
+just try them one by one and check the resulting files if they are what you
+expected.
+
+If you know which swap file needs to be used, you can recover by giving the
+swap file name. Vim will then find out the name of the original file from
+the swap file.
+
+Example:	Vim -r vim_ref.txt.swo
 
 This is also handy when the swap file is in another directory than expected.
 If this still does not work, see what file names Vim reports and rename the
@@ -4820,10 +5163,10 @@ put the swap file.
 
 Another way to do recovery is to start Vim and use the ":recover" command.
 This is easy when you start Vim to edit a file and you get the "ATTENTION:
-Found a swap file ..." message. In this case the single command ":preserve"
+Found a swap file ..." message. In this case the single command ":recover"
 will do the work. You can also give the name of the file or the swap file to
-the preserve command:
-							*c_recover*
+the recover command:
+							*:recover*
 :recover [file]		Try to recover [file] from the swap file. If [file]
 			is not given use the file name for the current
 			buffer. The current contents of the buffer are lost.
@@ -4856,10 +5199,9 @@ achieve special effects. These options come in three forms, those that are
 switches, which toggle from off to on and back, those that require a numeric 
 value, and those that require an alphanumeric string value.
 
-
 19.1 Setting options					*set_option*
 
-							*c_set*
+							*:set*
 :se[t]			Show all modified options. {Vi: non-default options}
 
 :se[t] all		Show all but terminal options.
@@ -4927,6 +5269,7 @@ order. The last two are done whenever you start editing a new file.
 6. If you start editing a new file, the automatic commands are executed.
    This can be used to set options for files matching a particular pattern.
    See the section "Automatic commands" |autocommand|.
+							*modeline*
 7. If you start editing a new file, and the 'modeline' option is set, a
    number of lines at the beginning and end of the file are checked for the
    string "vi:", "vim:" or "ex:". The text after it is considered to be the
@@ -4954,16 +5297,16 @@ order. The last two are done whenever you start editing a new file.
 
 19.2 Saving settings					*save_settings*
 
-							*c_mkexrc*
-:mkexrc [file]		Write current key mappings and changed options to 
+							*:mkexrc*
+:mk[exrc] [file]	Write current key mappings and changed options to 
 			[file] (default ".exrc"), unless it already exists. 
 			{not in Vi}
 
-:mkexrc! [file]		Always write current key mappings and changed 
+:mk[exrc]! [file]	Always write current key mappings and changed 
 			options to [file] (default ".exrc"). {not in Vi}
 
-							*c_mkvimrc*
-:mkvimrc[!] [file]	Same as :mkexrc, but default is ".vimrc". {not in 
+							*:mkvimrc*
+:mkv[imrc][!] [file]	Same as :mkexrc, but default is ".vimrc". {not in 
 			Vi}
 
 These commands will write ":map" and ":set" commands to a file, in such a 
@@ -4991,7 +5334,135 @@ program. When creating a new window or buffer the option values from the
 currently active window or buffer are used as a default value.
 
 
-						*autoindent*
+This list was made by doing ""tY@t" on the following line.
+Adjust the number 120 to the number of options.
+
+:set tw=0jjjj0d/^$mt"aykOyt	O|'p0lea'|                   22|dwA():s/(/|'/g:s/)/'|/g$xxxx"Add/^[^ 	]0"qDdd/^[^ 	]120@q't"aP2dd:set tw=76
+
+Alphabetical jump table for the options (because there are so many):
+
+|'autoindent'|       |'ai'|
+|'autowrite'|        |'aw'|
+|'backspace'|        |'bs'|
+|'backup'|           |'bk'|
+|'backupdir'|        |'bdir'|
+|'backupext'|        |'bex'|
+|'binary'|           |'bin'|
+|'bioskey'|          |'bk'|
+|'cmdheight'|        |'ch'|
+|'columns'|          |'co'|
+|'comments'|         |'com'|
+|'compatible'|       |'cp'|
+|'define'|           |'def'|
+|'dictionary'|       |'dict'|
+|'digraph'|          |'dg'|
+|'directory'|        |'dir'|
+|'edcompatible'|     
+|'endofline'|        |'eol'|
+|'equalalways'|      |'ea'|
+|'equalprg'|         |'ep'|
+|'errorbells'|       |'eb'|
+|'errorfile'|        |'ef'|
+|'errorformat'|      |'efm'|
+|'esckeys'|          |'ek'|
+|'expandtab'|        |'et'|
+|'exrc'|             
+|'formatoptions'|    |'fo'|
+|'formatprg'|        |'fp'|
+|'gdefault'|         |'gd'|
+|'graphic'|          |'gr'|
+|'helpfile'|         |'hf'|
+|'helpheight'|       |'hh'|
+|'hidden'|           |'hid'|
+|'highlight'|        |'hl'|
+|'history'|          |'hi'|
+|'icon'|             
+|'identchars'|       |'id'|
+|'ignorecase'|       |'ic'|
+|'include'|          |'inc'|
+|'incsearch'|        |'is'|
+|'infercase'|        |'inf'|
+|'insertmode'|       |'im'|
+|'joinspaces'|       |'js'|
+|'keywordprg'|       |'kp'|
+|'laststatus'|       |'ls'|
+|'lines'|            
+|'list'|             
+|'magic'|            
+|'makeprg'|          |'mp'|
+|'maxmapdepth'|      |'mmd'|
+|'maxmem'|           |'mm'|
+|'maxmemtot'|        |'mmt'|
+|'modeline'|         |'ml'|
+|'modelines'|        |'mls'|
+|'more'|             
+|'mouse'|            
+|'nestedcomments'|   |'ncom'|
+|'nobuf'|            |'nb'|
+|'number'|           |'nu'|
+|'paragraphs'|       |'para'|
+|'paste'|            
+|'patchmode'|        |'pm'|
+|'path'|             |'pa'|
+|'readonly'|         |'ro'|
+|'remap'|            
+|'report'|           
+|'revins'|           |'ri'|
+|'ruler'|            |'ru'|
+|'scroll'|           
+|'scrolljump'|       |'sj'|
+|'sections'|         |'sect'|
+|'secure'|           
+|'shell'|            |'sh'|
+|'shellpipe'|        |'sp'|
+|'shellredir'|       |'srr'|
+|'shelltype'|        |'st'|
+|'shiftround'|       |'sr'|
+|'shiftwidth'|       |'sw'|
+|'shortmess'|        |'shm'|
+|'shortname'|        |'sn'|
+|'showcmd'|          |'sc'|
+|'showmatch'|        |'sm'|
+|'showmode'|         |'smd'|
+|'sidescroll'|       |'ss'|
+|'smartindent'|      |'si'|
+|'smartmatch'|       |'sma'|
+|'smarttab'|         |'sta'|
+|'splitbelow'|       |'sb'|
+|'startofline'|      |'sol'|
+|'suffixes'|         |'su'|
+|'tabstop'|          |'ts'|
+|'taglength'|        |'tl'|
+|'tagrelative'|      |'tr'|
+|'tags'|             
+|'term'|             
+|'terse'|            
+|'textauto'|         |'ta'|
+|'textmode'|         |'tx'|
+|'textwidth'|        |'tw'|
+|'tildeop'|          |'to'|
+|'timeout'|          
+|'ttimeout'|         
+|'timeoutlen'|       |'tm'|
+|'title'|            
+|'ttyfast'|          
+|'undolevels'|       |'ul'|
+|'updatecount'|      |'uc'|
+|'updatetime'|       |'ut'|
+|'viminfo'|          |'vi'|
+|'visualbell'|       |'vb'|
+|'warn'|             
+|'weirdinvert'|      |'wi'|
+|'whichwrap'|        |'ww'|
+|'wildchar'|         |'wc'|
+|'winheight'|        |'wh'|
+|'wrap'|             
+|'wrapmargin'|       |'wm'|
+|'wrapscan'|         |'ws'|
+|'writeany'|         |'wa'|
+|'writebackup'|      |'wb'|
+
+					*'autoindent'* *'ai'*
 autoindent (ai)		toggle	(default off)
 	Copy indent from current line when starting a new line (typing <CR> 
 	in Insert mode or when using the "o" or "O" command). If you do not 
@@ -5005,14 +5476,14 @@ autoindent (ai)		toggle	(default off)
 	vi puts the cursor somewhere in the deleted indent}. Each buffer has
 	its own copy of this option.
 
-						*autowrite*
+						*'autowrite'* *'aw'*
 autowrite (aw)		toggle	(default off)
 	Write the contents of the file, if it has been modified, on each
 	:next, :rewind, :previous, :stop, :suspend, :tag, :!, :make, CTRL-]
 	and CTRL-^ command; and when a CTRL-O, CTRL-I, '<A-Z>, or `<A-Z>
 	command takes one to another file.
 
-						*backspace*
+					*'backspace'* *'bs'*
 backspace (bs)		number	(default 0)
 	Influences the working of <BS>, <DEL>, CTRL-W and CTRL-U in Insert 
 	mode. If set to 0 Vi compatible backspacing is used. When 1 allow 
@@ -5020,7 +5491,7 @@ backspace (bs)		number	(default 0)
 	the start of insert. In the last case CTRL-W and CTRL-U stop once at 
 	the start of insert. {not in Vi}
 
-						*backup*
+						*'backup'* *'bk'*
 backup (bk)		toggle	(default off)
 	Make a backup before overwriting a file. Leave it around after the 
 	file has been successfully written. If you do not want to keep the 
@@ -5030,7 +5501,7 @@ backup (bk)		toggle	(default off)
 	options (use this if your file system is almost full). See the table
 	in section 5.4 for another explanation |backup_table|. {not in Vi}
 
-						*backupdir*
+						*'backupdir'* *'bdir'*
 backupdir (bdir)	string	(default "$HOME")
 	Directory name for the backup file. Empty means in same directory as
 	the edited file. If the directory name starts with <>>, only the
@@ -5039,7 +5510,7 @@ backupdir (bdir)	string	(default "$HOME")
 	The specified directory is used only if that fails. The name may end
 	in an <:> or </>. Environment variables are expanded. {not in Vi}
 
-						*backupext*
+						*'backupext'* *'bex'*
 backupext (bex)		string	(default ".~")
 	String which is appended to a file name to make the name of the
 	backup file. The default is quite unusual, because this avoids
@@ -5047,7 +5518,7 @@ backupext (bex)		string	(default ".~")
 	prefer using ".bak", but make sure that you don't have files with
 	".bak" that you want to keep. {not in Vi}
 
-						*binary*
+						*'binary'* *'bin'*
 binary (bin)		toggle	(default off)
 	This option should be set before editing a binary file. You can also
 	use the "-b" command line option. When this option is set the
@@ -5059,31 +5530,31 @@ binary (bin)		toggle	(default off)
 	the 'endofline' option. Each buffer has its own copy of this option.
 	{not in Vi}
 
-						*bioskey*
+						*'bioskey'* *'bk'*
 bioskey (bk)		toggle	(default on)
 	For MSDOS only: When set the bios is called to obtain a keyboard
 	character. This works better to detect CTRL-C, but only works for
 	the console. When using a terminal over a serial port reset this
 	option. {not in Vi}
 
-						*cmdheight*
+					*'cmdheight'* *'ch'*
 cmdheight (ch)		number	(default 1)
 	Number of lines to use for the command line. If you are annoyed by
 	"hit return to continue" or "--more--" caused by long messages, set
 	this option to a larger value. {not in Vi}
 
-						*columns*
-columns			number	(default 80 or terminal width)
+						*'columns'* *'co'*
+columns (co)		number	(default 80 or terminal width)
 	Number of columns in the display. Normally this is set by the 
 	terminal initialization and does not have to be set by hand. {not in 
 	Vi}
 
-						*comments*
+						*'comments'* *'com'*
 comments (com)		string	(default "/* ,* ,*/,//,# ,%,XCOMM")
-        Represents patterns that can start a comment line. See |formatting|.
+	Represents patterns that can start a comment line. See |formatting|.
 	Each buffer has its own copy of this option. {not in Vi}
 
-						*compatible*
+						*'compatible'* *'cp'*
 compatible (cp)		toggle	(default off)
 	At the moment this option is set, several other options will be set 
 	or reset to make Vim vi-compatible. Switching this option off has no 
@@ -5120,26 +5591,26 @@ compatible (cp)		toggle	(default off)
 	updatecount	0		no swap file
 	writebackup	off		no backup file written
 
-						*define*
+					*'define'* *'def'*
 define (def)		string	(default "^#[ \t]*define")
 	Pattern to be used to find a macro definition. It is a search
 	pattern, just like for the "/" command. The default value is for C
 	programs. This option is used for the commands like "[g"
 	|include_search| and "[d" |include_search|. {not in Vi}
 
-						*dictionary*
+						*'dictionary'* *'dict'*
 dictionary (dict)	string	(default "")
 	List of file names, separated by spaces. Each file should contain a
 	list of words, one per line. This option is used for keyword
 	completion. {not in Vi}
 
-						*digraph*
+						*'digraph'* *'dg'*
 digraph (dg)		toggle	(default off)
 	Enable the entering of digraphs in Insert mode with {char1} <BS> 
-	{char2}. Only works if Vim was compiled with digraphs enabled. {not 
-	in Vi}
+	{char2}. Only works if Vim was compiled with digraphs enabled. See
+	|digraphs|. {not in Vi}
 
-						*directory*
+						*'directory'* *'dir'*
 directory (dir)		string	(default for Amiga: "t:", for MSDOS:
 				"c:\tmp", for unix: "/tmp")
 	Directory name for the swap file. Empty means in same directory as the
@@ -5152,13 +5623,13 @@ directory (dir)		string	(default for Amiga: "t:", for MSDOS:
 		":set dir=c:\\tmp".
 	{Vi: directory to put temp file in, defaults to "/tmp"}
 
-						*edcompatible*
+					*'edcompatible'*
 edcompatible		toggle	(default off)
 	Makes the 'g' and 'c' flags of the ":substitute" command to be
 	toggled each time the flag is given. See 11.3 |complex_change|. See
 	also 'gdefault' option.
 
-						*endofline*
+						*'endofline'* *'eol'*
 endofline (eol)		toggle	(default on)
 	When writing a file and this option is off and the 'binary' option
 	is set, no end of line (newline) character will be written for the
@@ -5173,7 +5644,7 @@ endofline (eol)		toggle	(default on)
 	change it when you want to. Each buffer has its own copy of this
 	option. {not in Vi}
 
-						*equalalways*
+						*'equalalways'* *'ea'*
 equalalways (ea)	toggle	(default on)
 	When set all the windows are automatically made the same size after
 	splitting or closing a window. If you don't set this option, splitting
@@ -5181,28 +5652,28 @@ equalalways (ea)	toggle	(default on)
 	other windows the same. When closing a window the extra lines are
 	given the the window above it. {not in Vi}
 
-						*equalprg*
+						*'equalprg'* *'ep'*
 equalprg (ep)		string	(default "indent")
 	External program to use for "=" command. Environment variables are
 	expanded. {not in Vi}
 
-						*errorbells*
+						*'errorbells'* *'eb'*
 errorbells (eb)		toggle	(default off)
 	Ring the bell for error messages. Does not work on the Amiga, you 
 	always get a screen flash.
 
-						*errorfile*
+						*'errorfile'* *'ef'*
 errorfile (ef)		string	(default "AztecC.Err" or "errors")
 	Name of the error file for the QuickFix mode (see 5.5
-	|c_make_makeprg|). Environment variables are expanded. {not in Vi}
+	|:make_makeprg|). Environment variables are expanded. {not in Vi}
 
-						*errorformat*
+						*'errorformat'* *'efm'*
 errorformat (efm)	string	(default "%f>%l:%c:%t:%n:%m" or
 						""%f",%*[^0-9]%l %m")
 	Scanf-like description of the format for the lines in the error file
 	(see 5.5 |quickfix|). {not in Vi}
 
-						*esckeys*
+						*'esckeys'* *'ek'*
 esckeys (ek)		toggle	(default on)
 	Function keys that start with an <ESC> are recognized in Insert
 	mode. When this option is off, the cursor and function keys cannot be
@@ -5210,28 +5681,28 @@ esckeys (ek)		toggle	(default on)
 	is that the single <ESC> is recognized immediately, instead of after
 	one second.
 
-						*expandtab*
+						*'expandtab'* *'et'*
 expandtab (et)		toggle	(default off)
 	In Insert mode: Use the appropriate number of spaces to insert a 
 	<TAB>. Spaces are used in indents with the '>' and '<' commands and
 	when 'autoindent' is set. To insert a real tab when expandtab is
-	set, use CTRL-V<TAB>. See also ":retab" command in 11.3 |c_retab|
+	set, use CTRL-V<TAB>. See also ":retab" command in 11.3 |:retab|
 	and section 4.3.4 |ins_expandtab|. Each buffer has its own copy of
 	this option. {not in Vi}
 
-						*exrc*
+						*'exrc'*
 exrc			toggle (default off)
 	Enables the reading of .vimrc and .exrc in the current directory. If
 	you switch this option on you should also consider setting the
 	'secure' option (see 3.4 |initialization|). {not in Vi}
 
-						*formatoptions*
+					*'formatoptions'* *'fo'*
 formatoptions (fo)	string (default "tcqs")
 	This is a sequence of letters which describes how automatic
-	formatting is to be done.  See |formatting|. Each buffer has its own
+	formatting is to be done.  See |fo_table|. Each buffer has its own
 	copy of this option. {not in Vi}
 
-						*formatprg*
+						*'formatprg'* *'fp'*
 formatprg (fp)		string (default "")
 	The name of an external program that will be used to format the
 	lines selected with the "Q" command. The program must take the input
@@ -5240,13 +5711,13 @@ formatprg (fp)		string (default "")
 	format function will be used. Environment variables are expanded.
 	{not in Vi}
 
-						*gdefault*
+					*'gdefault'* *'gd'*
 gdefault (gd)		toggle	(default off)
 	When set, the ":substitute" flag 'g' is default on. This means that
 	all matches in a line are substituted instead of one. See 11.3
 	|complex_change|. {not in Vi} 
 
-						*graphic*
+						*'graphic'* *'gr'*
 graphic (gr)		toggle	(default off, MSDOS: on)
 	When off characters between <~> and 0xa0 are displayed as "~?", 
 	"~@", "~A", etc.. When on the characters are sent to the display 
@@ -5254,23 +5725,29 @@ graphic (gr)		toggle	(default off, MSDOS: on)
 	terminals (e.g. MSDOS console) and mess up the display on others 
 	(e.g. Amiga).
 
-						*helpfile*
-helpfile (hf)		string	(default (Amiga) "vim:vim.hlp"
-					 (unix) "/usr/local/lib/vim.hlp")
-	Name of the help file. It may start with an environment variable. 
-	For example: "$VIM/doc/vim.hlp". Environment variables are expanded.
-	{not in Vi}
+					*'helpfile'* *'hf'*
+helpfile (hf)		string	(default (Amiga) "vim:vim_help.txt"
+					 (unix) "/usr/local/lib/vim_help.txt")
+	Name of the help file. It may start with an environment variable.
+	For example: "$VIM/doc/vim_help.txt". Environment variables are
+	expanded.  {not in Vi}
 
-						*hidden*
+						*'helpheight'* *'hh'*
+helpheight (hh)		number	(default 20)
+	Height of the help window when it is opened with the ":help"
+	command. When it is zero the window will be half the height of the
+	current window. {not in Vi}
+
+						*'hidden'* *'hid'*
 hidden (hid)		toggle	(default off)
 	When off the current buffer is unloaded when it is abandoned. When
 	on the current buffer becomes hidden when starting to edit another
 	buffer. If the current buffer is also displayed in another window it
 	does not become hidden. The commands that move through the buffer
 	list make the current buffer hidden although the 'hidden' option is
-	not set. See also 'windows.doc'. {not in Vi} 
+	not set. See also |vim_win.txt|. {not in Vi} 
 
-						*highlight*
+						*'highlight'* *'hl'*
 highlight (hl)		string	(default "8b,db,es,hs,mb,nu,rs,si,tb,vi")
 	This option can be used to set highlighting mode for various
 	occasions. It is a comma separated list of character pairs. The first
@@ -5296,11 +5773,11 @@ highlight (hl)		string	(default "8b,db,es,hs,mb,nu,rs,si,tb,vi")
 	status lines.
 	Invert is used for occasions that are not included. {not in Vi}
 
-						*history*
+						*'history'* *'hi'*
 history (hi)		number	(default 20)
 	Number of command lines that are remembered. {not in Vi}
 
-						*icon*
+						*'icon'*
 icon			toggle	(default off)
 	When set the icon of the window will be set to the name of the file
 	currently being edited. Only the last part of the name is used. Only
@@ -5308,7 +5785,7 @@ icon			toggle	(default off)
 	Unix xterm and iris-ansi). When Vim was compiled with USE_X11
 	defined, the original icon will be restored if possible. {not in Vi}
 
-						*identchars*
+						*'identchars'* *'id'*
 identchars (id)		string	(default "_")
 	The characters in this option are included in identifiers.
 	Identifiers are used in searching and recognizing words with many
@@ -5318,12 +5795,12 @@ identchars (id)		string	(default "_")
 	Each buffer has its own copy of this option. For C programs you
 	could use "_.->". {not in Vi}
 
-						*ignorecase*
+						*'ignorecase'* *'ic'*
 ignorecase (ic)		toggle	(default off)
 	Ignore case in search patterns. Also used when searching in the tags
 	file.
 
-						*include*
+						*'include'* *'inc'*
 include (inc)		string	(default "^#[ \t]*include")
 	Pattern to be used to find an include command. It is a search
 	pattern, just like for the "/" command (See 6.5, "Pattern
@@ -5331,14 +5808,14 @@ include (inc)		string	(default "^#[ \t]*include")
 	This option is used for the commands "[g", "]g", "[d", etc.  {not in
 	Vi}
 
-						*incsearch*
+						*'incsearch'* *'is'*
 incsearch (is)		toggle	(default off)
 	While typing a search pattern, show immediately where the so far
 	typed pattern matches. The matched string is highlighted. If the
 	pattern is invalid or not found, nothing is shown. The screen will
 	be updated often, this is only useful on fast terminals. {not in Vi}
 
-						*infercase*
+						*'infercase'* *'inf'*
 infercase (inf)		toggle	(default off)
 	When doing keyword completion in insert mode |ins_completion|, and
 	'ignorecase' is also set, the case of the match is adjusted. If the
@@ -5348,20 +5825,20 @@ infercase (inf)		toggle	(default off)
 	where the typed text has an upper case letter, and there is a letter
 	before it, the completed part is made uppercase.  {not in Vi}
 
-						*insertmode*
+						*'insertmode'* *'im'*
 insertmode (im)		toggle	(default off)
 	Start the edit of a file in Insert mode. {not in Vi}
 
-						*joinspaces*
+					*'joinspaces'* *'js'*
 joinspaces (js)		toggle	(default on)
 	Insert two spaces after a period with a join command. {not in Vi}
 
-						*keywordprg*
+					*'keywordprg'* *'kp'*
 keywordprg (kp)		string	(default "man")
 	Program to use for the "K" command. Environment variables are
 	expanded. {not in Vi}
 
-						*laststatus*
+					*'laststatus'* *'ls'*
 laststatus (ls)		number	(default 1)
 	The value of this option influences when the last window will have a
 	status line:
@@ -5371,97 +5848,113 @@ laststatus (ls)		number	(default 1)
 	The screen looks nicer with a status line if you have several
 	windows, but it takes another screen line. {not in Vi}
 
-						*lines*
+						*'lines'*
 lines			number	(default 24 or terminal height)
 	Number of lines in the display. Normally you don't need to set this. 
 	That is done automatically by the terminal initialization code.
 
-						*list*
+						*'list'*
 list			toggle	(default off)
 	List mode: Show tabs as CTRL-I, show end of line with $. Useful to 
 	see the difference between tabs and spaces and for trailing blanks.
 	Each window has its own copy of this option.
 
-						*magic*
+						*'magic'*
 magic			toggle	(default on)
 	Changes the special characters that can be used in search patterns. 
 	See section "Pattern searches" |search_pattern|.
 
-						*makeprg*
+						*'makeprg'* *'mp'*
 makeprg (mp)		string	(default "make")
-	Program to use for the ":make" command. See |c_make_makeprg|. This
+	Program to use for the ":make" command. See |:make_makeprg|. This
 	option may contain <%> and <#> characters, which are expanded like
 	when used in a command line. Environment variables are expanded.
 	{not in Vi}
 
-						*maxmem*
+						*'maxmapdepth'* *'mmd'*
+maxmapdepth (mmd)		number	(default 1000)
+	Maximum number of times a mapping is done without resulting in a
+	character to be used. This normally catches endless mappings, like
+	":map x y" with ":map y x". It still does not catch ":map g wg",
+	because the 'w' is used before the next mapping is done. See also
+	|key_mapping|  {not in Vi}
+
+						*'maxmem'* *'mm'*
 maxmem (mm)		number	(default 512)
 	Maximum amount of memory (in Kbyte) to use for one buffer. When this
 	limit is reached allocating extra memory for a buffer will cause
 	other memory to be freed. See also 'maxmemtot'. {not in Vi}
 
-						*maxmemtot*
+						*'maxmemtot'* *'mmt'*
 maxmemtot (mmt)		number	(default 512)
 	Maximum amount of memory (in Kbyte) to use for all buffers together.
-	Added 'maxmemtot' option ('mmt'), maximal Kbyte to use for
+	Added 'maxmemtot' option ( 'mmt' ), maximal Kbyte to use for
 	all buffers.
 
-						*modeline*
+						*'modeline'* *'ml'*
 modeline (ml)		toggle	(default on)
-						*modelines*
+						*'modelines'* *'mls'*
 modelines (mls)		number	(default 5)
 	If 'modeline' is set 'modelines' gives the number of lines that is
 	checked for set commands. If 'modeline' is not set or 'modelines' is
-	0 no lines are checked. See 19.1 |set_option|. Each buffer has its
+	0 no lines are checked. See 19.1 |modeline|. Each buffer has its
 	own copy of the 'modeline' option. {not in Vi}
 
-						*more*
+						*'more'*
 more			toggle	(default on)
 	Listings pause when the whole screen is filled.
 	Type <CR> or <LF> for one more line.
 	Type <SPACE> for the next page.
 	Type 'd' for down half a page.
 	Type 'q' or CTRL-C to stop the listing.
-	Any other key is ignored. When this
-	option is off there are no pauses, the listing continues until
-	finished. When Vim was compiled with COMPATIBLE defined this option
-	is default off. When 'compatible' is set this option is off. Note:
-	The key typed at the "more" prompt is not mapped {not in Vi}
+	Type ':' to stop the listing and enter a command line.
+	Any other key causes the meaning of the keys to be displayed.
+	When this option is off there are no pauses, the listing continues
+	until finished. When Vim was compiled with COMPATIBLE defined this
+	option is default off. When 'compatible' is set this option is off.
+	Note: The key typed at the "more" prompt is not mapped {not in Vi}
 
+						*'mouse'*
+mouse			toggle	(default on)
+	Enable the use of mouse clicks. Only works for certain terminals
+	(MSDOS and xterm). Note: Normal copy/paste in an xterm can still be
+	used by pressing the shift key when using the mouse. {not in Vi}
+
+				*'nestedcomments'* *'ncom'*
 nestedcomments (ncom)	string	(default ">")
 	Contains patterns that start comments that can be nested. See
 	|formatting|. Each buffer has its own copy of this option. {not in
 	Vi}
 
-						*nobuf*
+						*'nobuf'* *'nb'*
 nobuf (nb)		toggle	(default off)
 	When set characters are send to the terminal one by one. For MSDOS
 	pcterm this does not work. For debugging purposes. {not in Vi}
 
-						*number*
+						*'number'* *'nu'*
 number (nu)		toggle	(default off)
 	Print the line number in front of each line. Each window has its own
 	copy of this option.
 
-						*paragraphs*
+			*'paragraphs'* *'para'*
 paragraphs (para)	string	(default "IPLPPPQPP LIpplpipbp")
 	Specifies the nroff macros that separate paragraphs. These are pairs 
 	of two letters (see section 6.4 |object_motions|).
 
-						*paste*
+						*'paste'*
 paste			toggle	(default off)
 	Put Vim in Paste mode. This is useful if you want to cut or copy
 	some text from one window and paste it in Vim. This will avoid
 	unexpected effects. When the 'paste' option is set mapping in Insert
 	mode is disabled, abbreviations are disabled and some options are
-	reset ('textwidth', 'autoindent', 'smartindent', 'revins', 'ruler'
+	reset ( 'textwidth', 'autoindent', 'smartindent', 'revins', 'ruler'
 	and 'showmatch'). When the 'paste' option is reset the mentioned
 	options are restored to the value before the moment 'paste' was
 	set. Resetting 'paste' before ever setting it does not have any
 	effect. If you use this often, you could map a function key to the
 	command ":set invpaste^V^M". {not in Vi}
 
-						*patchmode*
+						*'patchmode'* *'pm'*
 patchmode (pm)		string	(default "")
 	Only for Unix: When set the oldest version of a file is kept. This can
 	be used to keep the original version of a file if you are changing
@@ -5474,7 +5967,7 @@ patchmode (pm)		string	(default "")
 	'patchmode' option appended to the name of the original file. This
 	means that you can only see which files where changed. {not in Vi}
 
-						*path*
+						*'path'* *'pa'*
 path (pa)		string  (default ". /usr/include" on unix, or ".")
 	This is a list of directories which will be searched when using the
 	gf, [f, ]f, ^Wf and other commands, provided that the file being
@@ -5485,32 +5978,31 @@ path (pa)		string  (default ". /usr/include" on unix, or ".")
 	Don't forget "." or files won't even be found in the current
 	directory!  {not in Vi}
 
-						*readonly*
+				*'readonly'* *'ro'*
 readonly (ro)		toggle	(default off)
 	If set, writes fail unless you use an !. Protects you from
-	accidentally overwriting a file. Also, sets 'updatecount' to zero so
-	that no ".swp" swap file is created. Default on when vim is started
+	accidentally overwriting a file. Default on when vim is started
 	in view mode ("vim -v") or when the executable is called "view". It
 	is reset if you overwrite the current file (e.g. with ":w!"). Each
 	buffer has its own copy of this option.
 
-						*remap*
+						*'remap'*
 remap			toggle	(default on)
 	Allows for :map command to work recursively. If you do not want this 
 	for a single entry, use the :noremap[!] command.
 
-						*report*
+						*'report'*
 report			number	(default 2)
 	Threshold for reporting number of lines changed.
 
-						*revins*
-revins			toggle	(default off)
+						*'revins'*
+revins (ri)		toggle	(default off)
 	Inserting characters in Insert mode will work backwards. See "typing
 	backwards" |ins_reverse|. Can be toggled with the CTRL-B command in
 	Insert mode.  This option is reset when 'compatible' or 'paste' is
 	set. {not in Vi}
 
-						*ruler*
+						*'ruler'* *'ru'*
 ruler (ru)		toggle	(default off)
 	Show the line and column number of the cursor position in the status
 	line, separated by a comma. If there are characters in the line that
@@ -5518,7 +6010,7 @@ ruler (ru)		toggle	(default off)
 	screen column are shown, separated with a dash. This option is reset
 	when the 'paste' option is set. {not in Vi}
 
-						*scroll*
+						*'scroll'*
 scroll			number	(default 'lines' / 2)
 	Number of lines to scroll with CTRL-U and CTRL-D commands. Will be
 	set to half the number of lines in the window when the window size
@@ -5526,26 +6018,26 @@ scroll			number	(default 'lines' / 2)
 	be used as the new value for 'scroll'. Reset to 'lines' / 2 with
 	":set scroll=0". Each window has its own copy of this option.
 
-						*scrolljump*
-scrolljump		number	(default 1)
+						*'scrolljump'* *'sj'*
+scrolljump (sj)		number	(default 1)
 	Minimal number of lines to scroll when the cursor gets off the 
 	screen (e.g. with "j"). Not used for scroll commands (e.g. CTRL-E, 
 	CTRL-D). Useful if your terminal scrolls very slowly. {not in Vi}
 
-						*sections*
+						*'sections'* *'sect'*
 sections (sect)		string	(default "SHNHH HUnhsh")
 	Specifies the nroff macros that separate sections. These are pairs of
 	two letters (See section 6.4 |object_motions|).
 
-						*secure*
+						*'secure'*
 secure			toggle	(default off)
-	When on, shell and write commands are not allowed in ".vimrc" and 
-	".exrc" in the current directory and map commands are displayed.
-	Switch it off only if you know that you will not run into problems,
-	or when the 'exrc' option is off. On unix this option is only used
-	if the ".vimrc" or ".exrc" is not owned by you.
+	When on, ":autocmd", shell and write commands are not allowed in
+	".vimrc" and ".exrc" in the current directory and map commands are
+	displayed.  Switch it off only if you know that you will not run
+	into problems, or when the 'exrc' option is off. On unix this option
+	is only used if the ".vimrc" or ".exrc" is not owned by you.
 
-						*shell*
+						*'shell'* *'sh'*
 shell (sh)		string	(default $SHELL or "sh", MSDOS: "command")
 	Name of the shell to use for ! and :! commands. See also the
 	'shelltype' option. It is allowed to give an argument to the 
@@ -5553,30 +6045,34 @@ shell (sh)		string	(default $SHELL or "sh", MSDOS: "command")
 	will have to put a backslash in front of the space. Environment
 	variables are expanded.
 
-						*shellpipe*
+						*'shellpipe'* *'sp'*
 shellpipe (sp)		string	(default ">", "| tee", "|& tee" or "2>&1| tee")
 	String to be used to put the output of the ":make" command in the
-	error file. See also |c_make_makeprg|. For the Amiga and MSDOS the
+	error file. See also |:make_makeprg|. For the Amiga and MSDOS the
 	default is ">". The output is directly saved in a file and not
 	echoed to the screen. For Unix the default it "| tee". The stdout of
 	the compiler is saved in a file and echoed to the screen. If the
-	'shell' option is "csh", "tcsh" or "zsh" during initializations, the
+	'shell' option is "csh", "tcsh" or "zsh" after initializations, the
 	default becomes "|& tee". If the 'shell' option is "sh", "ksh" or
 	"bash" the default becomes "2>&1| tee". This means that stderr is
-	also included.  Setting the 'shell' option does not automatically
-	change the 'shellpipe' option. {not in Vi}
+	also included.  The initialization of this option is done after
+	reading the ".vimrc" and the other initializations, so when the
+	'shell' option is set there it automatically changes the 'shellpipe'
+	option, unless it was set before. {not in Vi}
 
-						*shellredir*
+						*'shellredir'* *'srr'*
 shellredir (srr)	string	(default ">", ">&" or "2>&1 1>")
 	String to be used to put the output of a filter in a temporary file.
-	See also |c_bang|. The default is ">".  For Unix, if the 'shell'
+	See also |:!|. The default is ">".  For Unix, if the 'shell'
 	option is "csh", "tcsh" or "zsh" during initializations, the default
 	becomes ">&". If the 'shell' option is "sh", "ksh" or "bash" the
 	default becomes "2>&1 1>". This means that stderr is also included.
-	Setting the 'shell' option does not automatically change the
-	'shellpipe' option. {not in Vi}
+	The initialization of this option is done after reading the ".vimrc"
+	and the other initializations, so when the 'shell' option is set
+	there it automatically changes the 'shellredir' option, unless it
+	was set before. {not in Vi}
 
-						*shelltype*
+						*'shelltype'* *'st'*
 shelltype (st)		number	(default 0)
 	On the Amiga this option influences the way how the commands work 
 	which use a shell.
@@ -5588,17 +6084,17 @@ shelltype (st)		number	(default 0)
 	0 and 2: use 'shell -c cmd' to start external commands
 	1 and 3: use 'shell cmd' to start external commands
 
-						*shiftround*
+						*'shiftround'* *'sr'*
 shiftround (sr)		toggle	(default off)
 	Round indent to multiple of shiftwidth. Applies to > and < commands 
 	and to CTRL-T and CTRL-D in Insert mode. {not in Vi}
 
-						*shiftwidth*
+						*'shiftwidth'* *'sw'*
 shiftwidth (sw)		number	(default 8)
 	Number of spaces to use for (auto)indent. Each buffer has its own
 	copy of this option.
 
-						*shortmess*
+						*'shortmess'* *'shm'*
 shortmess (shm)		number	(default 0)
 	This option helps to avoid all the "Hit return" messages caused by
 	file messages, eg with ^G.  If shm=2 and the message will be too
@@ -5615,7 +6111,7 @@ shortmess (shm)		number	(default 0)
 	    shm=2       -- Abbreviation, and truncate message when necessary.
 	{not in Vi}
 
-						*shortname*
+						*'shortname'* *'sn'*
 shortname (sn)		toggle	(default off)
 	Filenames can be 8 characters plus one extension of 3 characters. 
 	Multiple dots in file names are not allowed. When this option is on, 
@@ -5626,21 +6122,21 @@ shortname (sn)		toggle	(default off)
 	or crossdos. Each buffer has its own copy of this option. {not in
 	Vi}
 
-						*showcmd*
+						*'showcmd'* *'sc'*
 showcmd (sc)		toggle	(default on, off for unix)
 	show command in status line. Set this option off if your terminal 
 	is slow. {not in Vi}
 
-						*showmatch*
+						*'showmatch'* *'sm'*
 showmatch (sm)		toggle	(default off)
 	When a bracket is inserted, briefly jump to the matching one. This
 	option is reset when the 'paste' option is set.
 
-						*showmode*
+						*'showmode'* *'smd'*
 showmode (smd)		toggle	(default on)
 	If in Insert or Replace mode, put a message on the last line.
 
-						*sidescroll*
+						*'sidescroll'* *'ss'*
 sidescroll (ss)		number	(default 0)
 	The minimal number of columns to scroll horizontally. Used only when
 	the 'wrap' option is on and the cursor is moved off of the screen.
@@ -5648,7 +6144,7 @@ sidescroll (ss)		number	(default 0)
 	When using a slow terminal set it to a large number or 0. When using
 	a fast terminal use a small number or 1. {not in Vi}
 
-						*smartindent*
+						*'smartindent'* *'si'*
 smartindent (si)	toggle	(default off)
 	Do smart autoindenting for C programs in Insert mode and with the
 	"o" and "O" commands. An indent is automatically inserted:
@@ -5667,7 +6163,7 @@ smartindent (si)	toggle	(default off)
 	'smartindent' is reset when the 'paste' option is set. Each buffer
 	has its own copy of this option. {not in Vi}
 
-						*smartmatch*
+						*'smartmatch'* *'sma'*
 smartmatch (sma)	toggle	(default on)
 	When this option is off vi-compatible matching is done for the "%"
 	command. Parens inside single and double quotes are also counted,
@@ -5682,18 +6178,18 @@ smartmatch (sma)	toggle	(default on)
 	This option is reset when the 'compatible' option is set. {not in
 	Vi}
 
-						*smarttab*
+						*'smarttab'* *'sta'*
 smarttab (sta)		toggle	(default off)
 	When set a TAB in front of a line inserts 'shiftwidth' positions,
 	'tabstop' in other places. When not set a TAB always inserts 'tabstop'
 	positions, 'shiftwidth' is only used for ">>" and the like. See also
 	section 4.3.4 |ins_expandtab|. {not in Vi}
 
-						*splitbelow*
+						*'splitbelow'* *'sb'*
 splitbelow (sb)		toggle	(default off)
 	When set new window from split is below the current one. {not in Vi}
 
-						*startofline*
+						*'startofline'* *'sol'*
 startofline (sol)	toggle	(default on)
 	When set the commands listed below move the cursor to the first
 	blank of the line. If not set the cursor is kept in the same column
@@ -5702,72 +6198,72 @@ startofline (sol)	toggle	(default on)
 	with a linewise operator and with "%" with a count. This option is
 	set when the 'compatible' option is set. {not in Vi}
 
-						*suffixes*
+						*'suffixes'* *'su'*
 suffixes (su)		string	(default ".bak.~.o.h.info.swp")
 	Files with these suffixes are ignored when multiple files match a
 	wildcard. {not in Vi}
 
-						*tabstop*
+					*'tabstop'* *'ts'*
 tabstop (ts)		number	(default 8)
 	Number of spaces that a <TAB> in the file counts for. (See also
-	":retab" command in 11.3 |c_retab|). Each buffer has its own copy of
+	":retab" command in 11.3 |:retab|). Each buffer has its own copy of
 	this option.
 
-						*taglength*
+						*'taglength'* *'tl'*
 taglength (tl)		number	(default 0)
 	If non-zero, tags are significant up to this number of characters.
 
-						*tagrelative*
+						*'tagrelative'* *'tr'*
 tagrelative (tr)	toggle	(default on)
 	If set and using a tag file in another directory, file names in that
 	tag file are relative to the directory where the tag file is. If Vim
 	was compiled with COMPATIBLE defined, or when the 'compatible' option
 	is set, this option is reset. {not in Vi}
 
-						*tags*
+						*'tags'*
 tags			string	(default "tags")
 	Filenames for the tag command, separated by spaces. Environment
 	variables are expanded for the first name. {Vi: default is "tags
 	/usr/lib/tags"}
 
-						*term*
+						*'term'*
 term			string	(default $TERM or "amiga" on Amiga, "pcterm"
 					on MSDOS)
 	Name of the terminal. Used for choosing the terminal control 
 	characters. Environment variables are expanded.
 
-						*terse*
+						*'terse'*
 terse			toggle	(default off)
 	Shorten some of the messages. {Vi shortens a lot more messages}
 
-						*textauto*
+						*'textauto'* *'ta'*
 textauto (ta)		toggle	(default on)
 	When a new file is edited the first line is checked for the line
 	separator. If it is a single <LF> 'textmode' is reset. If it is a
 	<CR><LF> pair 'textmode' is set. {not in Vi}
 
-						*textmode*
+						*'textmode'* *'tx'*
 textmode (tx)		toggle	(MSDOS: default on, others: default off)
 	When off, <LF> separates lines. When on, <CR><LF> separates lines
 	and CTRL-Z at end of file is ignored. Only used when reading and
 	writing files. Set automatically when reading a file and 'textauto'
 	is on. Each buffer has its own copy of this option. {not in Vi}
 
-						*textwidth*
-textwidth		number	(default 0)
+						*'textwidth'* *'tw'*
+textwidth (tw)		number	(default 0)
 	Maximum width of text that is being inserted. A longer line will be
 	broken after white space to get this width. A zero value disables
 	this. 'textwidth' is set to 0 when the 'paste' option is set. When
 	'textwidth' is zero, 'wrapmargin' may be used. See |ins_textwidth|.
 	Each buffer has its own copy of this option. {not in Vi} 
 
-						*tildeop*
+						*'tildeop'* *'to'*
 tildeop (to)		toggle	(default off)
 	The tilde command <~> behaves like an operator. {not in Vi}
 
-						*timeout*
+						*'timeout'*
 timeout			toggle (default on)
-						*ttimeout*
+						*'ttimeout'*
 ttimeout		toggle (default off)
 	These two options together determine the behaviour when part of a 
 	mapped key sequence or keyboard code has been received:
@@ -5794,12 +6290,12 @@ ttimeout		toggle (default off)
 	sequences not time out in 1 second, set the ttimeout option and 
 	reset the timeout option. {the ttimeout option is not in Vi}
 
-						*timeoutlen*
+						*'timeoutlen'* *'tm'*
 timeoutlen (tm)		number	(default 1000)
 	The time in milliseconds that is waited for a key code or mapped key
 	sequence to complete. {only in some versions of Vi}
 
-						*title*
+						*'title'*
 title			toggle	(default on)
 	When set the title of the window will be set to "VIM - filename",
 	where filename is the name of the file currently being edited. Only
@@ -5808,7 +6304,7 @@ title			toggle	(default on)
 	defined the default is off. When Vim was compiled with USE_X11
 	defined, the original title will be restored if possible. {not in Vi}
 
-						*ttyfast*
+						*'ttyfast'* *'tf'*
 ttyfast	(tf)		toggle (default off)
 	Indicates a fast terminal connection. More characters will be send
 	to the screen for redrawing, instead of using insert/delete line
@@ -5816,69 +6312,73 @@ ttyfast	(tf)		toggle (default off)
 	windows and the terminal does not support a scrolling region. {not
 	in Vi} 
 
-						*undolevels*
+					*'undolevels'* *'ul'*
 undolevels (ul)		number	(default 100, for unix 1000)
 	Maximum number of changes that can be undone. Set to 0 for Vi 
 	compatibility: one level of undo and 'u' undoes itself. Set to a
 	negative number for no undo at all (saves memory). {not in Vi}
 
-						*updatecount*
+						*'updatecount'* *'uc'*
 updatecount (uc)	number	(default 200)
-	After this many characters typed the swap file will be written to
-	disk. When zero the swap script will not be written at all (see
-	chapter on recovery |crash_recovery|). {not in Vi}
+	After typing this many characters the swap file will be written to
+	disk. When zero no swap file will be created at all (see chapter on
+	recovery |crash_recovery|). Can be set to zero by starting Vim with
+	the "-n" option, see |starting|. When editing in readonly mode this
+	option will be initialized to 10000. {not in Vi}
 
-						*updatetime*
+						*'updatetime'* *'ut'*
 updatetime (ut)		number	(default 4000)
 	If this many milliseconds nothing is typed the swap file will be
 	written to disk (see chapter on recovery |crash_recovery|). {not in
 	Vi}
 
-						*viminfo*
+					*'viminfo'* *'vi'*
 viminfo (vi)		number	(default 0)
 	When non-zero, the viminfo file is read upon startup and written
 	when exiting Vim. The value is the maximum number of files for which
 	the marks are remembered. See |viminfo_file|. {not in Vi}
 
-						*visualbell*
+						*'visualbell'* *'vb'*
 visualbell (vb)		toggle	(default off)
-	Use (sort of) visual bell for AUX device. {not in Vi}
+	Use visual bell instead of beeping. The terminal code to display the
+	visual bell is given with 't_vb'. When no beep of flash is wanted,
+	use ":set vb t_vb=". {not in Vi}
 
-						*warn*
+						*'warn'*
 warn			toggle	(default on)
 	Give a warning message when a shell command is used while the buffer
 	has been changed.
 
-						*weirdinvert*
+						*'weirdinvert'* *'wi'*
 weirdinvert (wi)	toggle	(default off)
 	Set this option for terminals that have a weird inversion method.
 	Makes the start/end invert code outputted before every character.
 	Slows down terminal I/O a lot, but it makes Visual mode work.
 	{not in Vi}
 
-						*whichwrap*
+						*'whichwrap'* *'ww'*
 whichwrap (ww)		number	(default 3)
 	Allow specified keys that move the cursor left/right to wrap to the
 	previous/next line when the cursor is on the first/last character in
 	the line. Add numbers to allow this for these keys:
-		 1 for backspace	 in command mode
-		 2 for space		 in command mode
-		 4 for 'h' and 'l'	 in command mode
-		 8 for cursor left/right in command mode
-		16 for cursor left/right in insert mode
+		 1 for backspace	 in Normal and Visual mode
+		 2 for space		 in Normal and Visual mode
+		 4 for 'h' and 'l'	 in Normal and Visual mode
+		 8 for cursor left/right in Normal and Visual mode
+		16 for cursor left/right in Insert and Replace mode
 	For example: ":set ww=24" allows wrap only when cursor keys are used.
 	When compiled with COMPATIBLE defined or when 'compatible' option set,
 	'whichwrap' is set to 0.
 	{not in Vi}
 
-						*wildchar*
+						*'wildchar'* *'wc'*
 wildchar (wc)		number	(default <TAB> or CTRL-E)
 	Character you have to type to start wildcard expansion in the 
 	command line. CTRL-E is used when Vim was compiled with COMPATIBLE 
 	or when the 'compatible' option is set. The character is not
 	recognized when used inside a macro. {not in Vi}
 
-						*winheight*
+						*'winheight'* *'wh'*
 winheight (wh)		number	(default 0)
 	Minimal number of lines for the current window. If the current
 	window is smaller, its size is increased, at the cost of the height
@@ -5887,7 +6387,7 @@ winheight (wh)		number	(default 0)
 	height is not adjusted after one of the commands to change the
 	height of the current window. {not in Vi} 
 
-						*wrap*
+						*'wrap'*
 wrap			toggle	(default on)
 	When on, long lines will wrap and continue on the next line. When
 	off long lines will not wrap and only part of them will be shown.
@@ -5895,22 +6395,22 @@ wrap			toggle	(default on)
 	will scroll horizontally (also see 'sidescroll' option. Each window
 	has its own copy of this option. {not in Vi}
 
-						*wrapmargin*
+						*'wrapmargin'* *'wm'*
 wrapmargin (wm)		number	(default 0)
 	Number of characters from the right window border where wrapping
 	starts. When 'textwidth' is set, this option is not used. See
 	|ins_textwidth|. Each buffer has its own copy of this option. {Vi:
 	works differently and less useful}
 
-						*wrapscan*
+						*'wrapscan'* *'ws'*
 wrapscan (ws)		toggle	(default on)
 	Searches wrap around the end of the file.
 
-						*writeany*
+						*'writeany'* *'wa'*
 writeany (wa)		toggle	(default off)
 	Allows writing to any file with no need for "!" override.
 
-						*writebackup*
+						*'writebackup'* *'wb'*
 writebackup (wb)	toggle	(default on)
 	Make a backup before overwriting a file. The backup is removed after 
 	the file was successfully written, unless the 'backup' option is
@@ -6015,71 +6515,72 @@ to minimize the screen updating overhead and to recognize special keys.
 	option	termcap		meaning
 
 OUTPUT CODES
-	t_name	(name)	name of current terminal entry
-	t_el	ce	clear to end of line
-	t_il	al	add new blank line
-	t_cil	AL	add number of blank lines
-	t_dl	dl	delete line
-	t_cdl	DL	delete number of lines
-	t_cs	cs	define scrolling region
-	t_ed	cl	clear screen (required!)
-	t_ci	vi	cursor invisible
-	t_cv	ve	cursor visible
-	t_cvv	cvv	cursor very visible
-	t_tp	me	normal mode (undoes t_ti and t_tb)
-	t_ti	mr	reverse (invert) mode
-	t_tb	md	bold mode
-	t_se	se	standout end
-	t_so	so	standout mode
-	t_ue	ue	underline end
-	t_us	us	underline mode
+	t_name	(name)	name of current terminal entry *t_name*
+	t_el	ce	clear to end of line *t_el*
+	t_il	al	add new blank line *t_il*
+	t_cil	AL	add number of blank lines *t_cil*
+	t_dl	dl	delete line *t_dl*
+	t_cdl	DL	delete number of lines *t_cdl*
+	t_cs	cs	define scrolling region *t_cs*
+	t_ed	cl	clear screen (required!) *t_ed*
+	t_ci	vi	cursor invisible *t_ci*
+	t_cv	ve	cursor visible *t_cv*
+	t_cvv	cvv	cursor very visible *t_cvv*
+	t_tp	me	normal mode (undoes t_ti and t_tb) *t_tp*
+	t_ti	mr	reverse (invert) mode *t_ti*
+	t_tb	md	bold mode *t_tb*
+	t_se	se	standout end *t_se*
+	t_so	so	standout mode *t_so*
+	t_ue	ue	underline end *t_ue*
+	t_us	us	underline mode *t_us*
+							*t_ms*
 	t_ms	ms	if set, cursor can be moved in standout/inverse mode
-	t_cm	cm	cursor motion (required!)
-	t_sr	sr	scroll reverse (backward)
-	t_cri	RI	cursor number of chars right
-	t_vb	vb	visual bell
-	t_ks	ks	put terminal in "keypad transmit" mode
-	t_ke	ke	out of "keypad transmit" mode
-	t_ts	ti	put terminal in "termcap" mode
-	t_te	te	out of "termcap" mode
+	t_cm	cm	cursor motion (required!) *t_cm*
+	t_sr	sr	scroll reverse (backward) *t_sr*
+	t_cri	RI	cursor number of chars right *t_cri*
+	t_vb	vb	visual bell *t_vb*
+	t_ks	ks	put terminal in "keypad transmit" mode *t_ks*
+	t_ke	ke	out of "keypad transmit" mode *t_ke*
+	t_ts	ti	put terminal in "termcap" mode *t_ts*
+	t_te	te	out of "termcap" mode *t_te*
 
 KEY CODES
-	t_ku	ku	arrow up
-	t_kd	kd	arrow down
-	t_kr	kr	arrow right
-	t_kl	kl	arrow left
-	t_sku	(none)	shift arrow up
-	t_skd	(none)	shift arrow down
-	t_skr	%i	shift arrow right
-	t_skl	#4	shift arrow left
-	t_f1	k1	function key 1
-	t_f2	k2	function key 2
-	t_f3	k3	function key 3
-	t_f4	k4	function key 4
-	t_f5	k5	function key 5
-	t_f6	k6	function key 6
-	t_f7	k7	function key 7
-	t_f8	k8	function key 8
-	t_f9	k9	function key 9
-	t_f10	k;	function key 10
-	t_sf1	F1	function key 11 or shifted function key 1
-	t_sf2	F2	function key 12 or shifted function key 2
-	t_sf3	F3	function key 13 or shifted function key 3
-	t_sf4	F4	function key 14 or shifted function key 4
-	t_sf5	F5	function key 15 or shifted function key 5
-	t_sf6	F6	function key 16 or shifted function key 6
-	t_sf7	F7	function key 17 or shifted function key 7
-	t_sf8	F8	function key 18 or shifted function key 8
-	t_sf9	F9	function key 19 or shifted function key 9
-	t_sf10	FA	function key 20 or shifted function key 10
-	t_help	%1	help key
-	t_undo	&8	undo key
-	t_ins	kI	insert key
-	t_del	kD	delete key
-	t_home	kh	home key
-	t_end	@7	end key
-	t_pu	kP	page-up key
-	t_pd	kN	page-down key
+	t_ku	ku	arrow up *t_ku*
+	t_kd	kd	arrow down *t_kd*
+	t_kr	kr	arrow right *t_kr*
+	t_kl	kl	arrow left *t_kl*
+	t_sku	(none)	shift arrow up *t_sku*
+	t_skd	(none)	shift arrow down *t_skd*
+	t_skr	%i	shift arrow right *t_skr*
+	t_skl	#4	shift arrow left *t_skl*
+	t_f1	k1	function key 1 *t_f1*
+	t_f2	k2	function key 2 *t_f2*
+	t_f3	k3	function key 3 *t_f3*
+	t_f4	k4	function key 4 *t_f4*
+	t_f5	k5	function key 5 *t_f5*
+	t_f6	k6	function key 6 *t_f6*
+	t_f7	k7	function key 7 *t_f7*
+	t_f8	k8	function key 8 *t_f8*
+	t_f9	k9	function key 9 *t_f9*
+	t_f10	k;	function key 10 *t_f10*
+	t_sf1	F1	function key 11 or shifted function key 1 *t_sf1*
+	t_sf2	F2	function key 12 or shifted function key 2 *t_sf2*
+	t_sf3	F3	function key 13 or shifted function key 3 *t_sf3*
+	t_sf4	F4	function key 14 or shifted function key 4 *t_sf4*
+	t_sf5	F5	function key 15 or shifted function key 5 *t_sf5*
+	t_sf6	F6	function key 16 or shifted function key 6 *t_sf6*
+	t_sf7	F7	function key 17 or shifted function key 7 *t_sf7*
+	t_sf8	F8	function key 18 or shifted function key 8 *t_sf8*
+	t_sf9	F9	function key 19 or shifted function key 9 *t_sf9*
+	t_sf10	FA	function key 20 or shifted function key 10 *t_sf10*
+	t_help	%1	help key *t_help*
+	t_undo	&8	undo key *t_undo*
+	t_ins	kI	insert key *t_ins*
+	t_del	kD	delete key *t_del*
+	t_home	kh	home key *t_home*
+	t_end	@7	end key *t_end*
+	t_pu	kP	page-up key *t_pu*
+	t_pd	kN	page-down key *t_pd*
 
 Note about t_so and t_ti: When the termcap entry "so" is not present the
 entry for "mr" is used. And visa versa. The same is done for "se" and "me".
@@ -6153,6 +6654,7 @@ correct values.
 
 One command can be used to set the screen size:
 
+							*:mode*
 :mode [mode]
 
 Without argument this only detects the screen size. With MSDOS it is possible
@@ -6190,7 +6692,7 @@ lines jump up and down. If you don't want this set the 'ttyfast' option.
 This will redraw the window instead of scroll it.
 
 If you are testing termcap options, but you cannot see what is happening,
-you might want to set the 'nobuf' option ('nb'). When set one character is
+you might want to set the 'nobuf' option ( 'nb' ). When set one character is
 send to the terminal at a time (does not work for MSDOS). This makes the
 screen updating a lot slower, making it possible to see what is happening.
 
@@ -6199,7 +6701,7 @@ screen updating a lot slower, making it possible to see what is happening.
 
 Throughout this document differences between Vim and Vi/Ex are given in
 curly braces. This chapter only lists what has not been mentioned in
-previous chapters. Also see "difference.doc" for an overview.
+previous chapters. Also see |vim_diff.txt| for an overview.
 
 
 21.1 Missing commands					*missing_commands*
@@ -6246,10 +6748,10 @@ w9600			number	(default 24)
 
 
 
-CONTENTS
+CONTENTS			*reference_contents* *ref* *reference*
 
 [Note: The commands for multiple windows and buffers are explained in
-windows.doc]
+a different file, see |vim_win.txt|]
 
  1. Introduction				|intro|
  2. Notation					|notation|
@@ -6279,6 +6781,8 @@ windows.doc]
 	4.5 The window contents			|window_contents|
 	4.6 Abbreviations			|abbreviations|
 	4.7 Digraphs				|digraphs|
+	4.8 Using the mouse			|using_mouse|
+	4.9 On-line help			|online_help|
  5. Editing files				|edit_files|
 	5.1 Introduction			|edit_intro|
 	5.2 Editing a file			|edit_a_file|

@@ -136,6 +136,168 @@ Opencmd(dir, redraw)
 			trunc_line = TRUE;
 		else if (curbuf->b_p_si && *saved_line != NUL)
 		{
+#if 1		/* code from Robert */
+			char_u	*ptr;
+			char_u	last_char;
+			char_u	*pp;
+			int		i;
+
+			old_cursor = curwin->w_cursor;
+			ptr = saved_line;
+			lead_len = get_leader_len(ptr);
+			if (dir == FORWARD)
+			{
+				/*
+				 * Skip preprocessor directives, unless they are recognised as
+				 * comments.
+				 */
+				if (lead_len == 0 && ptr[0] == '#')
+				{
+					while (ptr[0] == '#' && curwin->w_cursor.lnum > 1)
+						ptr = ml_get(--curwin->w_cursor.lnum);
+					newindent = get_indent();
+				}
+				lead_len = get_leader_len(ptr);
+				if (lead_len > 0)
+				{
+					/*
+					 * This case gets the following right:
+					 *		\*
+					 *		 * A comment (read "\" as "/").
+					 *		 *\
+					 * #define IN_THE_WAY
+					 *		This should line up here;
+					 */
+					p = ptr;
+					skipwhite(&p);
+					if (p[0] == '/' && p[1] == '*')
+						p++;
+					if (p[0] == '*')
+					{
+						for (p++; *p; p++)
+						{
+							if (p[0] == '/' && p[-1] == '*')
+							{
+								/*
+								 * End of C comment, indent should line up with
+								 * the line containing the start of the comment
+								 */
+								curwin->w_cursor.col = p - ptr;
+								if ((pos = findmatch(NUL)) != NULL)
+								{
+									curwin->w_cursor.lnum = pos->lnum;
+									newindent = get_indent();
+								}
+							}
+						}
+					}
+				}
+				else	/* Not a comment line */
+				{
+					/* Find last non-blank in line */
+					p = ptr + STRLEN(ptr) - 1;
+					while (p > ptr && iswhite(*p))
+						--p;
+					last_char = *p;
+
+					/*
+					 * find the character just before the '{' or ';'
+					 */
+					if (last_char == '{' || last_char == ';')
+					{
+						if (p > ptr)
+							--p;
+						while (p > ptr && iswhite(*p))
+							--p;
+					}
+					/*
+					 * Try to catch lines that are split over multiple
+					 * lines.  eg:
+					 *		if (condition &&
+					 *					condition) {
+					 *			Should line up here!
+					 *		}
+					 */
+					if (*p == ')')
+					{
+						curwin->w_cursor.col = p - ptr;
+						if ((pos = findmatch('(')) != NULL)
+						{
+							curwin->w_cursor.lnum = pos->lnum;
+							newindent = get_indent();
+							ptr = ml_get(curwin->w_cursor.lnum);
+						}
+					}
+					/*
+					 * If last character is '{' do indent, without checking
+					 * for "if" and the like.
+					 */
+					if (last_char == '{')
+					{
+						did_si = TRUE;	/* do indent */
+						no_si = TRUE;	/* don't delete it when '{' typed */
+					}
+					/*
+					 * Look for "if" and the like.
+					 * Don't do this if the previous line ended in ';' or '}'.
+					 */
+					else if (last_char != ';' && last_char != '}')
+					{
+						p = ptr;
+						skipwhite(&p);
+						for (pp = p; islower(*pp); ++pp)
+							;
+						/* Careful for vars starting with "if" */
+						if (!isidchar(*pp))
+						{
+							temp = *pp;
+							*pp = NUL;
+							for (i = sizeof(si_tab)/sizeof(char_u *); --i >= 0;)
+								if (STRCMP(p, si_tab[i]) == 0)
+								{
+									did_si = TRUE;
+									break;
+								}
+							*pp = temp;
+						}
+					}
+				}
+			}
+			else /* dir == BACKWARD */
+			{
+				/*
+				 * Skip preprocessor directives, unless they are recognised as
+				 * comments.
+				 */
+				if (lead_len == 0 && ptr[0] == '#')
+				{
+					int was_backslashed = FALSE;
+
+					while ((ptr[0] == '#' || was_backslashed) &&
+							curwin->w_cursor.lnum < curbuf->b_ml.ml_line_count)
+					{
+						if (*ptr && ptr[STRLEN(ptr) - 1] == '\\')
+							was_backslashed = TRUE;
+						else
+							was_backslashed = FALSE;
+						ptr = ml_get(++curwin->w_cursor.lnum);
+					}
+					if (was_backslashed)
+						newindent = 0;		/* Got to end of file */
+					else
+						newindent = get_indent();
+				}
+				p = ptr;
+				skipwhite(&p);
+				if (*p == '}')			/* if line starts with '}': do indent */
+					did_si = TRUE;
+				else
+					can_si_back = TRUE;	/* can delete indent when '{' typed */
+			}
+			curwin->w_cursor = old_cursor;
+
+#else		/* old code */
+
 			char_u	*pp;
 			int		i;
 
@@ -156,7 +318,8 @@ Opencmd(dir, redraw)
 					skipwhite(&p);
 					for (pp = p; islower(*pp); ++pp)
 						;
-					if (!isidchar(*pp))		/* careful for vars starting with "if" */
+									/* careful for vars starting with "if" */
+					if (!isidchar_id(*pp))
 					{
 						temp = *pp;
 						*pp = NUL;
@@ -177,6 +340,7 @@ Opencmd(dir, redraw)
 				if (*p == '}')			/* if line starts with '}': do indent */
 					did_si = TRUE;
 			}
+#endif
 		}
 		did_ai = TRUE;
 		if (curbuf->b_p_si)
@@ -360,7 +524,7 @@ Opencmd(dir, redraw)
 			if (trunc_line)
 			{
 					/* find start of trailing white space */
-				for (n = strlen(saved_line); n > 0 && iswhite(saved_line[n - 1]); --n)
+				for (n = STRLEN(saved_line); n > 0 && iswhite(saved_line[n - 1]); --n)
 					;
 				saved_line[n] = NUL;
 			}
@@ -521,7 +685,7 @@ plines_win(wp, p)
 	WIN			*wp;
 	linenr_t	p;
 {
-	register long		col = 0;
+	register long		col;
 	register char_u		*s;
 	register int		lines;
 
@@ -966,7 +1130,7 @@ ask_yesno(str, direct)
 	int		direct;
 {
 	int		r = ' ';
-	char	buf[20];
+	char_u	buf[20];
 	int		len = 0;
 	int		idx = 0;
 
@@ -979,7 +1143,7 @@ ask_yesno(str, direct)
 		{
 			if (idx >= len)
 			{
-				len = GetChars(&(buf[0]), 20, -1);
+				len = GetChars(buf, 20, -1);
 				idx = 0;
 			}
 			r = buf[idx++];
@@ -994,13 +1158,44 @@ ask_yesno(str, direct)
 	return r;
 }
 
+/*
+ * get a number from the user
+ */
+	int
+get_number()
+{
+	int		n = 0;
+	int		c;
+
+	for (;;)
+	{
+		windgoto(msg_row, msg_col);
+		screen_start();
+		c = vgetc();
+		if (isdigit(c))
+		{
+			n = n * 10 + c - '0';
+			msg_outchar(c);
+		}
+		else if (c == K_DEL || c == K_BS)
+		{
+			n /= 10;
+			MSG_OUTSTR("\b \b");
+		}
+		else if (c == CR || c == NL || c == Ctrl('C'))
+			break;
+	}
+	return n;
+}
+
 	void
 msgmore(n)
 	long n;
 {
 	long pn;
 
-	if (global_busy)		/* no messages now, wait until global is finished */
+	if (global_busy ||		/* no messages now, wait until global is finished */
+			keep_msg)		/* there is a message already, skip this one */
 		return;
 
 	if (n > 0)
@@ -1010,7 +1205,11 @@ msgmore(n)
 
 	if (pn > p_report)
 	{
-		sprintf((char_u *)msg_buf, (char_u *)"%ld %s line%s %s",
+#ifdef ADDED_BY_WEBB_COMPILE
+		sprintf((char *)msg_buf, "%ld %s line%s %s",
+#else
+		sprintf((char *)msg_buf, (char_u *)"%ld %s line%s %s",
+#endif /* ADDED_BY_WEBB_COMPILE */
 				pn, n > 0 ? "more" : "fewer", plural(pn),
 				got_int ? "(Interrupted)" : "");
 		if (msg(msg_buf) && !msg_scroll)
@@ -1038,6 +1237,7 @@ beep()
 	{
 		if (T_VB && *T_VB)
 		    outstr(T_VB);
+#if 0		/* this mostly goes too fast to be seen */
 		else
 		{						/* very primitive visual bell */
 	        MSG("    ^G");
@@ -1047,6 +1247,7 @@ beep()
 	        MSG("       ");
 			showmode();			/* may have deleted the mode message */
 		}
+#endif
 	}
 	else
 	    outchar('\007');
@@ -1157,8 +1358,8 @@ fullpathcmp(s1, s2)
 	char_u *s1, *s2;
 {
 #ifdef UNIX
-	struct stat st1, st2;
-	char_u buf1[MAXPATHL];
+	struct stat		st1, st2;
+	char_u			buf1[MAXPATHL];
 
 	expand_env(s1, buf1, MAXPATHL);
 	if (stat((char *)buf1, &st1) == 0 && stat((char *)s2, &st2) == 0 &&
@@ -1166,16 +1367,24 @@ fullpathcmp(s1, s2)
 		return FALSE;
 	return TRUE;
 #else
-	char_u buf1[MAXPATHL];
-	char_u buf2[MAXPATHL];
-
-	expand_env(s1, buf2, MAXPATHL);
-	if (FullName(buf2, buf1, MAXPATHL) == OK && FullName(s2, buf2, MAXPATHL) == OK)
-		return STRCMP(buf1, buf2);
-	/*
-	 * one of the FullNames() failed, file probably doesn't exist.
-	 */
-	return TRUE;
+	char_u	*buf1 = NULL;
+	char_u	*buf2 = NULL;
+	int		retval = TRUE;
+	
+	if ((buf1 = alloc(MAXPATHL)) != NULL && (buf2 = alloc(MAXPATHL)) != NULL)
+	{
+		expand_env(s1, buf2, MAXPATHL);
+		/*
+		 * If one of the FullNames() failed, the file probably doesn't exist,
+		 * this is counted as a different file name.
+		 */
+		if (FullName(buf2, buf1, MAXPATHL) == OK &&
+								FullName(s2, buf2, MAXPATHL) == OK)
+			retval = STRCMP(buf1, buf2);
+	}
+	free(buf1);
+	free(buf2);
+	return retval;
 #endif
 }
 
@@ -1189,7 +1398,7 @@ gettail(fname)
 	register char_u *p1, *p2;
 
 	if (fname == NULL)
-		return "";
+		return (char_u *)"";
 	for (p1 = p2 = fname; *p2; ++p2)	/* find last part of path */
 	{
 		if (ispathsep(*p2))
@@ -1217,80 +1426,14 @@ ispathsep(c)
 }
 
 /*
- * List the names of swap files in current directory and 'directory' option.
- */
-	void
-recover_list()
-{
-	int			num_names = 1;
-	char_u		*(names[1]);
-	char_u		*p;
-	int			num_files;
-	char_u		**files;
-	int			i;
-	int			dir_num;
-
-	msg((char_u *)"Swap files found:");
-	outchar('\n');
-	expand_interactively = TRUE;
-	for (dir_num = 0; dir_num <= 1; ++dir_num)
-	{
-		if (dir_num == 0)			/* check current dir */
-			names[0] = (char_u *) "*.sw?";
-		else						/* check 'directory' dir */
-		{
-			p = p_dir;
-			if (*p == '>')
-				++p;
-			if (STRLEN(p) == 0)
-				num_names = 0;
-			else
-			{
-				names[0] = concat_fnames(p, (char_u *)"*.sw?");
-				if (names[1] == NULL)
-					num_names = 0;
-			}
-		}
-
-		if (dir_num == 0)
-			outstrn("In current directory:\n");
-		else
-		{
-			outstrn("In directory ");
-			outstrn(p);
-			outstrn(":\n");
-		}
-
-		if (num_names == 0)
-			num_files = 0;
-		else if (ExpandWildCards(num_names, names,
-							&num_files, &files, TRUE, FALSE) == FAIL)
-		{
-			outstrn((char_u *)files);		/* print error message */
-			num_files = 0;
-		}
-		if (num_files)
-		{
-			for (i = 0; i < num_files; ++i)
-			{
-				outstrn(files[i]);
-				outchar('\n');
-			}
-		}
-		else
-			outstrn((char_u *)"-- none --\n");
-	}
-	flushbuf();
-}
-
-/*
  * Concatenate filenames fname1 and fname2 into allocated memory.
- * Only add a '/' when neccesary.
+ * Only add a '/' when 'sep' is TRUE and it is neccesary.
  */
 	char_u	*
-concat_fnames(fname1, fname2)
+concat_fnames(fname1, fname2, sep)
 	char_u	*fname1;
 	char_u	*fname2;
+	int		sep;
 {
 	char_u	*dest;
 
@@ -1298,7 +1441,7 @@ concat_fnames(fname1, fname2)
 	if (dest != NULL)
 	{
 		STRCPY(dest, fname1);
-		if (*dest && !ispathsep(*(dest + STRLEN(dest) - 1)))
+		if (sep && *dest && !ispathsep(*(dest + STRLEN(dest) - 1)))
 			STRCAT(dest, PATHSEPSTR);
 		STRCAT(dest, fname2);
 	}

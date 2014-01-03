@@ -115,6 +115,7 @@ static struct param params[] =
 		{"graphic",		"gr",	P_BOOL,				(char_u *)&p_gr},
 		{"hardtabs",	"ht",	P_NUM,				(char_u *)NULL},
 		{"helpfile",	"hf",  	P_STRING|P_EXPAND,	(char_u *)&p_hf},
+		{"helpheight",	"hh",  	P_NUM,				(char_u *)&p_hh},
 		{"hidden",		"hid",	P_BOOL,				(char_u *)&p_hid},
 		{"highlight",	"hl",	P_STRING,			(char_u *)&p_hl},
 		{"history", 	"hi", 	P_NUM,				(char_u *)&p_hi},
@@ -133,6 +134,7 @@ static struct param params[] =
 		{"list",		NULL,	P_BOOL|P_IND,		(char_u *)PV_LIST},
 		{"magic",		NULL,	P_BOOL,				(char_u *)&p_magic},
 		{"makeprg",		"mp",  	P_STRING|P_EXPAND,	(char_u *)&p_mp},
+		{"maxmapdepth",	"mmd",	P_NUM,				(char_u *)&p_mmd},
 		{"maxmem",		"mm",	P_NUM,				(char_u *)&p_mm},
 		{"maxmemtot",	"mmt",	P_NUM,				(char_u *)&p_mmt},
 		{"mesg",		NULL,	P_BOOL,				(char_u *)NULL},
@@ -280,6 +282,7 @@ static struct param params[] =
 		{"t_sf10",		NULL,	P_STRING,	(char_u *)&term_strings.t_sf10},
 		{"t_help",		NULL,	P_STRING,	(char_u *)&term_strings.t_help},
 		{"t_undo",		NULL,	P_STRING,	(char_u *)&term_strings.t_undo},
+		{"t_bs",		NULL,	P_STRING,	(char_u *)&term_strings.t_bs},
 		{"t_ins",		NULL,	P_STRING,	(char_u *)&term_strings.t_ins},
 		{"t_del",		NULL,	P_STRING,	(char_u *)&term_strings.t_del},
 		{"t_home",		NULL,	P_STRING,	(char_u *)&term_strings.t_home},
@@ -301,7 +304,7 @@ static int  istermparam __ARGS((struct param *));
 static char_u *get_varp __ARGS((struct param *));
 
 /*
- * Initialize the shell parameter and scroll size.
+ * Initialize the parameters that cannot be set at compile time.
  */
 	void
 set_init()
@@ -319,28 +322,6 @@ set_init()
 		if (p != NULL)		/* we don't want a NULL */
 			p_sh = p;
 	}
-
-#ifdef UNIX
-	/*
-	 * Default for p_sp is "| tee", for p_srr is ">".
-	 * For known shells it is changed here to include stderr.
-	 */
-	p = gettail(p_sh);
-	if (	 STRCMP(p, "csh") == 0 ||
-			 STRCMP(p, "tcsh") == 0 ||
-			 STRCMP(p, "zsh") == 0)
-	{
-		p_sp = (char_u *)"|& tee";
-		p_srr = (char_u *)">&";
-	}
-	else if (STRCMP(p, "sh") == 0 ||
-			 STRCMP(p, "ksh") == 0 ||
-			 STRCMP(p, "bash") == 0)
-	{
-		p_sp = (char_u *)"2>&1| tee";
-		p_srr = (char_u *)"2>&1 1>";
-	}
-#endif
 
 	curwin->w_p_scroll = (Rows >> 1);
 	comp_col();
@@ -377,6 +358,53 @@ set_init()
 			p_mm = p_mmt;
 	}
 }
+
+#ifdef UNIX
+/*
+ * Set 'shellpipe' and 'shellredir', depending on the 'shell' option.
+ * This is done after other initializations, where 'shell' might have been
+ * set, but only if they have not been set there.
+ */
+	void
+set_init_shell()
+{
+	char_u	*p;
+	int		do_sp;
+	int		do_srr;
+
+#ifdef ADDED_BY_WEBB_COMPILE
+	do_sp = !(params[findparam((char_u *)"sp")].flags & P_CHANGED);
+	do_srr = !(params[findparam((char_u *)"srr")].flags & P_CHANGED);
+#else
+	do_sp = !(params[findparam("sp")].flags & P_CHANGED);
+	do_srr = !(params[findparam("srr")].flags & P_CHANGED);
+#endif /* ADDED_BY_WEBB_COMPILE */
+
+	/*
+	 * Default for p_sp is "| tee", for p_srr is ">".
+	 * For known shells it is changed here to include stderr.
+	 */
+	p = gettail(p_sh);
+	if (	 STRCMP(p, "csh") == 0 ||
+			 STRCMP(p, "tcsh") == 0 ||
+			 STRCMP(p, "zsh") == 0)
+	{
+		if (do_sp)
+			p_sp = (char_u *)"|& tee";
+		if (do_srr)
+			p_srr = (char_u *)">&";
+	}
+	else if (STRCMP(p, "sh") == 0 ||
+			 STRCMP(p, "ksh") == 0 ||
+			 STRCMP(p, "bash") == 0)
+	{
+		if (do_sp)
+			p_sp = (char_u *)"2>&1| tee";
+		if (do_srr)
+			p_srr = (char_u *)"2>&1 1>";
+	}
+}
+#endif
 
 /*
  * parse 'arg' for option settings
@@ -626,15 +654,21 @@ doset(arg)
 					*(long *)(varp) = strtol((char *)arg + len + 1, NULL, 0);
 #endif
 
-					if ((long *)varp == &p_wh)
+					if ((long *)varp == &p_wh || (long *)varp == &p_hh)
 					{
 						if (p_wh < 0)
 						{
 							errmsg = e_positive;
 							p_wh = 0;
 						}
+						if (p_hh < 0)
+						{
+							errmsg = e_positive;
+							p_hh = 0;
+						}
 							/* Change window height NOW */
-						if (p_wh && lastwin != firstwin)
+						if ((p_wh && lastwin != firstwin) ||
+								(p_hh && curbuf->b_help))
 						{
 							win_equal(curwin, FALSE);
 							must_redraw = CLEAR;
@@ -647,7 +681,7 @@ doset(arg)
 				{
 					arg += len + 1;		/* jump to after the '=' */
 					s = alloc((unsigned)(STRLEN(arg) + 1)); /* get a bit too much */
-					if (s == NULL)
+					if (s == NULL)			/* out of memory, don't change */
 						break;
 						/*
 						 * String options that have been changed or are
@@ -691,13 +725,25 @@ skip:
 		 */
 		if (Rows < min_rows())
 		{
+#ifdef ADDED_BY_WEBB_COMPILE
+/*
+ * I sent this change before, but apparently it didn't get included.  Gcc gives
+ * a warning about "long int format", and "int" arg (min_rows returns int).
+ */
+			sprintf((char *)errbuf, "Need at least %d lines", min_rows());
+#else
 			sprintf((char *)errbuf, "Need at least %ld lines", min_rows());
+#endif /* ADDED_BY_WEBB_COMPILE */
 			errmsg = errbuf;
 			Rows = min_rows();
 		}
 		if (Columns < MIN_COLUMNS)
 		{
+#ifdef ADDED_BY_WEBB_COMPILE
+			sprintf((char *)errbuf, "Need at least %d columns", MIN_COLUMNS);
+#else
 			sprintf((char *)errbuf, "Need at least %ld columns", MIN_COLUMNS);
+#endif /* ADDED_BY_WEBB_COMPILE */
 			errmsg = errbuf;
 			Columns = MIN_COLUMNS;
 		}
@@ -707,6 +753,7 @@ skip:
 		 */
 		if (oldRows != Rows || oldColumns != Columns)
 		{
+			mch_set_winsize();				/* try to change the window size */
 			check_winsize();				/* in case 'columns' changed */
 #ifdef MSDOS
 			set_window();		/* active window may have changed */
@@ -778,18 +825,18 @@ skip:
 #endif /* VIMINFO */
 		if (errmsg)
 		{
-			STRCPY(IObuff, errmsg);
-			STRCAT(IObuff, ": ");
-			s = IObuff + STRLEN(IObuff);
-			while (*startarg && !isspace(*startarg))
-				*s++ = *startarg++;
-			*s = NUL;
-			did_show = TRUE;	/* error message counts as show */
 			++no_wait_return;	/* wait_return done below */
-			emsg(IObuff);
+			emsg(errmsg);		/* show error highlighted */
+			MSG_OUTSTR(": ");
+								/* show argument normal */
+			while (*startarg && !isspace(*startarg))
+				msg_outchar(*startarg++);
+			msg_end();			/* check for scrolling */
 			--no_wait_return;
+
 			arg = startarg;		/* skip to next argument */
 			++errcnt;			/* count number of errors */
+			did_show = TRUE;	/* error message counts as show */
 		}
 		skiptowhite(&arg);				/* skip to next white space */
 		skipwhite(&arg);				/* skip spaces */
@@ -921,7 +968,7 @@ showparams(all)
 	int				col;
 	int				isterm;
 	char_u			*varp;
-	struct param	*(items[PARAM_COUNT]);
+	struct param	**items;
 	int				item_count;
 	int				run;
 	int				row, rows;
@@ -931,9 +978,13 @@ showparams(all)
 
 #define INC	19
 
+	items = (struct param **)alloc(sizeof(struct param *) * PARAM_COUNT);
+	if (items == NULL)
+		return;
+
 	set_highlight('t');		/* Highlight title */
 	start_highlight();
-	msg_outstr((char_u *)"\n--- Parameters ---");
+	MSG_OUTSTR("\n--- Parameters ---");
 	stop_highlight();
 
 	/*
@@ -980,6 +1031,8 @@ showparams(all)
 		for (row = 0; row < rows && !got_int; ++row)
 		{
 			msg_outchar('\n');						/* go to next line */
+			if (got_int)							/* 'q' typed in more */
+				break;
 			col = 0;
 			for (i = row; i < item_count; i += rows)
 			{
@@ -991,6 +1044,7 @@ showparams(all)
 			breakcheck();
 		}
 	}
+	free(items);
 }
 
 /*
@@ -1008,10 +1062,10 @@ showonep(p)
 	varp = get_varp(p);
 
 	if ((p->flags & P_BOOL) && !*(int *)(varp))
-		msg_outstr((char_u *)"no");
+		MSG_OUTSTR("no");
 	else
-		msg_outstr((char_u *)"  ");
-	msg_outstr((char_u *)p->fullname);
+		MSG_OUTSTR("  ");
+	MSG_OUTSTR(p->fullname);
 	if (!(p->flags & P_BOOL))
 	{
 		msg_outchar('=');
@@ -1031,10 +1085,10 @@ showonep(p)
 					++var;
 				}
 				home_replace(var, NameBuff, MAXPATHL);
-				msg_outtrans(NameBuff, -1);
+				msg_outtrans(NameBuff);
 			}
 			else
-				msg_outtrans(*(char_u **)(varp), -1);
+				msg_outtrans(*(char_u **)(varp));
 		}
 	}
 }
@@ -1119,7 +1173,6 @@ istermparam(p)
  * of 'ru_col'.
  */
 
-#define COL_SHOWCMD 10		/* columns needed by shown command */
 #define COL_RULER 17		/* columns needed by ruler */
 
 	void
@@ -1138,7 +1191,7 @@ comp_col()
 	}
 	if (p_sc)
 	{
-		sc_col += COL_SHOWCMD;
+		sc_col += SHOWCMD_COLS;
 		if (!p_ru || last_has_status)		/* no need for separating space */
 			++sc_col;
 	}
@@ -1198,7 +1251,6 @@ win_copy_options(wp_from, wp_to)
 {
 	wp_to->w_p_list = wp_from->w_p_list;
 	wp_to->w_p_nu = wp_from->w_p_nu;
-	wp_to->w_p_scroll = wp_from->w_p_scroll;
 	wp_to->w_p_wrap = wp_from->w_p_wrap;
 }
 
@@ -1231,6 +1283,7 @@ buf_copy_options(bp_from, bp_to)
 		bp_to->b_p_fo = strsave(bp_from->b_p_fo);
 	if (bp_from->b_p_id != NULL)
 		bp_to->b_p_id = strsave(bp_from->b_p_id);
+	bp_to->b_help = bp_from->b_help;
 }
 
 static expand_param = -1;
@@ -1445,8 +1498,13 @@ ExpandOldSetting(num_file, file)
 		if (var == NULL)
 			var = (char_u *)"";
 		p = var;
+		/*
+		 * Before some characters a backslash is required
+		 * First count the number of backslashes required.
+		 * Allocate the memory and then insert them.
+		 */
 		for (; *p; p++)
-			if (*p == ' ')
+			if (STRCHR(escape_chars, *p) != NULL)
 				extra++;
 		p = var;
 		p2 = old_val = alloc(STRLEN(p) + 1 + extra);
@@ -1454,7 +1512,7 @@ ExpandOldSetting(num_file, file)
 		{
 			for (; *p; p++, p2++)
 			{
-				if (*p == ' ')
+				if (STRCHR(escape_chars, *p) != NULL)
 					*p2++ = '\\';
 				*p2 = *p;
 			}
@@ -1609,13 +1667,12 @@ show_autocmd(ap, did_show)
 	AutoCmd *ac;
 
 	if (did_show)
-		msg_outstr((char_u *)"\n");
+		MSG_OUTSTR("\n");
 	msg_outstr(ap->pat);
 	for (ac = ap->cmds; ac != NULL; ac = ac->next)
 	{
-		msg_outstr((char_u *)"\n    ");
-		msg_outstr(ac->cmd);
-		did_show = TRUE;
+		MSG_OUTSTR("\n    ");
+		msg_outtrans(ac->cmd);
 	}
 }
 
@@ -1671,7 +1728,7 @@ do_autocmd(arg, force)
 		{
 			set_highlight('t');		/* Highlight title */
 			start_highlight();
-			msg_outstr((char_u *)"\n--- Auto-Commands ---");
+			MSG_OUTSTR("\n--- Auto-Commands ---");
 			stop_highlight();
 			did_show = TRUE;
 		}
@@ -1807,7 +1864,7 @@ do_autocmd(arg, force)
 		else
 		{
 			if (first_autopat == NULL)
-				msg_outstr((char_u *)"There are no autocmd's");
+				MSG_OUTSTR("There are no autocmd's");
 			else
 			{
 				for (ap = first_autopat; ap != NULL; ap = ap->next)

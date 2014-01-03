@@ -86,6 +86,8 @@ enum SpecialKeys
 	KS_HELP,
 	KS_UNDO,
 	
+	KS_BS,
+
 	KS_INS,
 	KS_DEL,
 	KS_HOME,
@@ -165,6 +167,8 @@ enum SpecialKeys
 
 #define K_HELP			(KS_OFF + KS_HELP)
 #define K_UNDO			(KS_OFF + KS_UNDO)
+
+#define K_BS			(KS_OFF + KS_BS)
 
 #define K_INS			(KS_OFF + KS_INS)
 #define K_DEL			(KS_OFF + KS_DEL)

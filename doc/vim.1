@@ -133,6 +133,10 @@ to Vim (builtin) or defined in the termcap file.
 -d device
 Open "device" for use as a terminal. Only on the Amiga. Example:
 "\-d con:20/30/600/150".
+.TP
+-u {vimrc}
+Use the commands in the file "vimrc" for initializations. All the other
+initializations are skipped. Use this to edit a special kind of files.
 .SH SEE ALSO
 Vim documentation:
 .TP 12
@@ -151,7 +155,7 @@ Overview of the differences between vi and Vim
 unix.doc:
 Unix-specific comments
 .TP
-vim.hlp:
+vim_help.txt:
 File used by the on-line help (short)
 .SH AUTHOR
 Most of VIM was made by Bram Moolenaar.

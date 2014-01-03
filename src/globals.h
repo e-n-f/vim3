@@ -63,7 +63,9 @@ EXTERN int		msg_scroll INIT(= FALSE);	/* msg_start() will scroll */
 EXTERN int		msg_didout INIT(= FALSE);	/* msg_outstr() was used in line */
 EXTERN int		msg_didany INIT(= FALSE);	/* msg_outstr() was used at all */
 EXTERN int		emsg_off INIT(= FALSE);		/* don't display errors for now */
+EXTERN int		did_emsg;					/* set by emsg() for DoOneCmd() */
 EXTERN char_u	*sourcing_name INIT( = NULL);/* name of error message source */
+EXTERN linenr_t	sourcing_lnum INIT(= 0);	/* line number of the source file */
 
 EXTERN int		msg_highlight INIT(= FALSE);/* message should be highlighted */
 EXTERN char_u	*highlight INIT(= NULL);	/* string for start of highlighting */
@@ -75,7 +77,7 @@ EXTERN int		search_match_len;			/* length of matched string */
 /*
  * Mouse coordinates, set by check_termcode()
  */
-EXTERN int		mouse_code;
+EXTERN int		mouse_code INIT(= 0);
 EXTERN int		mouse_row;
 EXTERN int		mouse_col;
 
@@ -123,8 +125,9 @@ EXTERN int		secure INIT(= FALSE);
 								 * allowed, e.g. when sourcing .exrc or .vimrc
 								 * in current directory */
 
-EXTERN FPOS 	VIsual; 		/* start position of Visual (if VIsual.lnum ==
-								 * 0, visual is not active) */
+EXTERN FPOS 	VIsual; 		/* start position of Visual */
+EXTERN int		VIsual_active INIT(= FALSE);
+								/* wheter Visual mode is active */
 
 EXTERN int		Visual_mode INIT(= 'v');
 								/* type of Visual mode */
@@ -153,9 +156,15 @@ EXTERN int				did_si INIT(= FALSE);
 
 /*
  * This flag is set after an auto indent. If the next typed character is a '}'
- * one indent character will be removed.
+ * one indent will be removed.
  */
 EXTERN int				can_si INIT(= FALSE);
+
+/*
+ * This flag is set after an "O" command. If the next typed character is a '{'
+ * one indent will be removed.
+ */
+EXTERN int				can_si_back INIT(= FALSE);
 
 EXTERN int				old_indent INIT(= 0); /* for ^^D command in insert mode */
 
@@ -192,10 +201,15 @@ EXTERN int		RedrawingDisabled INIT(= FALSE);
 EXTERN int		readonlymode INIT(= FALSE); /* Set to TRUE for "view" */
 EXTERN int		recoverymode INIT(= FALSE); /* Set to TRUE for "-r" option */
 
-EXTERN char_u	*typestr INIT(= NULL);		/* buffer for typed characters */
-EXTERN int		KeyTyped;					/* TRUE if user typed the character */
+EXTERN char_u	*typebuf INIT(= NULL);	/* buffer for typed characters */
+EXTERN int		typebuflen;				/* size of typebuf */
+EXTERN int		typeoff;				/* current position in typebuf */
+EXTERN int		typelen;				/* number of valid chars in typebuf */
+EXTERN int		KeyTyped;				/* TRUE if user typed current char */
+
 EXTERN int		must_redraw INIT(= 0);		/* type of redraw necessary */
 EXTERN int		skip_redraw INIT(= FALSE);	/* skip redraw once */
+EXTERN int		do_redraw INIT(= FALSE);	/* extra redraw once */
 
 #define NSCRIPT 15
 EXTERN FILE 	*scriptin[NSCRIPT];			/* streams to read script from */
@@ -228,8 +242,8 @@ EXTERN int		postponed_split INIT(= FALSE);	/* for CTRL-W CTRL-] command */
 EXTERN int		keep_old_search_pattern INIT(= FALSE);	/* for myregcomp() */
 EXTERN int		need_autocmd INIT(= FALSE);	/* Need to apply autocmd's? */
 EXTERN int		replace_offset INIT(= 0);	/* offset for replace_push() */
-EXTERN int		second_indent INIT(= -1);   /* Indent of 2nd line for Q */
-EXTERN char_u	*second_leader INIT(= NULL); /* Comment leader from 2nd line */
+
+EXTERN char		*escape_chars INIT(= " \\\"|"); /* need backslash in cmd line */
 
 #ifdef DEBUG
 EXTERN FILE *debugfp INIT(=NULL);
@@ -301,4 +315,3 @@ EXTERN char_u e_umark[]		INIT(="Unknown mark");
 EXTERN char_u e_unknown[]	INIT(="Unknown");
 EXTERN char_u e_write[]		INIT(="Error while writing");
 EXTERN char_u e_zerocount[]	INIT(="Zero count");
-

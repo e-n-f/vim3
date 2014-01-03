@@ -27,6 +27,17 @@ static void do_viminfo __ARGS((FILE *fp_in, FILE *fp_out, int want_info, int wan
 static int read_viminfo_up_to_marks __ARGS((char_u *line, linenr_t *lnum, FILE *fp, int force));
 #endif /* VIMINFO */
 
+	void
+do_ascii()
+{
+	int c;
+
+	c = *ml_get_cursor();
+	sprintf((char *)IObuff, "<%s>  %d,  Hex %02x,  Octal %03o",
+		transchar(c), c, c, c);
+	msg(IObuff);
+}
+
 /*
  * align text:
  * type = -1  left aligned
@@ -115,7 +126,7 @@ do_retab(start, end, new_ts, force)
 	linenr_t	lnum;
 	int			got_tab = FALSE;
 	long		num_spaces = 0;
-	long		num_tabs = 0;
+	long		num_tabs;
 	long		len;
 	long		col;
 	long		vcol;
@@ -449,7 +460,7 @@ dobang(addr_count, line1, line2, forceit, arg)
 		msg_outnum((long)line2);
 	}
 	msg_outchar('!');
-	msg_outtrans(prevcmd, -1);
+	msg_outtrans(prevcmd);
 	msg_clr_eos();
 
 	if (addr_count == 0)				/* :! */
@@ -486,7 +497,7 @@ doshell(cmd)
 		for (buf = firstbuf; buf; buf = buf->b_next)
 			if (buf->b_changed)
 			{
-				msg_outstr((char_u *)"[No write since last change]\n");
+				MSG_OUTSTR("[No write since last change]\n");
 				break;
 			}
 
@@ -497,8 +508,9 @@ doshell(cmd)
 #ifdef AMIGA
 	wait_return(term_console ? -1 : TRUE);		/* see below */
 #else
-	wait_return(TRUE);				/* includes starttermcap() */
+	wait_return(TRUE);
 #endif
+	starttermcap();		/* start termcap if not done by wait_return() */
 
 	/*
 	 * In an Amiga window redrawing is caused by asking the window size.
@@ -735,7 +747,7 @@ write_viminfo(file, force)
 	char_u	*file;
 	int		force;
 {
-	FILE	*fp_in = NULL;
+	FILE	*fp_in;
 	FILE	*fp_out = NULL;
 	char_u	tmpname[TMPNAMELEN];
 
@@ -748,7 +760,7 @@ write_viminfo(file, force)
 		fp_out = fopen((char *)tmpname, "w");
 	if (fp_out == NULL)
 	{
-		EMSG("Can't write viminfo file!");
+		EMSG2("Can't write viminfo file %s!", tmpname);
 		if (fp_in != NULL)
 			fclose(fp_in);
 		return;
@@ -794,10 +806,15 @@ do_viminfo(fp_in, fp_out, want_info, want_marks, force_read)
 	int		load_marks;
 	int		copy_marks_out;
 	int		is_mark_set;
-	char_u	line[LSIZE];
+	char_u	*line;
 	linenr_t lnum = 0;
 	char_u	*str;
+	char_u	*p;
+	char_u	save_char;
 	int		i;
+
+	if ((line = alloc(LSIZE)) == NULL)
+		return;
 
 	if (fp_in != NULL)
 	{
@@ -868,7 +885,16 @@ do_viminfo(fp_in, fp_out, want_info, want_marks, force_read)
 				continue;			/* Skip this dud line */
 			}
 			str = line + 1;
+				/* ignore leading and trailing white space */
 			skipwhite(&str);
+			p = str + STRLEN(str);
+			while (p != str && (*p == NUL || isspace(*p)))
+				p--;
+			if (*p)
+				p++;
+			save_char = *p;
+			*p = NUL;
+
 			buf = buflist_findname(str);
 			load_marks = copy_marks_out = FALSE;
 			if (fp_out == NULL && buf == curbuf)
@@ -876,6 +902,7 @@ do_viminfo(fp_in, fp_out, want_info, want_marks, force_read)
 			else if (fp_out != NULL && buf == NULL)
 			{
 				copy_marks_out = TRUE;
+				*p = save_char;
 				fputs("\n", fp_out);
 				fputs((char *)line, fp_out);
 				count++;
@@ -898,9 +925,13 @@ do_viminfo(fp_in, fp_out, want_info, want_marks, force_read)
 					fputs((char *)line, fp_out);
 			}
 			if (load_marks)
+			{
+				free(line);
 				return;
+			}
 		}
 	}
+	free(line);
 }
 
 /*
@@ -915,7 +946,7 @@ read_viminfo_up_to_marks(line, lnum, fp, force)
 	FILE	*fp;
 	int		force;
 {
-	int		eof = FALSE;
+	int		eof;
 
 	prepare_viminfo_history(force ? 9999 : 0);
 	eof = vim_fgets(line, LSIZE, fp, lnum);

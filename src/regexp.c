@@ -332,17 +332,16 @@ regcomp(exp)
 	int 			flags;
 /*	extern char    *malloc();*/
 
-	if (exp == NULL) {
+	if (exp == NULL)
 		EMSG_RETURN(e_null);
-	}
 
 #ifdef EMPTY_RE			/* this is done outside of regexp */
-	if (*exp == '\0') {
-		if (reg_prev_re) {
+	if (*exp == '\0')
+	{
+		if (reg_prev_re)
 			exp = reg_prev_re;
-		} else {
+		else
 			EMSG_RETURN(e_noprevre);
-		}
 	}
 #endif
 
@@ -495,12 +494,13 @@ reg(paren, flagp)
 		regoptail(br, ender);
 
 	/* Check for proper termination. */
-	if (paren && getchr() != Magic(')')) {
-		EMSG_RETURN(e_toombra);
-	} else if (!paren && peekchr() != '\0') {
-		if (PeekChr() == Magic(')')) {
-			EMSG_RETURN(e_toomket);
-		} else
+	if (paren && getchr() != Magic(')'))
+		EMSG_RETURN(e_toombra)
+	else if (!paren && peekchr() != '\0')
+	{
+		if (PeekChr() == Magic(')'))
+			EMSG_RETURN(e_toomket)
+		else
 			EMSG_RETURN(e_trailing);/* "Can't happen". */
 		/* NOTREACHED */
 	}
@@ -706,13 +706,9 @@ regatom(flagp)
 		/* break; Not Reached */
 	  case Magic('*'):
 		if (reg_magic)
-		{
-			EMSG_RETURN((char_u *)"* follows nothing");
-		}
+			EMSG_RETURN((char_u *)"* follows nothing")
 		else
-		{
-			EMSG_RETURN((char_u *)"\\* follows nothing");
-		}
+			EMSG_RETURN((char_u *)"\\* follows nothing")
 		/* break; Not Reached */
 #ifdef TILDE
 	  case Magic('~'):			/* previous substitute pattern */
@@ -1204,15 +1200,15 @@ regmatch(prog)
 				return 0;
 			break;
 		  case BOW:		/* \<word; reginput points to w */
-		  	if (reginput != regbol && isidchar(reginput[-1]))
+		  	if (reginput != regbol && isidchar_id(reginput[-1]))
 				return 0;
-		  	if (!reginput[0] || !isidchar(reginput[0]))
+		  	if (!reginput[0] || !isidchar_id(reginput[0]))
 				return 0;
 			break;
 		  case EOW:		/* word\>; reginput points after d */
-		  	if (reginput == regbol || !isidchar(reginput[-1]))
+		  	if (reginput == regbol || !isidchar_id(reginput[-1]))
 				return 0;
-		  	if (reginput[0] && isidchar(reginput[0]))
+		  	if (reginput[0] && isidchar_id(reginput[0]))
 				return 0;
 			break;
 		  case ANY:

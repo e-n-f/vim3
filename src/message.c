@@ -37,9 +37,9 @@ msg(s)
 	}
 
 	msg_start();
-	if (msg_highlight)			/* actually it is highlighting instead of invert */
+	if (msg_highlight)
 		start_highlight();
-	msg_outtrans(s, -1);
+	msg_outtrans(s);
 	if (msg_highlight)
 	{
 		stop_highlight();
@@ -78,12 +78,14 @@ smsg(s, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
 emsg(s)
 	char_u		   *s;
 {
-	char_u			Buf[MAXPATHL + 30];
+	char_u			*Buf = NULL;
 	int				retval;
+	static int		last_lnum = 0;
 
 	if (emsg_off)				/* no error messages at the moment */
 		return TRUE;
 
+	did_emsg = TRUE;			/* flag for DoOneCmd() */
 	if (p_eb)
 		beep_flush();			/* also includes flush_buffers() */
 	else
@@ -94,7 +96,9 @@ emsg(s)
 /*
  * First output name of source of error message
  */
-	if (sourcing_name)
+	if (sourcing_name || sourcing_lnum != last_lnum)
+		Buf = alloc(MAXPATHL + 30);
+	if (Buf != NULL && sourcing_name)
 	{
 		++msg_scroll;			/* don't overwrite this message */
 		++no_wait_return;
@@ -103,13 +107,30 @@ emsg(s)
 		msg(Buf);
 		msg_highlight = TRUE;
 		--no_wait_return;
+		last_lnum = 0;
 	}
+/*
+ * output line number of source of error message
+ */
+	if (Buf != NULL && sourcing_lnum != last_lnum)
+	{
+		++no_wait_return;
+		(void)set_highlight('n');	/* set highlight mode for line numbers */
+		sprintf((char *)Buf, "line %4ld:", sourcing_lnum);
+		msg(Buf);
+		(void)set_highlight('e');	/* set highlight mode for error messages */
+		msg_highlight = TRUE;
+		--no_wait_return;
+		last_lnum = sourcing_lnum;	/* only once for each line */
+	}
+	free(Buf);
 /*
  * Msg returns TRUE if wait_return() was not called.
  * In that case may call sleep() to give the user a chance to read the message.
  * Don't call sleep() if dont_sleep is set.
  */
-	if (msg(s))
+	retval = msg(s);
+	if (retval)
 	{
 		if (dont_sleep || need_wait_return)
 		{
@@ -119,9 +140,7 @@ emsg(s)
 		}
 		else
 			sleep(1);			/* give the user a chance to read the message */
-		retval = TRUE;
 	}
-	retval = FALSE;
 	if (sourcing_name)
 	{
 		sourcing_name = NULL;		/* don't repeat the sourcing name */
@@ -147,7 +166,8 @@ msg_trunc(s)
 {
 	int		n;
 
-	if (p_shm == 2 && (n = STRLEN(s) - sc_col + 1) > 0)
+	if (p_shm == 2 &&
+		(n = STRLEN(s) - (Rows - cmdline_row - 1) * Columns - sc_col + 1) > 0)
 	{
 		s[n] = '<';
 		return msg(s + n);
@@ -172,7 +192,6 @@ wait_return(redraw)
 
 	if (redraw == TRUE)
 		must_redraw = CLEAR;
-	skip_redraw = FALSE;			/* default: don't skip redraw */
 
 /*
  * With the global command (and some others) we only need one return at the
@@ -182,8 +201,6 @@ wait_return(redraw)
 	{
 		need_wait_return = TRUE;
 		cmdline_row = msg_row;
-		if (!termcap_active)
-			starttermcap();
 		return;
 	}
 	need_wait_return = FALSE;
@@ -203,12 +220,12 @@ wait_return(redraw)
 		if (msg_didout)				/* start on a new line */
 			msg_outchar('\n');
 		if (got_int)
-			msg_outstr((char_u *)"Interrupt: ");
+			MSG_OUTSTR("Interrupt: ");
 
 		(void)set_highlight('r');
 		start_highlight();
 #ifdef ORG_HITRETURN
-		msg_outstr("Press RETURN to continue");
+		MSG_OUTSTR("Press RETURN to continue");
 		stop_highlight();
 		do {
 			c = vgetc();
@@ -216,7 +233,7 @@ wait_return(redraw)
 		if (c == ':')			 		/* this can vi too (but not always!) */
 			stuffcharReadbuff(c);
 #else
-		msg_outstr((char_u *)"Press RETURN or enter command to continue");
+		MSG_OUTSTR("Press RETURN or enter command to continue");
 		stop_highlight();
 		do
 		{
@@ -225,18 +242,24 @@ wait_return(redraw)
 		} while (c == Ctrl('C'));
 		breakcheck();
 		if (c >= 0x100 || strchr("\r\n ", c) == NULL)
+		{
 			stuffcharReadbuff(c);
+			do_redraw = TRUE;		/* need a redraw even though there is
+									   something in the stuff buffer */
+		}
 #endif
 	}
 
 	/*
-	 * If the user hits ':' we get a command line from the next line.
+	 * If the user hits ':', '?' or '/' we get a command line from the next
+	 * line.
 	 */
-	if (c == ':')
+	if (c == ':' || c == '?' || c == '/')
+	{
 		cmdline_row = msg_row;
-
-	if (!termcap_active)			/* start termcap before redrawing */
-		starttermcap();
+		skip_redraw = TRUE;			/* skip redraw once */
+		do_redraw = FALSE;
+	}
 
 /*
  * If the window size changed set_winsize() will redraw the screen.
@@ -247,11 +270,12 @@ wait_return(redraw)
 	msg_check();
 	if (tmpState == SETWSIZE)		/* got resize event while in vgetc() */
 		set_winsize(0, 0, FALSE);
-	else if (c != ':' && (redraw == TRUE || (msg_scrolled && redraw != -1)))
+	else if (!skip_redraw && (redraw == TRUE || (msg_scrolled && redraw != -1)))
+	{
+		starttermcap();				/* start termcap before redrawing */
 		updateScreen(VALID);
+	}
 
-	if (c == ':')
-		skip_redraw = TRUE;			/* skip redraw once */
 	dont_wait_return = TRUE;		/* don't wait again in main() */
 }
 
@@ -326,14 +350,19 @@ msg_outnum(n)
  * return the number of characters it takes on the screen
  */
 	int
-msg_outtrans(str, len)
+msg_outtrans(str)
+	register char_u *str;
+{
+	return msg_outtrans_len(str, STRLEN(str));
+}
+
+	int
+msg_outtrans_len(str, len)
 	register char_u *str;
 	register int   len;
 {
 	int retval = 0;
 
-	if (len == -1)
-		len = STRLEN(str);
 	while (--len >= 0)
 	{
 		msg_outstr(transchar(*str));
@@ -391,7 +420,7 @@ msg_outtrans_meta(str, all)
 		if ((c & 0x80) && all)
 		{
 			start_highlight();
-			msg_outstr((char_u *)"M-");
+			MSG_OUTSTR("M-");
 			msg_outstr(transchar(c & 0x7f));
 			retval += 2 + charsize(c & 0x7f);
 			stop_highlight();
@@ -424,7 +453,7 @@ get_key_names()
 		(char_u *)"SF4", (char_u *)"SF5", (char_u *)"SF6", (char_u *)"SF7",
 		(char_u *)"SF8", (char_u *)"SF9", (char_u *)"SF10",
 		(char_u *)"HELP", (char_u *)"UNDO",
-		(char_u *)"INSERT", (char_u *)"DEL",
+		(char_u *)"BS", (char_u *)"INSERT", (char_u *)"DEL",
 		(char_u *)"HOME", (char_u *)"END",
 		(char_u *)"PAGE_UP", (char_u *)"PAGE_DOWN",
 		(char_u *)"MOUSE"
@@ -539,7 +568,7 @@ msg_outstr(s)
 				oldState = State;
 				State = ASKMORE;
 				screen_start();
-				msg_moremsg();
+				msg_moremsg(FALSE);
 				for (;;)
 				{
 					switch (vgetc())
@@ -549,6 +578,12 @@ msg_outstr(s)
 					case K_DARROW:
 						lines_left = 1;
 						break;
+					case ':':			/* start new command line */
+						stuffcharReadbuff(':');
+						cmdline_row = Rows - 1;		/* put ':' on this line */
+						skip_redraw = TRUE;			/* skip redraw once */
+						dont_wait_return = TRUE;	/* don't wait in main() */
+						/*FALLTHROUGH*/
 					case 'q':			/* quit */
 					case Ctrl('C'):
 						got_int = TRUE;
@@ -562,6 +597,7 @@ msg_outstr(s)
 						lines_left = Rows - 1;
 						break;
 					default:			/* no valid response */
+						msg_moremsg(TRUE);
 						continue;
 					}
 					break;
@@ -573,11 +609,16 @@ msg_outstr(s)
 			}
 			screen_start();
 		}
-		if (*s == '\n')
+		if (*s == '\n')				/* go to next line */
 		{
 			msg_didout = FALSE;			/* remember that line is empty */
 			msg_col = 0;
 			++msg_row;
+		}
+		else if (*s == '\b')		/* go to previous char */
+		{
+			if (msg_col)
+				--msg_col;
 		}
 		else
 		{
@@ -594,7 +635,8 @@ msg_outstr(s)
 }
 
 	void
-msg_moremsg()
+msg_moremsg(full)
+	int		full;
 {
 	/*
 	 * Need to restore old highlighting when we've finished with it
@@ -604,7 +646,9 @@ msg_moremsg()
 	remember_highlight();
 	set_highlight('m');
 	start_highlight();
-	screen_msg((char_u *)"-- More -- (RET: line, SPACE: page, d: half page, q: quit)", (int)Rows - 1, 0);
+	screen_msg((char_u *)"-- More --", (int)Rows - 1, 0);
+	if (full)
+		screen_msg((char_u *)" (RET: line, SPACE: page, d: half page, q: quit)", (int)Rows - 1, 10);
 	stop_highlight();
 	recover_old_highlight();
 }

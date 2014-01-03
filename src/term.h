@@ -69,8 +69,10 @@ typedef struct _tcarr
   char_u *t_help;	/* khlp     %1	help key */
   char_u *t_undo;	/* kund     &8	undo key */
 
-  char_u *t_ins;	/* kins		kI  insert key */
-  char_u *t_del;	/* kdel		kD  delete key */
+  char_u *t_bs;		/* kbs		kb  back-space key */
+
+  char_u *t_ins;	/* kich1	kI  insert key */
+  char_u *t_del;	/* kdch1	kD  delete key */
   char_u *t_home;	/* khome    kh	home key */
   char_u *t_end;	/* kend     @7	end key */
   char_u *t_pu;		/* kpp      kP	page up key */

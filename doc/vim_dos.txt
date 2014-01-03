@@ -1,3 +1,5 @@
+*vim_dos.txt*
+
 This file contains the particularities for the MSDOS version of Vim.
 
 Known problem: When using smartdrive with write-behind caching, it is
@@ -95,11 +97,11 @@ If you want to edit a script file or a binary file you should reset the
 contain single <LF> characters which would be replaced by <CR><LF>. You can
 do this by starting Vim with the "-b" (binary) option.
 
-The default help filename is "$VIM\vim.hlp". If the environment variable $VIM 
-is not defined or the file is not found, the DOS search path is used to 
-search for the file "vim.hlp". If you do not want to put "vim.hlp" in your 
-search path, use the command ":set helpfile=pathname" to tell Vim where the 
-help file is.
+The default help filename is "$VIM\vim_help.txt". If the environment variable
+$VIM is not defined or the file is not found, the DOS search path is used to
+search for the file "vim_help.txt". If you do not want to put "vim_help.txt"
+in your search path, use the command ":set helpfile=pathname" to tell Vim
+where the help file is.
 
 The ":cd" command recognizes the drive specifier and changes the current
 drive. Use ":cd c:" to make drive C the active drive. Use ":cd d:\dos" to go

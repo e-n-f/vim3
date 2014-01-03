@@ -21,11 +21,12 @@
 /*
  * variables shared between getcmdline() and redrawcmdline()
  */
+static char_u	*cmdbuff;		/* pointer to command line buffer */
+static int		 cmdbufflen;	/* lenght of cmdbuff */
 static int		 cmdlen;		/* number of chars on command line */
 static int		 cmdpos;		/* current cursor position */
 static int		 cmdspos;		/* cursor column on screen */
 static int		 cmdfirstc; 	/* ':', '/' or '?' */
-static char_u	*cmdbuff;		/* pointer to command line buffer */
 
 /*
  * The next two variables contain the bounds of any range given in a command.
@@ -50,10 +51,10 @@ static	 int		hislen = 0; 		/* actual lengt of history tables */
 static void		init_history __ARGS((void));
 
 static int		is_in_history __ARGS((int, char_u *, int));
-static void		putcmdline __ARGS((int, char_u *));
+static void		putcmdline __ARGS((int));
 static void		cursorcmd __ARGS((void));
 static int		ccheck_abbr __ARGS((int));
-static char_u	*DoOneCmd __ARGS((char_u *, int));
+static char_u	*DoOneCmd __ARGS((char_u **, int *, int));
 static int		buf_write_all __ARGS((BUF *));
 static int		dowrite __ARGS((char_u *, int));
 static char_u	*getargcmd __ARGS((char_u **));
@@ -64,7 +65,7 @@ static int		check_changed __ARGS((BUF *, int, int));
 static int		check_changed_any __ARGS((int));
 static int		check_more __ARGS((int));
 static void		vim_strncpy __ARGS((char_u *, char_u *, int));
-static int		nextwild __ARGS((char_u *, int));
+static int		nextwild __ARGS((int));
 static int		showmatches __ARGS((char_u *));
 static linenr_t get_address __ARGS((char_u **));
 static void		set_expand_context __ARGS((int, char_u *));
@@ -80,7 +81,7 @@ init_history()
 	int		newlen;			/* new length of history table */
 	char_u	**temp;
 	register int i;
-	int		j = -1;
+	int		j;
 	int		type;
 
 	/*
@@ -181,40 +182,44 @@ is_in_history(type, str, move_to_front)
 }
 
 /*
- * getcmdline() - accept a command line starting with ':', '!', '/', or '?'
+ * getcmdline() - accept a command line starting with ':', '/', or '?'
  *
- * For searches the optional matching '?' or '/' is removed.
+ * The line is collected in cmdbuff, which is reallocated to fit the command
+ * line.
  *
- * Return OK if there is a commandline, FAIL if not
+ * Return pointer to allocated string if there is a commandline, NULL
+ * otherwise.
  */
 
-	int
-getcmdline(firstc, buff)
+	char_u *
+getcmdline(firstc)
 	int			firstc; 	/* either ':', '/', or '?' */
-	char_u		*buff;	 	/* buffer for command string */
 {
 	register int	 	c;
 			 int		cc;
 	register int		i;
-			 int		retval;
+			 int		j;
+			 char_u		*p;
 			 int		hiscnt;				/* current history line in use */
 			 char_u		*lookfor = NULL;	/* string to match */
-			 int		j = -1;
-			 int		gotesc = FALSE;		/* TRUE when last char typed was <ESC> */
+			 int		gotesc = FALSE;		/* TRUE when <ESC> just typed */
 			 int		do_abbr;			/* when TRUE check for abbr. */
-			 int		type;				/* history type to be used */
+			 int		histype;			/* history type to be used */
 			 FPOS		old_cursor;
-			 colnr_t	old_curswant = curwin->w_curswant;
+			 colnr_t	old_curswant;
 			 int		did_incsearch = FALSE;
 			 int		incsearch_postponed = FALSE;
 			 int		overstrike = FALSE;	/* typing mode */
 
-	old_cursor = curwin->w_cursor;
+	old_cursor = curwin->w_cursor;			/* needs to be restored later */
+	old_curswant = curwin->w_curswant;
 /*
  * set some variables for redrawcmd()
  */
 	cmdfirstc = firstc;
-	cmdbuff = buff;
+	alloc_cmdbuff(0);					/* allocate initial cmdbuff */
+	if (cmdbuff == NULL)
+		return NULL;					/* out of memory */
 	cmdlen = cmdpos = 0;
 	cmdspos = 1;
 	State = CMDLINE;
@@ -223,7 +228,7 @@ getcmdline(firstc, buff)
 
 	init_history();
 	hiscnt = hislen;			/* set hiscnt to impossible history value */
-	type = (firstc == ':' ? 0 : 1);
+	histype = (firstc == ':' ? 0 : 1);
 
 #ifdef DIGRAPHS
 	dodigraph(-1);				/* init digraph typahead */
@@ -232,11 +237,13 @@ getcmdline(firstc, buff)
 	/* collect the command string, handling '\b', @ and much more */
 	for (;;)
 	{
-		cursorcmd();	/* set the cursor on the right spot */
+		cursorcmd();			/* set the cursor on the right spot */
 		c = vgetc();
 		if (c == Ctrl('C'))
 			got_int = FALSE;
 
+			/* free old command line when finished moving around in the
+			 * history list */
 		if (lookfor && c != K_SDARROW && c != K_SUARROW &&
 				c != K_DARROW && c != K_UARROW &&
 				c != K_PAGEDOWN && c != K_PAGEUP &&
@@ -246,9 +253,10 @@ getcmdline(firstc, buff)
 			lookfor = NULL;
 		}
 
+			/* free expanded names when finished walking through matches */
 		if (cmd_numfiles != -1 && !(c == p_wc && KeyTyped) && c != Ctrl('N') &&
 						c != Ctrl('P') && c != Ctrl('A') && c != Ctrl('L'))
-			(void)ExpandOne(NULL, FALSE, -2);	/* may free expanded file names */
+			(void)ExpandOne(NULL, FALSE, -2);
 
 #ifdef DIGRAPHS
 		c = dodigraph(c);
@@ -264,14 +272,14 @@ getcmdline(firstc, buff)
 		}
 
 			/* hitting <ESC> twice means: abandon command line */
-			/* wildcard expansion is only done when the key is really typed, not
-			   when it comes from a macro */
+			/* wildcard expansion is only done when the key is really typed,
+			 * not when it comes from a macro */
 		if (c == p_wc && !gotesc && KeyTyped)
 		{
 			if (cmd_numfiles > 0)	/* typed p_wc twice */
-				i = nextwild(buff, 3);
+				i = nextwild(3);
 			else					/* typed p_wc first time */
-				i = nextwild(buff, 0);
+				i = nextwild(0);
 			if (c == ESC)
 				gotesc = TRUE;
 			if (i)
@@ -285,25 +293,25 @@ getcmdline(firstc, buff)
 		do_abbr = TRUE;			/* default: check for abbreviation */
 		switch (c)
 		{
-		case BS:
-		case DEL:
+		case K_BS:
 		case K_DEL:
 		case Ctrl('W'):
 				/*
 				 * delete current character is the same as backspace on next
 				 * character, except at end of line
 				 */
-				if ((c == DEL || c == K_DEL) && cmdpos != cmdlen)
+				if (c == K_DEL && cmdpos != cmdlen)
 					++cmdpos;
 				if (cmdpos > 0)
 				{
 					j = cmdpos;
 					if (c == Ctrl('W'))
 					{
-						while (cmdpos && isspace(buff[cmdpos - 1]))
+						while (cmdpos && isspace(cmdbuff[cmdpos - 1]))
 							--cmdpos;
-						i = isidchar(buff[cmdpos - 1]);
-						while (cmdpos && !isspace(buff[cmdpos - 1]) && isidchar(buff[cmdpos - 1]) == i)
+						i = isidchar_id(cmdbuff[cmdpos - 1]);
+						while (cmdpos && !isspace(cmdbuff[cmdpos - 1]) &&
+										 isidchar_id(cmdbuff[cmdpos - 1]) == i)
 							--cmdpos;
 					}
 					else
@@ -311,12 +319,13 @@ getcmdline(firstc, buff)
 					cmdlen -= j - cmdpos;
 					i = cmdpos;
 					while (i < cmdlen)
-						buff[i++] = buff[j++];
+						cmdbuff[i++] = cmdbuff[j++];
 					redrawcmd();
 				}
 				else if (cmdlen == 0 && c != Ctrl('W'))
 				{
-					retval = FAIL;
+					free(cmdbuff);		/* no commandline to return */
+					cmdbuff = NULL;
 					msg_pos(-1, 0);
 					msg_outchar(' ');	/* delete ':' */
 					goto returncmd; 	/* back to cmd mode */
@@ -325,6 +334,7 @@ getcmdline(firstc, buff)
 
 		case K_INS:
 				overstrike = !overstrike;
+				/* should change shape of cursor */
 				goto cmdline_not_changed;
 
 /*		case '@':	only in very old vi */
@@ -335,16 +345,16 @@ getcmdline(firstc, buff)
 				redrawcmd();
 				goto cmdline_changed;
 
-		case ESC:			/* get here if p_wc != ESC or when ESC typed twice */
+		case ESC:		/* get here if p_wc != ESC or when ESC typed twice */
 		case Ctrl('C'):
 do_esc:
-				retval = FAIL;
-				MSG("");
+				gotesc = TRUE;		/* will free cmdbuff after putting it in
+										history */
 				goto returncmd; 	/* back to cmd mode */
 
 		case Ctrl('D'):
 			{
-				if (showmatches(buff) == FAIL)
+				if (showmatches(cmdbuff) == FAIL)
 					break;		/* Use ^D as normal char instead */
 
 				redrawcmd();
@@ -357,10 +367,10 @@ do_esc:
 				{
 						if (cmdpos >= cmdlen)
 								break;
-						cmdspos += charsize(buff[cmdpos]);
+						cmdspos += charsize(cmdbuff[cmdpos]);
 						++cmdpos;
 				}
-				while (c == K_SRARROW && buff[cmdpos] != ' ');
+				while (c == K_SRARROW && cmdbuff[cmdpos] != ' ');
 				goto cmdline_not_changed;
 
 		case K_LARROW:
@@ -370,13 +380,16 @@ do_esc:
 						if (cmdpos <= 0)
 								break;
 						--cmdpos;
-						cmdspos -= charsize(buff[cmdpos]);
+						cmdspos -= charsize(cmdbuff[cmdpos]);
 				}
-				while (c == K_SLARROW && buff[cmdpos - 1] != ' ');
+				while (c == K_SLARROW && cmdbuff[cmdpos - 1] != ' ');
 				goto cmdline_not_changed;
 
 #if defined(UNIX) || defined(MSDOS)
 		case K_MOUSE:
+					/* get button specifier, which is ignored */
+				(void)vgetc();
+				mouse_code = 0;			/* reset for next click */
 				cmdspos = 1;
 				for (cmdpos = 0; cmdpos < cmdlen; ++cmdpos)
 				{
@@ -398,17 +411,17 @@ do_esc:
 		case Ctrl('E'):		/* end of command line */
 		case K_END:
 				cmdpos = cmdlen;
-				buff[cmdlen] = NUL;
-				cmdspos = strsize(buff) + 1;
+				cmdbuff[cmdlen] = NUL;
+				cmdspos = strsize(cmdbuff) + 1;
 				goto cmdline_not_changed;
 
 		case Ctrl('A'):		/* all matches */
-				if (!nextwild(buff, 4))
+				if (!nextwild(4))
 					break;
 				goto cmdline_changed;
 
 		case Ctrl('L'):		/* longest common part */
-				if (!nextwild(buff, 5))
+				if (!nextwild(5))
 					break;
 				goto cmdline_changed;
 
@@ -416,7 +429,7 @@ do_esc:
 		case Ctrl('P'):		/* previous match */
 				if (cmd_numfiles > 0)
 				{
-					if (!nextwild(buff, (c == Ctrl('P')) ? 2 : 1))
+					if (!nextwild((c == Ctrl('P')) ? 2 : 1))
 						break;
 					goto cmdline_changed;
 				}
@@ -432,12 +445,9 @@ do_esc:
 
 				i = hiscnt;
 			
-					/* save current command string */
-	/* Always save the current command line so that we can restore it later
-	 * -- webb
-	 */
-				buff[cmdpos] = NUL;
-				if (lookfor == NULL && (lookfor = strsave(buff)) == NULL)
+				/* save current command string so it can be restored later */
+				cmdbuff[cmdpos] = NUL;
+				if (lookfor == NULL && (lookfor = strsave(cmdbuff)) == NULL)
 					goto cmdline_not_changed;
 
 				j = STRLEN(lookfor);
@@ -448,10 +458,10 @@ do_esc:
 							c == K_PAGEUP)
 					{
 						if (hiscnt == hislen)	/* first time */
-							hiscnt = hisidx[type];
-						else if (hiscnt == 0 && hisidx[type] != hislen - 1)
+							hiscnt = hisidx[histype];
+						else if (hiscnt == 0 && hisidx[histype] != hislen - 1)
 							hiscnt = hislen - 1;
-						else if (hiscnt != hisidx[type] + 1)
+						else if (hiscnt != hisidx[histype] + 1)
 							--hiscnt;
 						else					/* at top of list */
 						{
@@ -461,36 +471,46 @@ do_esc:
 					}
 					else	/* one step forwards */
 					{
-						if (hiscnt == hisidx[type])	/* on last entry, clear the line */
+									/* on last entry, clear the line */
+						if (hiscnt == hisidx[histype])
 						{
 							hiscnt = hislen;
 							break;
 						}
-						if (hiscnt == hislen)	/* not on a history line, nothing to do */
+									/* not on a history line, nothing to do */
+						if (hiscnt == hislen)
 							break;
 						if (hiscnt == hislen - 1)	/* wrap around */
 							hiscnt = 0;
 						else
 							++hiscnt;
 					}
-					if (hiscnt < 0 || history[type][hiscnt] == NULL)
+					if (hiscnt < 0 || history[histype][hiscnt] == NULL)
 					{
 						hiscnt = i;
 						break;
 					}
 					if ((c != K_SUARROW && c != K_SDARROW && c != K_PAGEUP &&
 							c != K_PAGEDOWN) || hiscnt == i ||
-							STRNCMP(history[type][hiscnt], lookfor, (size_t)j) == 0)
+							STRNCMP(history[histype][hiscnt],
+													lookfor, (size_t)j) == 0)
 						break;
 				}
 
 				if (hiscnt != i)		/* jumped to other entry */
 				{
+					free(cmdbuff);
 					if (hiscnt == hislen)
-						STRCPY(buff, lookfor);
+						p = lookfor;	/* back to the old one */
 					else
-						STRCPY(buff, history[type][hiscnt]);
-					cmdpos = cmdlen = STRLEN(buff);
+						p = history[histype][hiscnt];
+
+					alloc_cmdbuff(STRLEN(p));
+					if (cmdbuff == NULL)
+						goto returncmd;
+					STRCPY(cmdbuff, p);
+
+					cmdpos = cmdlen = STRLEN(cmdbuff);
 					redrawcmd();
 					goto cmdline_changed;
 				}
@@ -498,19 +518,19 @@ do_esc:
 				goto cmdline_not_changed;
 
 		case Ctrl('V'):
-				putcmdline('^', buff);
+				putcmdline('^');
 				c = get_literal();			/* get next (two) character(s) */
 				do_abbr = FALSE;			/* don't do abbreviation now */
 				break;
 
 #ifdef DIGRAPHS
 		case Ctrl('K'):
-				putcmdline('?', buff);
+				putcmdline('?');
 			  	c = vgetc();
 				if (c == ESC)
 					goto do_esc;
 				if (charsize(c) == 1)
-					putcmdline(c, buff);
+					putcmdline(c);
 				cc = vgetc();
 				if (cc == ESC)
 					goto do_esc;
@@ -521,10 +541,15 @@ do_esc:
 
 		/* we come here if we have a normal character */
 
-		if (do_abbr && (c >= 0x100 || !isidchar(c)) && ccheck_abbr(c))
+		if (do_abbr && (c >= 0x100 || !isidchar_id(c)) && ccheck_abbr(c))
 			goto cmdline_changed;
 
-		if (cmdlen < CMDBUFFSIZE - 3)
+			/* check if cmdbuff needs to be longer */
+		if (cmdlen + 3 >= cmdbufflen)
+			i = realloc_cmdbuff(cmdlen);
+		else
+			i = OK;
+		if (i == OK)
 		{
 			/*
 			 * If a special key was typed that is not used as a command,
@@ -545,11 +570,14 @@ do_esc:
 				}
 				if (!overstrike)
 				{
-					memmove(buff + cmdpos + 1, buff + cmdpos, cmdlen - cmdpos);
+					memmove(cmdbuff + cmdpos + 1,
+										cmdbuff + cmdpos, cmdlen - cmdpos);
 					++cmdlen;
 				}
-				buff[cmdpos] = i;
-				msg_outtrans(buff + cmdpos, cmdlen - cmdpos);
+				else if (cmdpos == cmdlen)
+					++cmdlen;
+				cmdbuff[cmdpos] = i;
+				msg_outtrans_len(cmdbuff + cmdpos, cmdlen - cmdpos);
 				++cmdpos;
 				cmdspos += charsize(i);
 			}
@@ -586,11 +614,11 @@ cmdline_changed:
 				i = 0;
 			else
 			{
-				buff[cmdlen] = NUL;
+				cmdbuff[cmdlen] = NUL;
 				emsg_off = TRUE;	/* So it doesn't beep if bad expr */
 				keep_old_search_pattern = TRUE;
 				tag_busy = TRUE;
-				i = dosearch(firstc, buff, FALSE, 1, FALSE, FALSE);
+				i = dosearch(firstc, cmdbuff, FALSE, 1, FALSE, FALSE);
 				keep_old_search_pattern = FALSE;
 				tag_busy = FALSE;
 				emsg_off = FALSE;
@@ -610,7 +638,6 @@ cmdline_changed:
 			did_incsearch = TRUE;
 		}
 	}
-	retval = OK;				/* when we get here we have a valid command line */
 
 returncmd:
 	if (did_incsearch)
@@ -620,23 +647,32 @@ returncmd:
 		highlight_match = FALSE;
 		redraw_later(NOT_VALID);
 	}
-	buff[cmdlen] = NUL;
-	/*
-	 * put line in history buffer (only when it was typed)
-	 */
-	if (cmdlen != 0 && KeyTyped)
+	if (cmdbuff != NULL)
 	{
-		if (hislen != 0 && !is_in_history(type, buff, TRUE))
+		/*
+		 * put line in history buffer (only when it was typed)
+		 */
+		cmdbuff[cmdlen] = NUL;
+		if (cmdlen != 0 && KeyTyped)
 		{
-			if (++hisidx[type] == hislen)
-				hisidx[type] = 0;
-			free(history[type][hisidx[type]]);
-			history[type][hisidx[type]] = strsave(buff);
+			if (hislen != 0 && !is_in_history(histype, cmdbuff, TRUE))
+			{
+				if (++hisidx[histype] == hislen)
+					hisidx[histype] = 0;
+				free(history[histype][hisidx[histype]]);
+				history[histype][hisidx[histype]] = strsave(cmdbuff);
+			}
+			if (firstc == ':')
+			{
+				free(new_last_cmdline);
+				new_last_cmdline = strsave(cmdbuff);
+			}
 		}
-		if (firstc == ':')
+		if (gotesc)			/* abandon command line */
 		{
-			free(new_last_cmdline);
-			new_last_cmdline = strsave(buff);
+			free(cmdbuff);
+			cmdbuff = NULL;
+			MSG("");
 		}
 	}
 
@@ -647,7 +683,45 @@ returncmd:
 	 */
 	msg_check();
 	State = NORMAL;
-	return retval;
+	return cmdbuff;
+}
+
+	void
+alloc_cmdbuff(len)
+	int		len;
+{
+	/*
+	 * give some extra space to avoid having to allocate all the time
+	 */
+	if (len < 80)
+		len = 100;
+	else
+		len += 20;
+
+	cmdbuff = alloc(len);		/* caller should check for out of memory */
+	cmdbufflen = len;
+}
+
+/*
+ * Re-allocate the command line to length len + something extra.
+ * return FAIL for failure, OK otherwise
+ */
+	int
+realloc_cmdbuff(len)
+	int		len;
+{
+	char_u		*p;
+
+	p = cmdbuff;
+	alloc_cmdbuff(len);				/* will get some more */
+	if (cmdbuff == NULL)			/* out of memory */
+	{
+		cmdbuff = p;				/* keep the old one */
+		return FAIL;
+	}
+	memmove((char *)cmdbuff, (char *)p, (size_t)cmdlen);
+	free(p);
+	return OK;
 }
 
 /*
@@ -655,21 +729,20 @@ returncmd:
  * Used for CTRL-V and CTRL-K
  */
 	static void
-putcmdline(c, buff)
+putcmdline(c)
 	int		c;
-	char_u	*buff;
 {
-	char_u	buf[2];
+	char_u	buf[1];
 
 	buf[0] = c;
-	buf[1] = 0;
-	msg_outtrans(buf, 1);
-	msg_outtrans(buff + cmdpos, cmdlen - cmdpos);
+	msg_outtrans_len(buf, 1);
+	msg_outtrans_len(cmdbuff + cmdpos, cmdlen - cmdpos);
 	cursorcmd();
 }
 
 /*
- * this fuction is called when the screen size changes
+ * this fuction is called when the screen size changes and with incremental
+ * search
  */
 	void
 redrawcmdline()
@@ -683,7 +756,8 @@ redrawcmdline()
 	void
 compute_cmdrow()
 {
-	cmdline_row = lastwin->w_winpos + lastwin->w_height + lastwin->w_status_height;
+	cmdline_row = lastwin->w_winpos + lastwin->w_height +
+										lastwin->w_status_height;
 }
 
 /*
@@ -696,7 +770,7 @@ redrawcmd()
 
 	msg_start();
 	msg_outchar(cmdfirstc);
-	msg_outtrans(cmdbuff, cmdlen);
+	msg_outtrans_len(cmdbuff, cmdlen);
 	msg_clr_eos();
 
 	cmdspos = 1;
@@ -746,33 +820,37 @@ docmdline(cmdline, sourcing, repeating)
 	int			sourcing;
 	int			repeating;
 {
-	char_u		buff[CMDBUFFSIZE];		/* command line */
+	int			cmdlinelen;
 	char_u		*nextcomm;
 	static int	recursive = 0;			/* recursive depth */
+	int			got_cmdline = FALSE;	/* TRUE when cmdline was typed */
 
 /*
- * 1. If no line given: get one.
+ * 1. If no line given: Get a line in cmdbuff.
+ *    If a line is given: Copy it into cmdbuff.
+ *    After this we don't use cmdbuff but cmdline, because of recursiveness
  */
 	if (cmdline == NULL)
 	{
-		if (getcmdline(':', buff) == FAIL)
+		if ((cmdline = getcmdline(':')) == NULL)
 		{
 				/* don't call wait_return for aborted command line */
 			need_wait_return = FALSE;
 			dont_wait_return = TRUE;
 			return FAIL;
 		}
+		got_cmdline = TRUE;
 	}
 	else
 	{
-		if (STRLEN(cmdline) > (size_t)(CMDBUFFSIZE - 2))
-		{
-			emsg(e_toolong);
-			return FAIL;
-		}
 		/* Make a copy of the command so we can mess with it. */
-		STRCPY(buff, cmdline);
+		alloc_cmdbuff(STRLEN(cmdline));
+		if (cmdbuff == NULL)
+			return FAIL;
+		STRCPY(cmdbuff, cmdline);
+		cmdline = cmdbuff;
 	}
+	cmdlinelen = cmdbufflen;		/* we need to copy it for recursiveness */
 
 /*
  * All output from the commands is put below each other, without waiting for a
@@ -791,17 +869,19 @@ docmdline(cmdline, sourcing, repeating)
 
 /*
  * 2. Loop for each '|' separated command.
- *    DoOneCmd will set nextcommand to NULL if there is no trailing '|'.
+ *    DoOneCmd will set nextcomm to NULL if there is no trailing '|'.
+ *    cmdline and cmdlinelen may change, e.g. for '%' and '#' expansion.
  */
 	++recursive;
 	for (;;)
 	{
-		nextcomm = DoOneCmd(buff, sourcing);
+		nextcomm = DoOneCmd(&cmdline, &cmdlinelen, sourcing);
 		if (nextcomm == NULL)
 			break;
-		STRCPY(buff, nextcomm);
+		STRCPY(cmdline, nextcomm);
 	}
 	--recursive;
+	free(cmdline);
 
 /*
  * if there was too much output to fit on the command line, ask the user to
@@ -822,7 +902,7 @@ docmdline(cmdline, sourcing, repeating)
  * If the command was typed, remember it for register :
  * Do this AFTER executing the command to make :@: work.
  */
-	if (cmdline == NULL && new_last_cmdline != NULL)
+	if (got_cmdline && new_last_cmdline != NULL)
 	{
 		free(last_cmdline);
 		last_cmdline = new_last_cmdline;
@@ -845,14 +925,15 @@ docmdline(cmdline, sourcing, repeating)
  * This function may be called recursively!
  */
 	static char_u *
-DoOneCmd(buff, sourcing)
-	char_u		*buff;
+DoOneCmd(cmdlinep, cmdlinelenp, sourcing)
+	char_u		**cmdlinep;
+	int			*cmdlinelenp;
 	int			sourcing;
 {
-	char_u				cmdbuf[CMDBUFFSIZE];	/* for '%' and '#' expansion */
 	char_u				c;
 	register char_u		*p;
 	char_u				*q;
+	char_u				*s;
 	char_u				*cmd, *arg;
 	char_u				*editcmd = NULL;		/* +command arg. for doecmd() */
 	linenr_t 			doecmdlnum = 0;			/* lnum in new file for doecmd() */
@@ -864,18 +945,22 @@ DoOneCmd(buff, sourcing)
 	int					addr_count;	/* number of address specifications */
 	FPOS				pos;
 	int					append = FALSE;			/* write with append */
-	int					usefilter = FALSE;		/* filter instead of file name */
+	int					usefilter = FALSE;		/* no read/write but filter */
 	char_u				*nextcomm = NULL;		/* no next command yet */
 	int					amount = 0;				/* for ":>" and ":<"; init for gcc */
 	char_u				*errormsg = NULL;		/* error message */
 	WIN					*old_curwin = NULL;		/* init for GCC */
 
+		/* when not editing the last file :q has to be typed twice */
 	if (quitmore)
-		--quitmore;		/* when not editing the last file :q has to be typed twice */
+		--quitmore;
+	did_emsg = FALSE;		/* will be set to TRUE when emsg() used, in which
+							 * case we set nextcomm to NULL to cancel the
+							 * whole command line */
 /*
  * 2. skip comment lines and leading space, colons or bars
  */
-	for (cmd = buff; *cmd && strchr(" \t:|", *cmd) != NULL; cmd++)
+	for (cmd = *cmdlinep; *cmd && strchr(" \t:|", *cmd) != NULL; cmd++)
 		;
 
 	if (*cmd == '"' || *cmd == NUL)	/* ignore comment and empty lines */
@@ -1009,7 +1094,11 @@ DoOneCmd(buff, sourcing)
 				break;
 		if (i == 0 || cmdidx == CMD_SIZE)
 		{
-			errormsg = e_invcmd;
+			c = *p;
+			*p = NUL;
+			sprintf((char *)IObuff, "%s: Not an editor command", cmd);
+			errormsg = IObuff;
+			*p = c;
 			goto doend;
 		}
 	}
@@ -1085,26 +1174,21 @@ DoOneCmd(buff, sourcing)
 	 */
 	if (cmdidx == CMD_make)
 	{
-		if (STRLEN(p_mp) + STRLEN(p) + 2 >= (unsigned)CMDBUFFSIZE)
-		{
-			errormsg = e_toolong;
+		alloc_cmdbuff(STRLEN(p_mp) + STRLEN(p) + 2);
+		if (cmdbuff == NULL)		/* out of memory */
 			goto doend;
-		}
-		STRCPY(cmdbuf, p_mp);
-		STRCAT(cmdbuf, " ");
-		STRCAT(cmdbuf, p);
-		STRCPY(buff,   cmdbuf);
-		p = buff;
+		STRCPY(cmdbuff, p_mp);
+		STRCAT(cmdbuff, " ");
+		STRCAT(cmdbuff, p);
+			/* 'cmd' is not set here, because it is not used at CMD_make */
+		free(*cmdlinep);
+		*cmdlinep = cmdbuff;
+		*cmdlinelenp = cmdbufflen;
+		p = cmdbuff;
 	}
 
 	arg = p;						/* remember start of argument */
 	skipwhite(&arg);
-
-	if ((argt & NEEDARG) && *arg == NUL)
-	{
-		errormsg = e_argreq;
-		goto doend;
-	}
 
 	if (cmdidx == CMD_write)
 	{
@@ -1165,7 +1249,7 @@ DoOneCmd(buff, sourcing)
 		{
 			if (*p == Ctrl('V'))
 			{
-				if ((argt & USECTRLV) && p[1] != NUL)
+				if ((argt & (USECTRLV | XFILE)) && p[1] != NUL)
 					++p;				/* skip CTRL-V and next char */
 				else
 					STRCPY(p, p + 1);	/* remove CTRL-V and skip next char */
@@ -1173,9 +1257,9 @@ DoOneCmd(buff, sourcing)
 			else if ((*p == '"' && !(argt & NOTRLCOM)) ||
 										*p == '|' || *p == '\n')
 			{
-				if (*(p - 1) == '\\')	/* remove the backslash */
+				if (!(argt & USECTRLV) && *(p - 1) == '\\')
 				{
-					STRCPY(p - 1, p);
+					STRCPY(p - 1, p);	/* remove the backslash */
 					--p;
 				}
 				else
@@ -1236,6 +1320,12 @@ DoOneCmd(buff, sourcing)
 		goto doend;
 	}
 
+	if ((argt & NEEDARG) && *arg == NUL)
+	{
+		errormsg = e_argreq;
+		goto doend;
+	}
+
 	/*
 	 * change '%' to curbuf->b_filename, '#' to curwin->w_altfile
 	 */
@@ -1246,6 +1336,7 @@ DoOneCmd(buff, sourcing)
 			c = *p;
 			if (c != '%' && c != '#')	/* nothing to expand */
 				continue;
+				/* Note: In "\\%" the % is also not recognized */
 			if (*(p - 1) == '\\')		/* remove escaped char */
 			{
 				STRCPY(p - 1, p);
@@ -1272,39 +1363,40 @@ DoOneCmd(buff, sourcing)
 					goto doend;
 				}
 			}
-			i = STRLEN(arg) + STRLEN(q) + 3;
+			i = STRLEN(*cmdlinep) + STRLEN(q) + 3;
 			if (nextcomm)
 				i += STRLEN(nextcomm);
-			if (i > CMDBUFFSIZE)
-			{
-				errormsg = e_toolong;
-				goto doend;
-			}
+			alloc_cmdbuff(i);
+			if (cmdbuff == NULL)
+				goto doend;					/* out of memory */
 			/*
-			 * we built the new argument in cmdbuf[], then copy it back to buff[]
+			 * we built the new argument in cmdbuff[]
 			 */
 			*p = NUL;							/* truncate at the '#' or '%' */
-			STRCPY(cmdbuf, arg);				/* copy up to there */
-			i = p - arg;						/* remember the lenght */
-			STRCAT(cmdbuf, q);					/* append the file name */
+			STRCPY(cmdbuff, *cmdlinep);			/* copy up to there */
+			i = p - *cmdlinep;					/* remember the lenght */
+			STRCAT(cmdbuff, q);					/* append the file name */
 			if (*(p + n) == '<')				/* may remove extension */
 			{
 				++n;
-				if ((arg = (char_u *)strrchr((char *)q, '.')) != NULL &&
-								arg >= gettail(q))
-					*(cmdbuf + (arg - q) + i) = NUL;
+				if ((s = (char_u *)strrchr((char *)q, '.')) != NULL &&
+															s >= gettail(q))
+					*(cmdbuff + (s - q) + i) = NUL;
 			}
-			i = STRLEN(cmdbuf);					/* remember the end of the filename */
-			STRCAT(cmdbuf, p+n);				/* append what is after '#' or '%' */
-			p = buff + i - 1;					/* remember where to continue */
-			if (nextcomm)						/* append next command */
+			i = STRLEN(cmdbuff);		/* remember the end of the filename */
+			STRCAT(cmdbuff, p+n);		/* append what is after '#' or '%' */
+			p = cmdbuff + i - 1;		/* remember where to continue */
+			if (nextcomm)				/* append next command */
 			{
-				i = STRLEN(cmdbuf) + 1;
-				STRCPY(cmdbuf + i, nextcomm);
-				nextcomm = buff + i;
+				i = STRLEN(cmdbuff) + 1;
+				STRCPY(cmdbuff + i, nextcomm);
+				nextcomm = cmdbuff + i;
 			}
-			STRCPY(buff, cmdbuf);				/* copy back to buff[] */
-			arg = buff;
+			cmd = cmdbuff + (cmd - *cmdlinep);
+			arg = cmdbuff + (arg - *cmdlinep);
+			free(*cmdlinep);
+			*cmdlinep = cmdbuff;
+			*cmdlinelenp = cmdbufflen;
 		}
 
 		/*
@@ -1331,14 +1423,38 @@ DoOneCmd(buff, sourcing)
 				}
 			}
 #endif
+			/*
+			 * halve the number of backslashes (this is vi compatible)
+			 */
+			for (p = arg; *p; ++p)
+				if (*p == '\\')
+					STRCPY(p, p + 1);
+
 			if (has_wildcard(arg))
 			{
 				if ((p = ExpandOne(arg, TRUE, -1)) == NULL)
 					goto doend;
-				if (STRLEN(p) + arg - buff < CMDBUFFSIZE - 2)
-					STRCPY(arg, p);
-				else
-					emsg(e_toolong);
+				n = arg - *cmdlinep;
+				i = STRLEN(p) + n;
+				if (nextcomm)
+					i += STRLEN(nextcomm);
+				alloc_cmdbuff(i);
+				if (cmdbuff != NULL)
+				{
+					STRNCPY(cmdbuff, *cmdlinep, n);
+					STRCPY(cmdbuff + n, p);
+					if (nextcomm)				/* append next command */
+					{
+						i = STRLEN(cmdbuff) + 1;
+						STRCPY(cmdbuff + i, nextcomm);
+						nextcomm = cmdbuff + i;
+					}
+					cmd = cmdbuff + (cmd - *cmdlinep);
+					arg = cmdbuff + n;
+					free(*cmdlinep);
+					*cmdlinep = cmdbuff;
+					*cmdlinelenp = cmdbufflen;
+				}
 				free(p);
 			}
 		}
@@ -1346,6 +1462,19 @@ DoOneCmd(buff, sourcing)
 
 /*
  * 6. switch on command name
+ *    arg		points to the argument of the command
+ *    nextcomm	points to the next command (if any)
+ *	  cmd		points to the name of the command (except for :make)
+ *	  cmdidx	is the index for the command
+ *	  forceit	is TRUE if ! present
+ *	  addr_count is the number of addresses given
+ *	  line1		is the first line number
+ *	  line2		is the second line number or count
+ *	  editcmd	is +command argument to be used in edited file
+ *	  doecmdlnum  is the line number in edited file
+ *	  append	is TRUE with ":w >>file" command
+ *	  usefilter is TRUE with ":w !command" and ":r!command"
+ *	  amount	is number of '>' or '<' for shift command
  */
 cmdswitch:
 	switch (cmdidx)
@@ -1479,8 +1608,7 @@ cmdswitch:
 		case CMD_recover:					/* recover file */
 				recoverymode = TRUE;
 				if (!check_changed(curbuf, FALSE, TRUE) &&
-							(*arg == NUL || setfname(arg, NULL, TRUE) == OK) &&
-							check_fname() == OK)
+							(*arg == NUL || setfname(arg, NULL, TRUE) == OK))
 				{
 					dellines(curbuf->b_ml.ml_line_count, FALSE, FALSE);
 					ml_recover();
@@ -1510,7 +1638,7 @@ cmdswitch:
 				{
 					if (i == curwin->w_arg_idx)
 						msg_outchar('[');
-					msg_outstr(arg_files[i]);
+					msg_outtrans(arg_files[i]);
 					if (i == curwin->w_arg_idx)
 						msg_outchar(']');
 					msg_outchar(' ');
@@ -1567,7 +1695,7 @@ donextfile:		if (i < 0 || i >= arg_count)
 				}
 				else
 				{
-					register int other = FALSE;
+					register int other;
 
 					/*
 					 * if 'hidden' set, only check for changed file when
@@ -1765,9 +1893,11 @@ donextfile:		if (i < 0 || i >= arg_count)
 				break;
 
 				/*
+				 * :sview [+command] file    split window with new file, ro
 				 * :split [[+command] file]  split window with current or new file
 				 * :new [[+command] file]    split window with no or new file
 				 */
+		case CMD_sview:
 		case CMD_split:
 		case CMD_new:
 				old_curwin = curwin;
@@ -1778,10 +1908,17 @@ donextfile:		if (i < 0 || i >= arg_count)
 		case CMD_edit:
 		case CMD_ex:
 		case CMD_visual:
+		case CMD_view:
 				if ((cmdidx == CMD_new) && *arg == NUL)
 					(void)doecmd(0, NULL, NULL, editcmd, TRUE, (linenr_t)1);
 				else if (cmdidx != CMD_split || *arg != NUL)
+				{
+					n = readonlymode;
+					if (cmdidx == CMD_view || cmdidx == CMD_sview)
+						readonlymode = TRUE;
 					(void)doecmd(0, arg, NULL, editcmd, p_hid, doecmdlnum);
+					readonlymode = n;
+				}
 				else
 					updateScreen(NOT_VALID);
 					/* if ":split file" worked, set alternate filename in
@@ -1798,11 +1935,31 @@ donextfile:		if (i < 0 || i >= arg_count)
 					p_shm = 1;
 				if (*arg != NUL)
 				{
-					curwin->w_alt_fnum = curbuf->b_fnum;
-					buflist_altlnum();
+					/*
+					 * The name of the current buffer will be changed.
+					 * A new buffer entry needs to be made to hold the old
+					 * file name, which will become the alternate file name.
+					 */
+					char_u		*fname, *sfname;
+					BUF			*buf;
+
+					fname = curbuf->b_filename;
+					sfname = curbuf->b_sfilename;
+					curbuf->b_filename = NULL;
+					curbuf->b_sfilename = NULL;
 					if (setfname(arg, NULL, TRUE) == FAIL)
+					{
+						curbuf->b_filename = fname;
+						curbuf->b_sfilename = sfname;
 						break;
+					}
 					curbuf->b_notedited = TRUE;
+					buf = buflist_new(fname, sfname,
+											curwin->w_cursor.lnum, FALSE);
+					if (buf != NULL)
+						curwin->w_alt_fnum = buf->b_fnum;
+					free(fname);
+					free(sfname);
 				}
 				fileinfo(did_cd);		/* print full filename if :cd used */
 				p_shm = i;
@@ -1850,10 +2007,10 @@ donextfile:		if (i < 0 || i >= arg_count)
 				/*
 				 * for UNIX ":cd" means: go to home directory
 				 */
-				if (*arg == NUL)	 /* use cmdbuf for home directory name */
+				if (*arg == NUL)	 /* use NameBuff for home directory name */
 				{
-					expand_env((char_u *)"$HOME", cmdbuf, CMDBUFFSIZE);
-					arg = cmdbuf;
+					expand_env((char_u *)"$HOME", NameBuff, MAXPATHL);
+					arg = NameBuff;
 				}
 #endif
 				if (*arg != NUL)
@@ -1943,15 +2100,19 @@ donextfile:		if (i < 0 || i >= arg_count)
 				break;
 
 		case CMD_marks:
-				domarks();
+				domarks(arg);
 				break;
 
 		case CMD_jumps:
 				dojumps();
 				break;
 
+		case CMD_ascii:
+				do_ascii();
+				break;
+
 		case CMD_checkpath:
-				find_pattern_in_path(NULL, 0, FALSE, CHECK_PATH, 1, 1,
+				find_pattern_in_path(NULL, 0, FALSE, FALSE, CHECK_PATH, 1L, 1,
 											(linenr_t)1, (linenr_t)MAXLNUM);
 				break;
 
@@ -1971,11 +2132,22 @@ donextfile:		if (i < 0 || i >= arg_count)
 				break;
 
 		case CMD_autocmd:
-				do_autocmd(arg, forceit);	/* manipulate the auto commands */
+				/*
+				 * Disallow auto commands from .exrc and .vimrc in current
+				 * directory for security reasons.
+				 */
+				if (secure)
+				{
+					secure = 2;
+					errormsg = e_curdir;
+				}
+				else
+					do_autocmd(arg, forceit);	/* handle the auto commands */
 				break;
 
 		case CMD_doautocmd:
-				apply_autocmds(arg);		/* apply the automa commands */
+				apply_autocmds(arg);		/* apply the automatic commands */
+				do_mlines();
 				break;
 
 		case CMD_abbreviate:
@@ -1990,9 +2162,13 @@ donextfile:		if (i < 0 || i >= arg_count)
 				i = ABBREV;
 				goto doabbr;		/* almost the same as mapping */
 
+		case CMD_nmap:
+		case CMD_vmap:
 		case CMD_cmap:
 		case CMD_imap:
 		case CMD_map:
+		case CMD_nnoremap:
+		case CMD_vnoremap:
 		case CMD_cnoremap:
 		case CMD_inoremap:
 		case CMD_noremap:
@@ -2003,28 +2179,41 @@ donextfile:		if (i < 0 || i >= arg_count)
 				if (secure)
 				{
 					secure = 2;
-					msg_outtrans(cmd, -1);
+					msg_outtrans(cmd);
 					msg_outchar('\n');
 				}
+		case CMD_nunmap:
+		case CMD_vunmap:
 		case CMD_cunmap:
 		case CMD_iunmap:
 		case CMD_unmap:
 				i = 0;
 doabbr:
-				if (*cmd == 'c')		/* cmap, cunmap, cnoremap, etc. */
+				if (*cmd == 'c')			/* cmap, cunmap, cnoremap, etc. */
 				{
 					i += CMDLINE;
 					++cmd;
 				}
-				else if (*cmd == 'i')	/* imap, iunmap, inoremap, etc. */
+				else if (*cmd == 'i')		/* imap, iunmap, inoremap, etc. */
 				{
 					i += INSERT;
 					++cmd;
 				}
-				else if (forceit || i)	/* map!, unmap!, noremap!, abbrev */
+											/* nmap, nunmap, nnoremap */
+				else if (*cmd == 'n' && *(cmd + 1) != 'o')
+				{
+					i += NORMAL;
+					++cmd;
+				}
+				else if (*cmd == 'v')		/* vmap, vunmap, vnoremap */
+				{
+					i += VISUAL;
+					++cmd;
+				}
+				else if (forceit || i)		/* map!, unmap!, noremap!, abbrev */
 					i += INSERT + CMDLINE;
-				else
-					i += NORMAL;			/* map, unmap, noremap */
+				else						/* map, unmap, noremap */
+					i += NORMAL + VISUAL;
 				switch (domap((*cmd == 'n') ? 2 : (*cmd == 'u'), arg, i))
 				{
 					case 1: emsg(e_invarg);
@@ -2037,11 +2226,11 @@ doabbr:
 				break;
 
 		case CMD_display:
-				dodis();		/* display buffer contents */
+				dodis(arg);		/* display buffer contents */
 				break;
 
 		case CMD_help:
-				help();
+				dohelp(arg);
 				break;
 
 		case CMD_version:
@@ -2096,7 +2285,7 @@ doabbr:
 				if (arg == NULL)			/* error detected */
 				{
 					nextcomm = NULL;
-					goto doend;
+					break;
 				}
 				/*
 				 * move or copy lines from 'line1'-'line2' to below line 'n'
@@ -2185,7 +2374,7 @@ doabbr:
 				if (!p_viminfo)
 					p_viminfo = 100;
 				if (read_viminfo(arg, TRUE, TRUE, forceit) == FAIL)
-					emsg("Cannot open viminfo file for reading");
+					EMSG("Cannot open viminfo file for reading");
 				p_viminfo = n;
 				break;
 
@@ -2298,28 +2487,42 @@ doabbr:
 
 		case CMD_isearch:
 		case CMD_dsearch:
-				n = ACTION_SHOW;
+				i = ACTION_SHOW;
 				goto find_pat;
 
 		case CMD_ilist:
 		case CMD_dlist:
-				n = ACTION_SHOW_ALL;
+				i = ACTION_SHOW_ALL;
 				goto find_pat;
 
 		case CMD_ijump:
 		case CMD_djump:
-				n = ACTION_GOTO;
+				i = ACTION_GOTO;
 				goto find_pat;
 
 		case CMD_isplit:
 		case CMD_dsplit:
-				n = ACTION_SPLIT;
+				i = ACTION_SPLIT;
 find_pat:
-				find_pattern_in_path(arg, STRLEN(arg), !forceit,
-					*cmd == 'd' ?  FIND_DEFINE : FIND_ANY,
-					1L,
-					n,
-					line1, line2);
+				{
+					int		whole = TRUE;
+
+					if (*arg == '+')		/* don't match whole words */
+					{
+						whole = FALSE;
+						++arg;
+						skipwhite(&arg);
+					}
+					n = 1;
+					if (isdigit(*arg))		/* get count */
+					{
+						n = getdigits(&arg);
+						skipwhite(&arg);
+					}
+					find_pattern_in_path(arg, STRLEN(arg), whole, !forceit,
+						*cmd == 'd' ?  FIND_DEFINE : FIND_ANY,
+						n, i, line1, line2);
+				}
 				break;
 
 		default:
@@ -2331,14 +2534,15 @@ find_pat:
 doend:
 	if (errormsg != NULL)
 	{
+		emsg(errormsg);
 		if (sourcing)
 		{
-			sprintf((char *)IObuff, "%s: %s", errormsg, buff);
-			emsg(IObuff);
+			MSG_OUTSTR(": ");
+			msg_outtrans(*cmdlinep);
 		}
-		else
-			emsg(errormsg);
 	}
+	if (did_emsg)
+		nextcomm = NULL;				/* cancel nextcomm at an error */
 	forceit = FALSE;		/* reset now so it can be used in getfile() */
 	if (nextcomm && *nextcomm == NUL)		/* not really a next command */
 		nextcomm = NULL;
@@ -2597,13 +2801,17 @@ doecmd(fnum, fname, sfname, command, hide, newlnum)
 	win_init(curwin);
 	maketitle();
 
-	if (newlnum && command == NULL)
+	if (command == NULL)
 	{
-		curwin->w_cursor.lnum = newlnum;
-		check_cursor();
-		beginline(MAYBE);
+		if (newlnum)
+		{
+			curwin->w_cursor.lnum = newlnum;
+			check_cursor();
+			beginline(MAYBE);
+		}
+		else
+			beginline(TRUE);
 	}
-	check_cursor();
 
 	/*
 	 * Did not read the file, need to show some info about the file.
@@ -2668,7 +2876,7 @@ domake(arg)
 		(void)autowrite(curbuf);
 	remove((char *)p_ef);
 	msg_outchar(':');
-	msg_outstr(arg);		/* show what we are doing */
+	msg_outtrans(arg);				/* show what we are doing */
 	sprintf((char *)IObuff, "%s %s %s", arg, p_sp, p_ef);
 	doshell(IObuff);
 #ifdef AMIGA
@@ -2971,8 +3179,7 @@ vim_strncpy(to, from, len)
  * normal character (instead of being expanded).  This allows :s/^I^D etc.
  */
 	static int
-nextwild(buff, type)
-	char_u *buff;
+nextwild(type)
 	int		type;
 {
 	int		i;
@@ -2980,6 +3187,7 @@ nextwild(buff, type)
 	char_u	*p2 = NULL;
 	int		oldlen;
 	int		difflen;
+	int		v;
 
 	if (cmd_numfiles == -1)
 		set_expand_context(cmdfirstc, cmdbuff);
@@ -2995,23 +3203,25 @@ nextwild(buff, type)
 	}
 	expand_interactively = TRUE;
 
-	msg_outstr((char_u *)"...");		/* show that we are busy */
+	MSG_OUTSTR("...");		/* show that we are busy */
 	flushbuf();
 
-	i = expand_pattern - buff;
+	i = expand_pattern - cmdbuff;
 	oldlen = cmdpos - i;
 
 		/* add a "*" to the file name and expand it */
-	if ((p1 = addstar(&buff[i], oldlen)) != NULL)
+	if ((p1 = addstar(&cmdbuff[i], oldlen)) != NULL)
 	{
 		if ((p2 = ExpandOne(p1, FALSE, type)) != NULL)
 		{
-			if (cmdlen + (difflen = STRLEN(p2) - oldlen) > CMDBUFFSIZE - 4)
-				emsg(e_toolong);
+			if (cmdlen + (difflen = STRLEN(p2) - oldlen) > cmdbufflen - 4)
+				v = realloc_cmdbuff(cmdlen + difflen);
 			else
+				v = OK;
+			if (v == OK)
 			{
-				vim_strncpy(&buff[cmdpos + difflen], &buff[cmdpos], cmdlen - cmdpos);
-				STRNCPY(&buff[i], p2, STRLEN(p2));
+				vim_strncpy(&cmdbuff[cmdpos + difflen], &cmdbuff[cmdpos], cmdlen - cmdpos);
+				STRNCPY(&cmdbuff[i], p2, STRLEN(p2));
 				cmdlen += difflen;
 				cmdpos += difflen;
 			}
@@ -3027,7 +3237,7 @@ nextwild(buff, type)
 		(void)ExpandOne(NULL, FALSE, -2);	/* free expanded "file" names */
 		cmd_numfiles = -1;
 	}
-	expand_interactively = FALSE;
+	expand_interactively = FALSE;			/* reset for next call */
 	return OK;
 }
 
@@ -3178,7 +3388,11 @@ ExpandOne(str, list_notfound, mode)
 			STRNCPY(ss, cmd_files[0], (size_t)len);
 			ss[len] = NUL;
 		}
+#ifdef ADDED_BY_WEBB_COMPILE
+	/* Statement has no effect.  I think you've already fixed this one */
+#else
 		multmatch = TRUE;					/* don't free the names */
+#endif /* ADDED_BY_WEBB_COMPILE */
 		findex = -1;						/* next p_wc gets first one */
 	}
 
@@ -3261,7 +3475,7 @@ showmatches(buff)
 	maxlen = 0;
 	for (i = 0; i < num_files; ++i)
 	{
-		j = STRLEN(files_found[i]);
+		j = strsize(files_found[i]);
 		if (j > maxlen)
 			maxlen = j;
 	}
@@ -3281,7 +3495,7 @@ showmatches(buff)
 		for (k = i; k < num_files; k += lines)
 		{
 			if (k > i)
-				for (j = maxlen - STRLEN(files_found[k - lines]); --j >= 0; )
+				for (j = maxlen - strsize(files_found[k - lines]); --j >= 0; )
 					msg_outchar(' ');
 			if (expand_context == EXPAND_FILES)
 				j = isdir(files_found[k]);	/* highlight directories */
@@ -3292,7 +3506,7 @@ showmatches(buff)
 				start_highlight();
 				screen_start();		/* don't output spaces to position cursor */
 			}
-			msg_outstr(files_found[k]);
+			msg_outtrans(files_found[k]);
 			if (j)
 				stop_highlight();
 		}
@@ -3318,7 +3532,10 @@ showmatches(buff)
 }
 
 /*
- * copy the file name into allocated memory and add a '*' at the end
+ * When expanding file names:
+ *	copy the file name into allocated memory and add a '*' at the end
+ * When expanding other names:
+ *  copy the name into allocated memory and add ".*" at the end
  */
 	char_u *
 addstar(fname, len)
@@ -3415,6 +3632,7 @@ dosource(fname)
 		return FAIL;
 
 	sourcing_name = fname;
+	sourcing_lnum = 1;
 	++dont_sleep;			/* don't call sleep() in emsg() */
 	len = 0;
 	while (fgets((char *)IObuff + len, IOSIZE - len, fp) != NULL && !got_int)
@@ -3436,6 +3654,7 @@ dosource(fname)
 			if (len > 0 && len < IOSIZE && IObuff[len - 1] == Ctrl('V'))
 			{
 				IObuff[len - 1] = '\n';		/* remove CTRL-V */
+				++sourcing_lnum;
 				continue;
 			}
 			IObuff[len] = NUL;
@@ -3443,12 +3662,14 @@ dosource(fname)
 		breakcheck();		/* check for ^C here, so recursive :so will be broken */
 		docmdline(IObuff, TRUE, TRUE);
 		len = 0;
+		++sourcing_lnum;
 	}
 	fclose(fp);
 	if (got_int)
 		emsg(e_interr);
 	--dont_sleep;
 	sourcing_name = NULL;
+	sourcing_lnum = 0;
 	return OK;
 }
 
@@ -3600,6 +3821,7 @@ error:
  *	  EXPAND_SETTINGS --- Complete variable names.  eg :set d^I
  *	  EXPAND_BOOL_SETTINGS --- Complete bollean variables only,  eg :set no^I
  *	  EXPAND_TAGS --- Complete tags from the files in p_tags.  eg :ta a^I
+ *	  EXPAND_HELP --- Complete tags from the file 'helpfile'/vim_tags
  *
  * -- webb.
  */
@@ -3918,6 +4140,10 @@ set_one_cmd_context(firstc, buff)
 			expand_context = EXPAND_TAGS;
 			expand_pattern = arg;
 			break;
+		case CMD_help:
+			expand_context = EXPAND_HELP;
+			expand_pattern = arg;
+			break;
 		default:
 			break;
 	}
@@ -3998,7 +4224,9 @@ ExpandFromContext(pat, num_file, file, files_only, list_notfound)
 	  || expand_context == EXPAND_BOOL_SETTINGS)
 		ret = ExpandSettings(prog, num_file, file);
 	else if (expand_context == EXPAND_TAGS)
-		ret = ExpandTags(prog, num_file, file);
+		ret = ExpandTags(prog, num_file, file, FALSE);
+	else if (expand_context == EXPAND_HELP)
+		ret = ExpandTags(prog, num_file, file, TRUE);
 	else
 		ret = FAIL;
 	

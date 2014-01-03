@@ -1,7 +1,7 @@
-
+*vim_diff.txt*
 
 This is a summary of the differences between VIM and vi. It is not complete.
-see also reference.doc and look for comments in {}.
+see also reference.doc, look for comments in {}.
 
 
 The most interesting additions:
@@ -409,10 +409,9 @@ typed ESC to execute the command like vi does you can fix this with
 
 general:
 
-Missing options: autoprint (ap), beautify (bf), edcompatible, hardtabs (ht), 
-lisp, mesg, open, optimize (op), prompt, redraw, slowopen (slow), terse,
-window, w300, w1200 and w9600. These options can be set but are otherwise
-ignored.
+Missing options: autoprint (ap), beautify (bf), hardtabs (ht), lisp, mesg,
+open, optimize (op), prompt, redraw, slowopen (slow), window, w300, w1200 and
+w9600. These options can be set but are otherwise ignored.
 
 When the 'compatible' option is set, all options are set for maximum 
 vi-compatibility
@@ -499,6 +498,9 @@ command. (Vi only accepts a command starting with ':').
 
 The contents of the numbered and unnamed registers is remembered when
 changing files.
+
+The "No lines in buffer" message is a normal message instead of an error
+message, since that may cause a mapping to be aborted.
 
 The AUX: device of the Amiga is supported.
 

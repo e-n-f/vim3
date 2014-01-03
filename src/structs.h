@@ -367,6 +367,7 @@ struct buffer
 
 	char			 b_did_warn;		/* Set to 1 if user has been warned on
 										 * first change of a read-only file */
+	char			 b_help;			/* buffer for help file */
 
 #ifndef MSDOS
 	int				 b_shortname;		/* this file has an 8.3 filename */

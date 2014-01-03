@@ -1,5 +1,7 @@
 /* cmdline.c */
-int getcmdline __PARMS((int firstc, char_u *buff));
+char_u *getcmdline __PARMS((int firstc));
+void alloc_cmdbuff __PARMS((int len));
+int realloc_cmdbuff __PARMS((int len));
 void redrawcmdline __PARMS((void));
 void compute_cmdrow __PARMS((void));
 void redrawcmd __PARMS((void));

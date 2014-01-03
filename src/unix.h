@@ -31,7 +31,7 @@
 #endif
 
 #ifndef VIM_HLP
-# define VIM_HLP		"/usr/local/lib/vim.hlp"
+# define VIM_HLP		"/usr/local/lib/vim_help.txt"
 #endif
 
 #ifdef VIMINFO
@@ -139,4 +139,4 @@ extern int access __ARGS((char *, int));
 #define MOUSE_LEFT		0x00
 #define MOUSE_MIDDLE	0x01
 #define MOUSE_RIGHT		0x02
-#define MOUSE_UP		0x03
+#define MOUSE_RELEASE	0x03

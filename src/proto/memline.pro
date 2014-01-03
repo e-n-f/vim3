@@ -6,6 +6,7 @@ void ml_close __PARMS((BUF *buf, int delete));
 void ml_close_all __PARMS((int delete));
 void ml_timestamp __PARMS((BUF *buf));
 void ml_recover __PARMS((void));
+int recover_names __PARMS((char_u **fname, int list, int nr));
 void ml_sync_all __PARMS((int check_file, int check_char));
 void ml_preserve __PARMS((BUF *buf, int message));
 char_u *ml_get __PARMS((linenr_t lnum));

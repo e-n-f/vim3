@@ -24,3 +24,4 @@ char_u *fix_fname __PARMS((char_u *fname));
 void fname_expand __PARMS((char_u **fname, char_u **sfname));
 void do_arg_all __PARMS((void));
 void do_buffer_all __PARMS((int all));
+void do_mlines __PARMS((void));
