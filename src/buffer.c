@@ -30,8 +30,6 @@
 #include "param.h"
 
 static void		enter_buffer __ARGS((BUF *));
-static BUF		*buflist_findname __ARGS((char_u *));
-static BUF		*buflist_findnr __ARGS((int));
 static void		buflist_setlnum __ARGS((BUF *, linenr_t));
 static linenr_t buflist_findlnum __ARGS((BUF *));
 
@@ -67,6 +65,12 @@ open_buffer()
 		enter_buffer(curbuf);
 		return FAIL;
 	}
+	/*
+	 * Apply the automatic commands, before reading in a new file, which can
+	 * contain modelines. So the modelines have priority over auto commands.
+	 */
+	apply_autocmds(NULL);
+
 	if (curbuf->b_filename != NULL)
 	{
 		if (readfile(curbuf->b_filename, curbuf->b_sfilename, (linenr_t)0,
@@ -77,19 +81,20 @@ open_buffer()
 		MSG("Empty Buffer");
 	UNCHANGED(curbuf);
 	curbuf->b_neverloaded = FALSE;
+
 	return OK;
 }
 
 /*
  * Close the link to a buffer. If "free_buf" is TRUE free the buffer if it
  * becomes unreferenced. The caller should get a new buffer very soon!
- * if 'remove' is TRUE, remove the buffer from the buffer list.
+ * if 'del_buf' is TRUE, remove the buffer from the buffer list.
  */
 	void
-close_buffer(buf, free_buf, remove)
+close_buffer(buf, free_buf, del_buf)
 	BUF		*buf;
 	int		free_buf;
-	int		remove;
+	int		del_buf;
 {
 	if (buf->b_nwindows > 0)
 		--buf->b_nwindows;
@@ -104,10 +109,14 @@ close_buffer(buf, free_buf, remove)
 	/*
 	 * If there is no file name, remove the buffer from the list
 	 */
-	if (buf->b_filename == NULL || remove)
+	if (buf->b_filename == NULL || del_buf)
 	{
 		free(buf->b_filename);
 		free(buf->b_sfilename);
+		free(buf->b_p_fo);
+		free(buf->b_p_id);
+		free(buf->b_p_com);
+		free(buf->b_p_ncom);
 		if (buf->b_prev == NULL)
 			firstbuf = buf->b_next;
 		else
@@ -136,7 +145,7 @@ buf_clear(buf)
 #endif
 	buf->b_p_eol = TRUE;
 	buf->b_ml.ml_mfp = NULL;
-	buf->b_ml.ml_flags = ML_EMPTY;					/* empty buffer */
+	buf->b_ml.ml_flags = ML_EMPTY;				/* empty buffer */
 }
 
 /*
@@ -147,7 +156,7 @@ buf_freeall(buf)
 	BUF		*buf;
 {
 	u_blockfree(buf);				/* free the memory allocated for undo */
-	ml_close(buf);					/* close and delete the memline/memfile */
+	ml_close(buf, TRUE);			/* close and delete the memline/memfile */
 	buf->b_ml.ml_line_count = 0;	/* no lines in buffer */
 	u_clearall(buf);				/* reset all undo information */
 }
@@ -164,6 +173,7 @@ do_buffer(action, start, dir, count, forceit)
 	int		forceit;	/* TRUE for :bdelete! */
 {
 	BUF		*buf;
+	BUF		*delbuf;
 	int		retval;
 
 	switch (start)
@@ -215,7 +225,10 @@ do_buffer(action, start, dir, count, forceit)
 	if (buf == NULL)		/* could not find it */
 	{
 		if (start == 1)
-			EMSG2("Cannot go to buffer %ld", (char_u *)count);
+		{
+			if (action != 2 && action != 3)		/* don't warn when deleting */
+				EMSG2("Cannot go to buffer %ld", (char_u *)count);
+		}
 		else if (dir == FORWARD)
 			EMSG("Cannot go beyond last buffer");
 		else
@@ -227,11 +240,6 @@ do_buffer(action, start, dir, count, forceit)
 	 */
 	if (action == 2 || action == 3)
 	{
-		if (buf->b_nwindows > 1 || (buf != curbuf && buf->b_nwindows != 0))
-		{
-			EMSG2("Other window editing buffer %ld", (char_u *)buf->b_fnum);
-			return FAIL;
-		}
 		if (!forceit && buf->b_changed)
 		{
 			EMSG2("No write since last change for buffer %ld (use ! to override)",
@@ -244,27 +252,43 @@ do_buffer(action, start, dir, count, forceit)
 		if (firstbuf->b_next == NULL)
 		{
 			buf = curbuf;
-			retval = doecmd(NULL, NULL, NULL, FALSE, (linenr_t)1);
+			retval = doecmd(0, NULL, NULL, NULL, FALSE, (linenr_t)1);
 				/* the doecmd() may create a new buffer, then we have to
 				 * delete the old one */
 			if (action == 3 && buf != curbuf)
-				close_buffer(buf, TRUE, action == 3);
+				close_buffer(buf, TRUE, TRUE);
 			return retval;
 		}
 		/*
 		 * If deleted buffer is not current one, delete it here.
 		 * Otherwise find buffer to go to and delete it below.
 		 */
+		if (buf != curbuf)
 		{
-			if (buf != curbuf)
+			close_windows(buf);
+			close_buffer(buf, TRUE, action == 3);
+			return OK;
+		}
+		/*
+		 * Deleting the current buffer: Find a buffer to go to, preferably
+		 * one that has an active window.
+		 * If there is none (all other buffers are hidden), use any buffer.
+		 */
+		for (buf = curbuf->b_next; buf != NULL && buf->b_nwindows == 0;
+															buf = buf->b_next)
+			;
+		if (buf == NULL)
+		{
+			for (buf = curbuf->b_prev; buf != NULL && buf->b_nwindows == 0;
+															buf = buf->b_prev)
+				;
+			if (buf == NULL)
 			{
-				close_buffer(buf, TRUE, action == 3);
-				return OK;
+				if (curbuf->b_next != NULL)
+					buf = curbuf->b_next;
+				else
+					buf = curbuf->b_prev;
 			}
-			if (buf->b_next != NULL)
-				buf = buf->b_next;
-			else
-				buf = buf->b_prev;
 		}
 	}
 /*
@@ -275,8 +299,13 @@ do_buffer(action, start, dir, count, forceit)
 		if (win_split(0L, FALSE) == FAIL)
 			return FAIL;
 	}
-	buflist_altlnum();		/* remember curpos.lnum */
-	close_buffer(curbuf, action == 2 || action == 3, action == 3);
+	curwin->w_alt_fnum = curbuf->b_fnum; /* remember alternate file */
+	buflist_altlnum();					 /* remember curpos.lnum */
+
+	delbuf = curbuf;		/* close_windows() may change curbuf */
+	if (action == 2 || action == 3)
+		close_windows(curbuf);
+	close_buffer(delbuf, action == 2 || action == 3, action == 3);
 	enter_buffer(buf);
 	return OK;
 }
@@ -289,8 +318,6 @@ do_buffer(action, start, dir, count, forceit)
 enter_buffer(buf)
 	BUF		*buf;
 {
-	int		need_fileinfo = TRUE;
-
 	if (buf->b_neverloaded)
 	{
 		buf_copy_options(curbuf, buf);
@@ -300,15 +327,12 @@ enter_buffer(buf)
 	curbuf = buf;
 	++curbuf->b_nwindows;
 	if (curbuf->b_ml.ml_mfp == NULL)	/* need to load the file */
-	{
 		open_buffer();
-		need_fileinfo = FALSE;
-	}
+	else
+		need_fileinfo = TRUE;			/* display file info after redraw */
 	buflist_getlnum();					/* restore curpos.lnum */
 	maketitle();
 	updateScreen(NOT_VALID);
-	if (need_fileinfo)
-		fileinfo(did_cd);
 }
 
 /*
@@ -354,7 +378,7 @@ buflist_new(fname, sfname, lnum, use_curbuf)
  */
 	if (use_curbuf && curbuf != NULL && curbuf->b_filename == NULL &&
 				curbuf->b_nwindows <= 1 &&
-				(curbuf->b_ml.ml_mfp == NULL || curbuf->b_ml.ml_flags == ML_EMPTY))
+				(curbuf->b_ml.ml_mfp == NULL || bufempty()))
 		buf = curbuf;
 	else
 	{
@@ -381,6 +405,10 @@ buflist_new(fname, sfname, lnum, use_curbuf)
 		if (buf != curbuf)
 		{
 			free(buf->b_winlnum);
+			free(buf->b_p_fo);
+			free(buf->b_p_id);
+			free(buf->b_p_com);
+			free(buf->b_p_ncom);
 			free(buf);
 		}
 		return NULL;
@@ -460,13 +488,13 @@ buflist_getfile(n, lnum, setpm)
 	}
 	if (lnum == 0)
 		lnum = buflist_findlnum(buf);	/* altlnum may be changed by getfile() */
-	RedrawingDisabled = TRUE;
-	if (getfile(buf->b_filename, buf->b_sfilename, setpm, lnum) <= 0)
+	++RedrawingDisabled;
+	if (getfile(buf->b_fnum, NULL, NULL, setpm, lnum) <= 0)
 	{
-		RedrawingDisabled = FALSE;
+		--RedrawingDisabled;
 		return OK;
 	}
-	RedrawingDisabled = FALSE;
+	--RedrawingDisabled;
 	return FAIL;
 }
 
@@ -489,7 +517,7 @@ buflist_getlnum()
  * find file in buffer list by name (it has to be for the current window)
  * 'fname' must have a full path.
  */
-	static BUF	*
+	BUF *
 buflist_findname(fname)
 	char_u		*fname;
 {
@@ -504,7 +532,7 @@ buflist_findname(fname)
 /*
  * find file in buffer name list by number
  */
-	static BUF	*
+	BUF	*
 buflist_findnr(nr)
 	int			nr;
 {
@@ -609,11 +637,9 @@ buflist_list()
 	BUF			*buf;
 	int			len;
 
-	gotocmdline(TRUE, NUL);
 	for (buf = firstbuf; buf != NULL && !got_int; buf = buf->b_next)
 	{
-		if (buf != firstbuf)
-			msg_outchar('\n');
+		msg_outchar('\n');
 		if (buf->b_xfilename == NULL)
 			STRCPY(NameBuff, "No File");
 		else
@@ -647,7 +673,6 @@ buflist_list()
 		flushbuf();			/* output one line at a time */
 		breakcheck();
 	}
-	msg_end();
 }
 
 /*
@@ -691,6 +716,8 @@ setfname(fname, sfname, message)
 
 	if (fname == NULL || *fname == NUL)
 	{
+		free(curbuf->b_filename);
+		free(curbuf->b_sfilename);
 		curbuf->b_filename = NULL;
 		curbuf->b_sfilename = NULL;
 	}
@@ -734,6 +761,14 @@ setfname(fname, sfname, message)
 #ifndef MSDOS
 	curbuf->b_shortname = FALSE;
 #endif
+	/*
+	 * If the file name changed, also change the name of the swapfile
+	 */
+	if (curbuf->b_ml.ml_mfp != NULL)
+		ml_setname();
+
+	maketitle();				/* set window title */
+	status_redraw_all();		/* status lines need to be redrawn */
 	return OK;
 }
 
@@ -799,14 +834,7 @@ fileinfo(fullname)
 	int fullname;
 {
 	char_u		*name;
-
-#if 0		/* this message is quite useless */
-	if (bufempty())
-	{
-		MSG("Buffer Empty");
-		return;
-	}
-#endif
+	int			n;
 
 	if (curbuf->b_filename == NULL)
 		STRCPY(IObuff, "\"No File");
@@ -822,18 +850,34 @@ fileinfo(fullname)
 	}
 
 	sprintf((char *)IObuff + STRLEN(IObuff),
-						"\"%s%s%s line %ld of %ld --%d%%-- col %d",
-			curbuf->b_changed ? " [Modified]" : "",
-			curbuf->b_notedited ? " [Not edited]" : "",
-			curbuf->b_p_ro ? " [readonly]" : "",
+			"\"%s%s%s%s",
+			curbuf->b_changed ? (p_shm ? " [+]" : " [Modified]") : " ",
+			curbuf->b_notedited ? "[Not edited]" : "",
+			curbuf->b_p_ro ? (p_shm ? "[RO]" : "[readonly]") : "",
+			(curbuf->b_changed || curbuf->b_notedited || curbuf->b_p_ro) ? " " : "");
+	n = (int)(((long)curwin->w_cursor.lnum * 100L) / (long)curbuf->b_ml.ml_line_count);
+	if (p_ru)
+	{
+		/* Current line and column are already on the screen -- webb */
+		sprintf((char *)IObuff + STRLEN(IObuff),
+			"%ld lines --%d%%--",
+			(long)curbuf->b_ml.ml_line_count,
+			n);
+	}
+	else
+	{
+		sprintf((char *)IObuff + STRLEN(IObuff),
+			"line %ld of %ld --%d%%-- col %d",
 			(long)curwin->w_cursor.lnum,
 			(long)curbuf->b_ml.ml_line_count,
-			(int)(((long)curwin->w_cursor.lnum * 100L) / (long)curbuf->b_ml.ml_line_count),
+			n,
 			(int)curwin->w_cursor.col + 1);
+	}
 
 	if (arg_count > 1)
-		sprintf((char *)IObuff + STRLEN(IObuff), " (file %d of %d)", curwin->w_arg_idx + 1, arg_count);
-	msg(IObuff);
+		sprintf((char *)IObuff + STRLEN(IObuff), " (%s%d of %d)",
+			p_shm ? "" : "file ", curwin->w_arg_idx + 1, arg_count);
+	msg_trunc(IObuff);
 }
 
 /*
@@ -947,8 +991,7 @@ do_arg_all()
 	/*
 	 * 1. close all but first window
 	 * 2. make the desired number of windows
-	 * 3. start editing the first window (hide the current window contents)
-	 * 4. stuff commands to fill the other windows
+	 * 3. start editing in the windows
 	 */
 	close_others(FALSE);
 	curwin->w_arg_idx = 0;
@@ -956,8 +999,10 @@ do_arg_all()
 	for (i = 0; i < win_count; ++i)
 	{
 												/* edit file i */
-		(void)doecmd(arg_files[i], NULL, NULL, TRUE, (linenr_t)1);
+		(void)doecmd(0, arg_files[i], NULL, NULL, TRUE, (linenr_t)1);
 		curwin->w_arg_idx = i;
+		if (i == arg_count - 1)
+			arg_had_last = TRUE;
 		if (curwin->w_next == NULL)				/* just checking */
 			break;
 		win_enter(curwin->w_next, FALSE);

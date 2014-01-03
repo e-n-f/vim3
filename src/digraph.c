@@ -18,8 +18,8 @@
 
 static void printdigraph __ARGS((char_u *));
 
-char_u	(*digraphnew)[3];			/* pointer to added digraphs */
-int		digraphcount = 0;			/* number of added digraphs */
+static char_u	(*digraphnew)[3];			/* pointer to added digraphs */
+static int		digraphcount = 0;			/* number of added digraphs */
 
 #ifdef MSDOS
 char_u	digraphdefault[][3] = 		/* standard MSDOS digraphs */
@@ -226,6 +226,8 @@ getdigraph(char1, char2, meta)
 	int		i;
 	int		retval;
 
+	if (char1 >= 0x100 || char2 >= 0x100)
+		return char2;
 	retval = 0;
 	for (i = 0; ; ++i)			/* search added digraphs first */
 	{
@@ -269,7 +271,7 @@ putdigraph(str)
 
 	while (*str)
 	{
-		skipspace(&str);
+		skipwhite(&str);
 		if ((char1 = *str++) == 0 || (char2 = *str++) == 0)
 			return;
 		if (char1 == ESC || char2 == ESC)
@@ -277,7 +279,7 @@ putdigraph(str)
 			EMSG("Escape not allowed in digraph");
 			return;
 		}
-		skipspace(&str);
+		skipwhite(&str);
 		if (!isdigit(*str))
 		{
 			emsg(e_number);
@@ -298,7 +300,8 @@ putdigraph(str)
 		newtab = (char_u (*)[3])alloc(digraphcount * 3 + 3);
 		if (newtab)
 		{
-			memmove((char *)newtab, (char *)digraphnew, (size_t)(digraphcount * 3));
+			memmove((char *)newtab, (char *)digraphnew,
+										(size_t)(digraphcount * 3));
 			free(digraphnew);
 			digraphnew = newtab;
 			digraphnew[digraphcount][0] = char1;
@@ -314,9 +317,8 @@ listdigraphs()
 {
 	int		i;
 
-	printdigraph(NULL);
-	msg_start();
 	msg_outchar('\n');
+	printdigraph(NULL);
 	for (i = 0; digraphdefault[i][0] && !got_int; ++i)
 	{
 		if (getdigraph(digraphdefault[i][0], digraphdefault[i][1], FALSE) == digraphdefault[i][2])
@@ -328,8 +330,7 @@ listdigraphs()
 		printdigraph(digraphnew[i]);
 		breakcheck();
 	}
-	msg_outchar('\n');
-	wait_return(TRUE);		/* clear screen, because some digraphs may be wrong,
+	must_redraw = CLEAR;	/* clear screen, because some digraphs may be wrong,
 							 * in which case we messed up NextScreen */
 }
 

@@ -1,4 +1,4 @@
 /* tag.c */
-void dotag __PARMS((unsigned char *tag, int type, int count));
+void dotag __PARMS((char_u *tag, int type, int count));
 void dotags __PARMS((void));
-int ExpandTags __PARMS((struct regexp *prog, int *num_file, unsigned char ***file));
+int ExpandTags __PARMS((regexp *prog, int *num_file, char_u ***file));

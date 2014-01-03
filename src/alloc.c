@@ -34,6 +34,23 @@ alloc(size)
 	return (lalloc((long_u)size, TRUE));
 }
 
+/*
+ * alloc() with check for maximum line length
+ */
+	char_u *
+alloc_check(size)
+	unsigned		size;
+{
+#ifndef UNIX
+	if (sizeof(int) == 2 && size > 0x7fff)
+	{
+		emsg("Line is becoming too long");
+		return NULL;
+	}
+#endif
+	return (lalloc((long_u)size, TRUE));
+}
+
 	char_u *
 lalloc(size, message)
 	long_u			size;
@@ -80,12 +97,19 @@ lalloc(size, message)
 	 * Avoid repeating the error message many times (they take 1 second each).
 	 * Did_outofmem_msg is reset when a character is read.
 	 */
-	if (message && p == NULL && !did_outofmem_msg)
+	if (message && p == NULL)
+		do_outofmem_msg();
+	return (p);
+}
+
+	void
+do_outofmem_msg()
+{
+	if (!did_outofmem_msg)
 	{
 		emsg(e_outofmem);
 		did_outofmem_msg = TRUE;
 	}
-	return (p);
 }
 
 /*
@@ -138,13 +162,13 @@ copy_spaces(ptr, count)
  * delete spaces at the end of the string
  */
 	void
-del_spaces(ptr)
+del_trailing_spaces(ptr)
 	char_u *ptr;
 {
 	char_u	*q;
 
 	q = ptr + STRLEN(ptr);
-	while (--q > ptr && isspace(q[0]) && q[-1] != '\\' && q[-1] != Ctrl('V'))
+	while (--q > ptr && iswhite(q[0]) && q[-1] != '\\' && q[-1] != Ctrl('V'))
 		*q = NUL;
 }
 

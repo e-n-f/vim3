@@ -35,6 +35,12 @@
 # define VIM_HLP		"vim:vim.hlp"
 #endif
 
+#ifdef VIMINFO
+#ifndef VIMINFO_FILE
+# define VIMINFO_FILE	"s:.viminfo"
+#endif
+#endif /* VIMINFO */
+
 #ifndef DEF_DIR
 # define DEF_DIR		"t:"
 #endif

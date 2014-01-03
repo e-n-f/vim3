@@ -388,7 +388,7 @@ int             GetChars(buf, maxlen, time)
  */
 void            mch_suspend()
 {
-    outstr("new shell started\n");
+    msg_outstr("new shell started\n");
     call_shell(NULL, 0, TRUE);
 }
 
@@ -566,7 +566,7 @@ void            mch_windexit(r)
     settmode(0);
     stoptermcap();
     flushbuf();
-	ml_close_all(); 				/* remove all memfiles */
+	ml_close_all(TRUE);				/* remove all memfiles */
 	mch_restore_title(3);
     exit(r);
 }
@@ -775,18 +775,14 @@ int             call_shell(cmd, filter, cooked)
         sprintf(newcmd, "%s /c %s", p_sh, cmd);
         x = system(newcmd);
     }
-    outchar('\n');
+    msg_outchar('\n');
     if (cooked)
         settmode(1);            /* set to raw mode */
 
-#ifdef WEBB_COMPLETE
 	if (x && !expand_interactively)
-#else
-    if (x)
-#endif
 	{
         smsg("%d returned", x);
-        outchar('\n');
+        msg_outchar('\n');
     }
     resettitle();
     return x;
@@ -956,7 +952,7 @@ int             ExpandWildCards(num_pat, pat, num_file, file, files_only, list_n
         *file = f.file;
     } else {
         *num_file = 0;
-        *file = NULL;
+        *file = "";
     }
     return (r ? FAIL : OK);
 }

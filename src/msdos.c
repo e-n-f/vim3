@@ -25,6 +25,7 @@
 #include <alloc.h>
 
 static int WaitForChar __ARGS((int));
+static void show_mouse __ARGS((int));
 static int change_drive __ARGS((int));
 static int cbrk_handler __ARGS(());
 
@@ -43,6 +44,12 @@ static int		expandpath __ARGS((FileList *, char_u *, int, int, int));
 static int cbrk_pressed = FALSE;	/* set by ctrl-break interrupt */
 static int ctrlc_pressed = FALSE;	/* set when ctrl-C or ctrl-break detected */
 static int delayed_redraw = FALSE;	/* set when ctrl-C detected */
+
+static int mouse_avail = FALSE;		/* mouse present */
+static int mouse_active;			/* mouse enabled */
+static int mouse_click = 0;			/* mouse status */
+static int mouse_x;					/* mouse x coodinate */
+static int mouse_y;					/* mouse y coodinate */
 
 	long
 mch_avail_mem(special)
@@ -165,18 +172,38 @@ got3:						s += 3;
  * return TRUE if a character is available, FALSE otherwise
  */
 
+#define FOREVER 29999
+
 	static int
 WaitForChar(msec)
 	int msec;
 {
+	static int	last_status = 0;
+	union REGS	regs;
+
 	for (;;)
 	{
-		if ((p_biosk ? bioskey(1) : kbhit()) || cbrk_pressed)
+		if (mouse_avail && mouse_active)
+		{
+			regs.x.ax = 3;
+			int86(0x33, &regs, &regs);		/* check mouse status */
+				/* only recognize button-down event */
+			if (last_status == 0 && regs.x.bx != 0)
+			{
+				mouse_click = regs.x.bx;
+				mouse_x = regs.x.cx / 8;
+				mouse_y = regs.x.dx / 8;
+			}
+			last_status = regs.x.bx;
+		}
+
+		if ((p_biosk ? bioskey(1) : kbhit()) || cbrk_pressed || mouse_click)
 			return TRUE;
 		if (msec <= 0)
 			break;
 		delay(POLL_SPEED);
-		msec -= POLL_SPEED;
+		if (msec != FOREVER)
+			msec -= POLL_SPEED;
 	}
 	return FALSE;
 }
@@ -211,10 +238,15 @@ GetChars(buf, maxlen, time)
 		flushbuf();
 	}
 
+	if (time != 0)
+		show_mouse(TRUE);
 	if (time >= 0)
 	{
 		if (WaitForChar(time) == 0) 	/* no character available */
+		{
+			show_mouse(FALSE);
 			return 0;
+		}
 	}
 	else	/* time == -1 */
 	{
@@ -225,6 +257,7 @@ GetChars(buf, maxlen, time)
 		if (WaitForChar((int)p_ut) == 0)
 			updatescript(0);
 	}
+	WaitForChar(FOREVER);		/* wait for key or mouse click */
 
 /*
  * Try to read as many characters as there are.
@@ -239,28 +272,48 @@ GetChars(buf, maxlen, time)
 	 * implies a key hit.
 	 */
 	cbrk_pressed = FALSE;
-	if (p_biosk)
+	if (mouse_click && maxlen >= 6)
+	{
+		len = 5;
+		*buf++ = ESC + 128;
+		*buf++ = 'M';
+		*buf++ = mouse_click;
+		*buf++ = mouse_x + '!';
+		*buf++ = mouse_y + '!';
+		mouse_click = 0;
+	}
+	else if (p_biosk)
+	{
 		while ((len == 0 || bioskey(1)) && len < maxlen)
 		{
 			c = bioskey(0);			/* get the key */
-			if (c == 0)				/* ctrl-break */
-				c = 3;				/* return a CTRL-C */
-			if ((c & 0xff) == 0)
+			/*
+			 * translate a few things for inchar():
+			 * 0x0000 == CTRL-break			-> 3	(CTRL-C)
+			 * 0x0300 == CTRL-@     		-> NUL
+			 * 0xnn00 == extended key code	-> K_NUL, nn
+			 * K_NUL					  	-> K_NUL, 3
+			 */
+			if (c == 0)
+				c = 3;
+			else if (c == 0x0300)
+				c = NUL;
+			else if ((c & 0xff) == 0 || c == K_NUL)
 			{
-				if (c == 0x0300)		/* CTRL-@ is 0x0300, translated into K_ZERO */
-					c = K_ZERO;
-				else		/* extended key code 0xnn00 translated into K_NUL, nn */
-				{
+				if (c == K_NUL)
+					c = 3;
+				else
 					c >>= 8;
-					*buf++ = K_NUL;
-					++len;
-				}
+				*buf++ = K_NUL;
+				++len;
 			}
 
 			*buf++ = c;
 			len++;
 		}
+	}
 	else
+	{
 		while ((len == 0 || kbhit()) && len < maxlen)
 		{
 			switch (c = getch())
@@ -268,14 +321,21 @@ GetChars(buf, maxlen, time)
 			case 0:
 					*buf++ = K_NUL;
 					break;
+			case K_NUL:
+					*buf++ = K_NUL;
+					*buf++ = 3;
+					++len;
+					break;
 			case 3:
 					cbrk_pressed = TRUE;
 					/*FALLTHROUGH*/
 			default:
 					*buf++ = c;
 			}
-			len++;
+			++len;
 		}
+	}
+	show_mouse(FALSE);
 	return len;
 }
 
@@ -294,7 +354,7 @@ mch_char_avail()
 	void
 mch_suspend()
 {
-	OUTSTR("new shell started\n");
+	msg_outstr("new shell started\n");
 	(void)call_shell(NULL, 0, TRUE);
 }
 
@@ -305,9 +365,39 @@ extern int _fmode;
 	void
 mch_windinit()
 {
+	union REGS regs;
+
 	_fmode = O_BINARY;		/* we do our own CR-LF translation */
 	flushbuf();
 	(void)mch_get_winsize();
+
+/* find out if a MS mouse is available */
+	regs.x.ax = 0;
+	mouse_avail = int86(0x33, &regs, &regs);
+}
+
+	static void
+show_mouse(on)
+	int		on;
+{
+	static int		was_on = FALSE;
+	union REGS		regs;
+
+	if (mouse_avail)
+	{
+		if (!mouse_active)
+			on = FALSE;
+		/*
+		 * Careful: Each switch on must be compensated by exactly one switch
+		 * off
+		 */
+		if (on && !was_on || !on && was_on)
+		{
+			was_on = on;
+			regs.x.ax = on ? 1 : 2;
+			int86(0x33, &regs, &regs);	/* show mouse */
+		}
+	}
 }
 
 	void
@@ -561,7 +651,7 @@ mch_windexit(r)
 	settmode(0);
 	stoptermcap();
 	flushbuf();
-	ml_close_all(); 				/* remove all memfiles */
+	ml_close_all(TRUE);				/* remove all memfiles */
 	exit(r);
 }
 
@@ -641,6 +731,17 @@ mch_settmode(raw)
 		if (term_console)
 			normvideo();				/* restore screen colors */
 	}
+	if (!raw)
+		setmouse(FALSE);			/* may switch mouse off */
+	else
+		setmouse(p_mouse);			/* may switch mouse on */
+}
+
+	void
+setmouse(on)
+	int		on;
+{
+	mouse_active = on;
 }
 
 /*
@@ -702,7 +803,12 @@ mch_get_winsize()
 	Rows = ti.screenheight;
 	if (ti.currmode > 10)
 		Rows = *(char far *)MK_FP(0x40, 0x84) + 1;
-	set_window();
+	/*
+	 * don't call set_window() when not doing full screen, since it will move
+	 * the cursor.
+	 */
+	if (!not_full_screen)
+		set_window();
 
 	if (Columns < 5 || Columns > MAX_COLUMNS ||
 					Rows < 2 || Rows > MAX_COLUMNS)
@@ -758,18 +864,14 @@ call_shell(cmd, filter, cooked)
 		sprintf(newcmd, "%s /c %s", p_sh, cmd);
 		x = system(newcmd);
 	}
-	outchar('\n');
+	msg_outchar('\n');
 	if (cooked)
 		settmode(1);		/* set to raw mode */
 
-#ifdef WEBB_COMPLETE
 	if (x && !expand_interactively)
-#else
-	if (x)
-#endif
 	{
-		outnum((long)x);
-		outstrn((char_u *)" returned\n");
+		msg_outnum((long)x);
+		msg_outstr((char_u *)" returned\n");
 	}
 
 	resettitle();
@@ -867,7 +969,7 @@ expandpath(fl, path, fonly, donly, notf)
 {
 	char_u	buf[MAXPATH];
 	char_u	*p, *s, *e;
-	int		lastn, c, r;
+	int		lastn, c, retval;
 	struct	ffblk fb;
 
 	lastn = fl->nfiles;
@@ -906,7 +1008,7 @@ expandpath(fl, path, fonly, donly, notf)
 	}
 	/* now we have one wildcard component between s and e */
 	*e = '\0';
-	r = 0;
+	retval = 0;
 	/* If we are expanding wildcards we try both files and directories */
 	if ((c = findfirst(buf, &fb, (*path || !notf) ? FA_DIREC : 0)) != 0)
 	{
@@ -926,12 +1028,12 @@ expandpath(fl, path, fonly, donly, notf)
 			if (!has_wildcard(path))
 				addfile(fl, buf, (isdir(buf) == TRUE));
 			else
-				r |= expandpath(fl, buf, fonly, donly, notf);
+				retval |= expandpath(fl, buf, fonly, donly, notf);
 		}
 		c = findnext(&fb);
 	}
 	qsort(fl->file + lastn, fl->nfiles - lastn, sizeof(char_u *), pstrcmp);
-	return r;
+	return retval;
 }
 
 /*
@@ -947,7 +1049,7 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 	char_u	***file;
 	int 	files_only, list_notfound;
 {
-	int			i, r = 0;
+	int			i, retval = 0;
 	FileList	f;
 
 	f.file = NULL;
@@ -957,9 +1059,9 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 		if (!has_wildcard(pat[i]))
 			addfile(&f, pat[i], files_only ? FALSE : (isdir(pat[i]) == TRUE));
 		else
-			r |= expandpath(&f, pat[i], files_only, 0, list_notfound);
+			retval |= expandpath(&f, pat[i], files_only, 0, list_notfound);
 	}
-	if (r == 0)
+	if (retval == 0)
 	{
 		*num_file = f.nfiles;
 		*file = f.file;
@@ -967,9 +1069,9 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 	else
 	{
 		*num_file = 0;
-		*file = NULL;
+		*file = (char_u **)"";			/* Sorry, no error message (yet) */
 	}
-	return (r ? FAIL : OK);
+	return (retval ? FAIL : OK);
 }
 
 	void

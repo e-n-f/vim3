@@ -26,11 +26,12 @@
 #define COLON	10
 #define UPPER	11
 #define LOWER	12
+#define JOIN	13				/* only for visual mode */
 
 /*
  * operator characters; the order must correspond to the defines above
  */
-EXTERN char_u *opchars INIT(= (char_u *)"dyc<>!~=Q:Uu");
+EXTERN char_u *opchars INIT(= (char_u *)"dyc<>!~=Q:UuJ");
 
 /*
  * When a cursor motion command is made, it is marked as being a character or

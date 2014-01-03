@@ -54,8 +54,6 @@
 # define __ARGS(a)	a
 #endif
 
-#define CASECONVERT
-
 #include <stdio.h>
 #include "regexp.h"
 #include "regmagic.h"
@@ -72,7 +70,12 @@
 
 extern char_u 	   *reg_prev_sub;
 
-#ifdef CASECONVERT
+	/* This stuff below really confuses cc on an SGI -- webb */
+#ifdef __sgi
+# undef __ARGS
+# define __ARGS(x)	()
+#endif
+
 	/*
 	 * We should define ftpr as a pointer to a function returning a pointer to
 	 * a function returning a pointer to a function ...
@@ -80,23 +83,11 @@ extern char_u 	   *reg_prev_sub;
 	 * pointer to a function returning void. This should work for all compilers.
 	 */
 typedef void (*(*fptr) __ARGS((char_u *, int)))();
-static fptr strnfcpy __ARGS((fptr, char_u *, char_u *, int));
 
-static fptr do_Copy __ARGS((char_u *, int));
 static fptr do_upper __ARGS((char_u *, int));
 static fptr do_Upper __ARGS((char_u *, int));
 static fptr do_lower __ARGS((char_u *, int));
 static fptr do_Lower __ARGS((char_u *, int));
-
-	static fptr
-do_Copy(d, c)
-	char_u *d;
-	int c;
-{
-	*d = c;
-
-	return (fptr)do_Copy;
-}
 
 	static fptr
 do_upper(d, c)
@@ -105,7 +96,7 @@ do_upper(d, c)
 {
 	*d = TO_UPPER(c);
 
-	return (fptr)do_Copy;
+	return (fptr)NULL;
 }
 
 	static fptr
@@ -125,7 +116,7 @@ do_lower(d, c)
 {
 	*d = TO_LOWER(c);
 
-	return (fptr)do_Copy;
+	return (fptr)NULL;
 }
 
 	static fptr
@@ -137,24 +128,6 @@ do_Lower(d, c)
 
 	return (fptr)do_Lower;
 }
-
-	static fptr
-strnfcpy(f, d, s, n)
-	fptr f;
-	char_u *d;
-	char_u *s;
-	int n;
-{
-	while (n-- > 0) {
-		f = (fptr)(f(d, *s));		/* Turbo C complains without the typecast */
-		if (!*s++)
-			break;
-		d++;
-	}
-
-	return f;
-}
-#endif
 
 /*
  * regtilde: replace tildes in the pattern by the old pattern
@@ -229,6 +202,8 @@ regtilde(source, magic)
 /*
  - regsub - perform substitutions after a regexp match
  *
+ * If copy is TRUE really copy into dest, otherwise dest is not written to.
+ *
  * Returns the size of the replacement, including terminating \0.
  */
 	int
@@ -239,14 +214,12 @@ regsub(prog, source, dest, copy, magic)
 	int 			copy;
 	int 			magic;
 {
-	register char_u  *src;
-	register char_u  *dst;
-	register int	c;
-	register int	no;
-	register int	len;
-#ifdef CASECONVERT
-	fptr			func = (fptr)do_Copy;
-#endif
+	register char_u  	*src;
+	register char_u  	*dst;
+	register char_u	 	*s;
+	register int		c;
+	register int		no;
+	fptr				func = (fptr)NULL;
 
 	if (prog == NULL || source == NULL || dest == NULL)
 	{
@@ -277,7 +250,6 @@ regsub(prog, source, dest, copy, magic)
 			{
 				no = *src++ - '0';
 			}
-#ifdef CASECONVERT
 			else if (strchr("uUlLeE", *src))
 			{
 				switch (*src++)
@@ -291,11 +263,10 @@ regsub(prog, source, dest, copy, magic)
 				case 'L':	func = (fptr)do_Lower;
 							continue;
 				case 'e':
-				case 'E':	func = (fptr)do_Copy;
+				case 'E':	func = (fptr)NULL;
 							continue;
 				}
 			}
-#endif
 		}
 		if (no < 0)           /* Ordinary character. */
 		{
@@ -303,30 +274,48 @@ regsub(prog, source, dest, copy, magic)
 				c = *src++;
 			if (copy)
 			{
-#ifdef CASECONVERT
-				func = (fptr)(func(dst, c));
+				if (func == (fptr)NULL)		/* just copy */
+					*dst = c;
+				else						/* change case */
+					func = (fptr)(func(dst, c));
 							/* Turbo C complains without the typecast */
-#else
-				*dst = c;
-#endif
 			}
 			dst++;
 		}
 		else if (prog->startp[no] != NULL && prog->endp[no] != NULL)
 		{
-			len = (int)(prog->endp[no] - prog->startp[no]);
-			if (copy)
+			for (s = prog->startp[no]; s < prog->endp[no]; ++s)
 			{
-#ifdef CASECONVERT
-				func = strnfcpy(func, dst, prog->startp[no], len);
-#else
-				(void) STRNCPY(dst, prog->startp[no], len);
-#endif
-			}
-			dst += len;
-			if (copy && len != 0 && *(dst - 1) == '\0') { /* strncpy hit NUL. */
-				emsg(e_re_damg);
-				goto exit;
+				if (copy && *s == '\0') /* we hit NUL. */
+				{
+					emsg(e_re_damg);
+					goto exit;
+				}
+				/*
+				 * Insert a CTRL-V in front of a CR, otherwise
+				 * it will be replaced by a line break.
+				 */
+				if (*s == CR)
+				{
+					if (copy)
+					{
+						dst[0] = Ctrl('V');
+						dst[1] = CR;
+					}
+					dst += 2;
+				}
+				else
+				{
+					if (copy)
+					{
+						if (func == (fptr)NULL)		/* just copy */
+							*dst = *s;
+						else						/* change case */
+							func = (fptr)(func(dst, *s));
+									/* Turbo C complains without the typecast */
+					}
+					++dst;
+				}
 			}
 		}
 	}

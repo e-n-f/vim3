@@ -27,11 +27,8 @@
 
 EXTERN int	p_aw	INIT(= FALSE);		/* auto-write */
 EXTERN long	p_bs	INIT(= 0);			/* backspace over newlines in insert mode */
-#if defined(COMPATIBLE) || defined(NOBACKUP)
+EXTERN char_u *p_bex INIT(= (char_u *) ".~");	/* extension for backup file */
 EXTERN int	p_bk	INIT(= FALSE);		/* make backups when writing out files */
-#else
-EXTERN int	p_bk	INIT(= TRUE);		/* make backups when writing out files */
-#endif
 #ifdef MSDOS
 EXTERN int	p_biosk	INIT(= TRUE);		/* Use bioskey() instead of kbhit() */
 #endif
@@ -40,6 +37,9 @@ EXTERN char_u *p_bdir	INIT(= (char_u *)BACKUPDIR);	/* directory for backups */
 #endif
 EXTERN long	p_ch	INIT(= 1L);			/* command line height */
 EXTERN int	p_cp	INIT(= FALSE);		/* vi-compatible */
+EXTERN char_u *p_def INIT(= (char_u *)"^#[ \t]*define");
+									/* Pattern for recognising definitions */
+EXTERN char_u *p_dict	INIT(= (char_u *)"");	/* Dictionaries for ^P/^N */
 #ifdef DIGRAPHS
 EXTERN int	p_dg	INIT(= FALSE);		/* enable digraphs */
 #endif /* DIGRAPHS */
@@ -68,7 +68,7 @@ EXTERN int	p_ek	INIT(= FALSE);		/* function keys with ESC in insert mode */
 EXTERN int	p_ek	INIT(= TRUE);		/* function keys with ESC in insert mode */
 #endif
 EXTERN int	p_exrc	INIT(= FALSE);		/* read .exrc in current dir */
-EXTERN char_u *p_fp	INIT(= (char_u *)"");			/* name of format program */
+EXTERN char_u *p_fp	INIT(= (char_u *)"");/* name of format program */
 EXTERN int	p_gd	INIT(= FALSE);		/* /g is default for :s */
 #ifdef MSDOS
 EXTERN int	p_gr	INIT(= TRUE);		/* display graphic characters */
@@ -79,12 +79,16 @@ EXTERN int	p_icon	INIT(= FALSE);		/* put file name in icon if possible */
 EXTERN long p_hi	INIT(= 20);			/* command line history size */
 EXTERN char_u *p_hf	INIT(= (char_u *)VIM_HLP);	/* name of help file */
 EXTERN int	p_hid	INIT(= FALSE);		/* buffers can be hidden */
-EXTERN char_u *p_hl	INIT(= (char_u *)"db,es,hs,rs,vi,si");
+EXTERN char_u *p_hl	INIT(= (char_u *)"8b,db,es,hs,mb,nu,rs,si,tb,vi");
 										/* which highlight mode to use */
 EXTERN int	p_ic	INIT(= FALSE);		/* ignore case in searches */
+EXTERN int	p_is	INIT(= FALSE);		/* incremental search */
+EXTERN int	p_inf	INIT(= TRUE);		/* infer case of ^N/^P completions */
 EXTERN int	p_im	INIT(= FALSE);		/* start editing in input mode */
+EXTERN char_u *p_inc INIT(= (char_u *)"^#[ \t]*include");
+										/* Pattern for including other files */
 EXTERN int	p_wi	INIT(= FALSE);		/* inversion of text is weird */
-EXTERN char_u *p_kp	INIT(= (char_u *)"ref");		/* keyword program */
+EXTERN char_u *p_kp	INIT(= (char_u *)"man");	/* keyword program */
 EXTERN int	p_js	INIT(= TRUE);		/* use two spaces after period with Join */
 EXTERN long	p_ls	INIT(= 1);			/* last window has status line */
 EXTERN int	p_magic INIT(= TRUE);		/* use some characters for reg exp */
@@ -92,6 +96,7 @@ EXTERN char_u *p_mp	INIT(= (char_u *)"make");		/* program for :make command */
 EXTERN long p_mm	INIT(= MAXMEM);		/* maximal amount of memory for buffer */
 EXTERN long p_mmt	INIT(= MAXMEMTOT);	/* maximal amount of memory for Vim */
 EXTERN long p_mls	INIT(= 5);			/* number of mode lines */
+EXTERN int	p_mouse	INIT(= TRUE);		/* enable mouse clicks (for xterm) */
 #ifdef COMPATIBLE
 EXTERN int	p_more	INIT(= FALSE);		/* wait when screen full when listing */
 #else
@@ -135,6 +140,8 @@ EXTERN char_u *p_sp	INIT(= (char_u *)"| tee");	/* string for output of make */
 #else
 EXTERN char_u *p_sp	INIT(= (char_u *)">");		/* string for output of make */
 #endif
+EXTERN char_u *p_srr INIT(= (char_u *)">");	/* string for output of filter */
+EXTERN long	p_shm	INIT(= 0);			/* Use short message for ^G */
 EXTERN long	p_ss	INIT(= 0);			/* sideways scrolling offset */
 EXTERN long	p_st	INIT(= 0);			/* type of shell */
 EXTERN int	p_sr	INIT(= FALSE);		/* shift round off (for < and >) */
@@ -146,12 +153,15 @@ EXTERN int	p_sc	INIT(= TRUE);		/* show command in status line */
 #endif
 EXTERN int	p_sm	INIT(= FALSE);		/* showmatch */
 #if defined(COMPATIBLE)
+EXTERN int	p_sma	INIT(= FALSE);		/* smart paren matching */
 EXTERN int	p_smd	INIT(= FALSE);		/* show mode */
 #else
+EXTERN int	p_sma	INIT(= TRUE);		/* smart paren matching */
 EXTERN int	p_smd	INIT(= TRUE);		/* show mode */
 #endif
 EXTERN int	p_sta	INIT(= FALSE);		/* smart-tab for expand-tab */
-EXTERN char_u *p_su	INIT(= (char_u *)".bak.o.h.info.swp");	/* suffixes for wildcard expansion */
+EXTERN int	p_sol	INIT(= TRUE);		/* Move cursor to start-of-line? */
+EXTERN char_u *p_su	INIT(= (char_u *)".bak.~.o.h.info.swp");	/* suffixes for wildcard expansion */
 EXTERN long p_tl	INIT(= 0);			/* used tag length */
 EXTERN char_u *p_tags	INIT(= (char_u *)"tags");		/* tags search path */
 #if defined(COMPATIBLE)
@@ -179,11 +189,19 @@ EXTERN int	p_ttimeout	INIT(= FALSE);	/* key codes entered within one second */
 EXTERN long p_ul	INIT(= 0);			/* number of Undo Levels */
 EXTERN long p_uc	INIT(= 0);			/* update count for swap file */
 #else
+# ifdef UNIX
+EXTERN long p_ul	INIT(= 1000);		/* number of Undo Levels */
+# else
 EXTERN long p_ul	INIT(= 100);		/* number of Undo Levels */
+# endif
 EXTERN long p_uc	INIT(= 200);		/* update count for swap file */
 #endif
 EXTERN long p_ut	INIT(= 4000);		/* update time for swap file */
 EXTERN int	p_vb	INIT(= FALSE);		/* visual bell only (no beep) */
+#ifdef VIMINFO
+/* Minimum # of files whose marks are remembered, 0 means no .viminfo file: */
+EXTERN long	p_viminfo	INIT(= 0);
+#endif /* VIMINFO */
 EXTERN int	p_warn	INIT(= TRUE);		/* warn for changes at shell command */
 EXTERN int	p_ws	INIT(= TRUE);		/* wrap scan */
 #ifdef COMPATIBLE
@@ -203,4 +221,3 @@ EXTERN int	p_wb	INIT(= FALSE);		/* write backup files */
 #else
 EXTERN int	p_wb	INIT(= TRUE);		/* write backup files */
 #endif
-EXTERN int	p_ye	INIT(= FALSE);		/* Y yanks to end of line */

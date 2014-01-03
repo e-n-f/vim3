@@ -15,6 +15,7 @@
 #include "proto.h"
 #include "param.h"
 
+static int prefix_in_list __ARGS((char_u *, char_u *));
 static void check_status __ARGS((BUF *));
 
 static char_u *(si_tab[]) = {(char_u *)"if", (char_u *)"else", (char_u *)"while", (char_u *)"for", (char_u *)"do"};
@@ -76,29 +77,44 @@ set_indent(size, delete)
 /*
  * Opencmd
  *
- * Add a blank line below or above the current line.
+ * Add a new line below or above the current line.
+ * Caller must take care of undo.
  *
  * Return TRUE for success, FALSE for failure
  */
 
 	int
-Opencmd(dir, redraw, delspaces)
-	int 		dir;
-	int			redraw;
-	int			delspaces;
+Opencmd(dir, redraw)
+	int 		dir;			/* FORWARD or BACKWARD */
+	int			redraw;			/* redraw afterwards */
 {
-	char_u   *ptr, *p_extra;
-	FPOS	old_cursor; 			/* old cursor position */
+	char_u  *saved_line;		/* copy of the original line */
+	char_u	*p_extra;
+	FPOS	old_cursor; 		/* old cursor position */
 	int		newcol = 0;			/* new cursor column */
 	int 	newindent = 0;		/* auto-indent of the new line */
-	int		n;
-	int		truncate = FALSE;	/* truncate current line afterwards */
+	int		n = 0;				/* init for gcc */
+	int		trunc_line = FALSE;	/* truncate current line afterwards */
 	int		no_si = FALSE;		/* reset did_si afterwards */
 	int		retval = FALSE;		/* return value, default is FAIL */
+	int		lead_len;
+	char_u	*leader = NULL;
+	char_u	*allocated = NULL;
+	char_u	*p;
+	int		saved_char;
+	int		temp;
+	FPOS	*pos;
 
-	ptr = strsave(ml_get(curwin->w_cursor.lnum));
-	if (ptr == NULL)			/* out of memory! */
+	/*
+	 * make a copy of the current line so we can mess with it
+	 */
+	saved_line = strsave(ml_get(curwin->w_cursor.lnum));
+	if (saved_line == NULL)			/* out of memory! */
 		return FALSE;
+
+	saved_char = saved_line[curwin->w_cursor.col];
+	if (State == INSERT || State == REPLACE)
+		saved_line[curwin->w_cursor.col] = NUL;
 
 	u_clearline();				/* cannot do "U" command when adding lines */
 	did_si = FALSE;
@@ -113,36 +129,36 @@ Opencmd(dir, redraw, delspaces)
 		old_indent = 0;
 
 			/*
-			 * If we just did an auto-indent, then we didn't type anything on the
-			 * prior line, and it should be truncated.
+			 * If we just did an auto-indent, then we didn't type anything on
+			 * the prior line, and it should be truncated.
 			 */
 		if (dir == FORWARD && did_ai)
-			truncate = TRUE;
-		else if (curbuf->b_p_si && *ptr != NUL)
+			trunc_line = TRUE;
+		else if (curbuf->b_p_si && *saved_line != NUL)
 		{
-			char_u	*p;
 			char_u	*pp;
-			int		i, save;
+			int		i;
 
 			if (dir == FORWARD)
 			{
-				p = ptr + STRLEN(ptr) - 1;
-				while (p > ptr && isspace(*p))	/* find last non-blank in line */
+				p = saved_line + STRLEN(saved_line) - 1;
+											/* find last non-blank in line */
+				while (p > saved_line && isspace(*p))
 					--p;
-				if (*p == '{')					/* line ends in '{': do indent */
+				if (*p == '{')				/* line ends in '{': do indent */
 				{
-					did_si = TRUE;
-					no_si = TRUE;
+					did_si = TRUE;			/* do indent */
+					no_si = TRUE;			/* don't delete it when '{' typed */
 				}
-				else							/* look for "if" and the like */
+				else						/* look for "if" and the like */
 				{
-					p = ptr;
-					skipspace(&p);
+					p = saved_line;
+					skipwhite(&p);
 					for (pp = p; islower(*pp); ++pp)
 						;
-					if (!isidchar(*pp))			/* careful for vars starting with "if" */
+					if (!isidchar(*pp))		/* careful for vars starting with "if" */
 					{
-						save = *pp;
+						temp = *pp;
 						*pp = NUL;
 						for (i = sizeof(si_tab)/sizeof(char_u *); --i >= 0; )
 							if (STRCMP(p, si_tab[i]) == 0)
@@ -150,14 +166,14 @@ Opencmd(dir, redraw, delspaces)
 								did_si = TRUE;
 								break;
 							}
-						*pp = save;
+						*pp = temp;
 					}
 				}
 			}
 			else
 			{
-				p = ptr;
-				skipspace(&p);
+				p = saved_line;
+				skipwhite(&p);
 				if (*p == '}')			/* if line starts with '}': do indent */
 					did_si = TRUE;
 			}
@@ -166,16 +182,139 @@ Opencmd(dir, redraw, delspaces)
 		if (curbuf->b_p_si)
 			can_si = TRUE;
 	}
+	p_extra = NULL;
+	lead_len = get_leader_len(saved_line);
+	if (lead_len > 0)
+	{
+		for (n = 0; iswhite(saved_line[n]); n++)
+			;
+		if (saved_line[n] == '/' && saved_line[n + 1] == '*')
+		{
+			if (dir == FORWARD)
+				n++;
+			else
+				lead_len = 0;
+		}
+		if (saved_line[n] == '*' && dir == FORWARD)
+		{
+			for (p = saved_line + n + 1; *p; p++)
+			{
+				if (*p == '/' && p[-1] == '*')
+				{
+					/* We have finished a C comment, so do a normal indent to
+					 * align with the line containing the start of the
+					 * comment -- webb.
+					 */
+					lead_len = 0;
+					old_cursor = curwin->w_cursor;
+					curwin->w_cursor.col = p - saved_line;
+					if ((pos = findmatch(NUL)) != NULL)
+					{
+						curwin->w_cursor.lnum = pos->lnum;
+						newindent = get_indent();
+					}
+					curwin->w_cursor = old_cursor;
+					break;
+				}
+			}
+		}
+	}
+	saved_line[curwin->w_cursor.col] = saved_char;
+
 	if (State == INSERT || State == REPLACE)	/* only when dir == FORWARD */
 	{
-		p_extra = ptr + curwin->w_cursor.col;
-		if (curbuf->b_p_ai && delspaces)
-			skipspace(&p_extra);
+		p_extra = saved_line + curwin->w_cursor.col;
+		if (curwin->w_cursor.col < lead_len)
+			lead_len = curwin->w_cursor.col;
+		if (lead_len > 0)
+		{
+				/* save comment leader in leader[] */
+			leader = allocated = alloc(lead_len + STRLEN(p_extra) + 2);
+			if (leader != NULL)
+			{
+				STRNCPY(leader, saved_line, lead_len);
+				leader[lead_len] = NUL;
+				did_si = can_si = FALSE;
+			}
+		}
+		/*
+		 * When 'ai' set, skip to the first non-blank.
+		 *
+		 * When in REPLACE mode, put the deleted blanks on the replace
+		 * stack, followed by a NUL, so they can be put back when
+		 * a BS is entered.
+		 */
+		if (State == REPLACE)
+			replace_push(NUL);		/* end of extra blanks */
+		if (curbuf->b_p_ai)
+		{
+			while (*p_extra == ' ' || *p_extra == '\t')
+			{
+				if (State == REPLACE)
+					replace_push(*p_extra);
+				++p_extra;
+			}
+		}
 		if (*p_extra != NUL)
 			did_ai = FALSE; 		/* append some text, don't trucate now */
 	}
-	else
+	else if (lead_len > 0)
+	{
+		leader = allocated = alloc(lead_len + 2);
+		if (leader != NULL)
+		{
+			STRNCPY(leader, saved_line, lead_len);
+			leader[lead_len] = NUL;
+			did_si = can_si = FALSE;
+		}
+	}
+
+	if (leader != NULL)
+	{
+		if (n > 0 && !iswhite(leader[n - 1]))
+		{
+			leader[n - 1] = ' ';		/* replace "/" before "*" with " " */
+			newindent++;
+		}
+		/*
+		 * When doing 'O' on the end of a comment, replace the '/' after the
+		 * '*' with a space.
+		 */
+		if (leader[n] == '*' && leader[n + 1] == '/')
+			leader[n + 1] = ' ';
+
+		/*
+		 * if the leader ends in '*' make sure there is a space after it
+		 */
+		if (lead_len > 1 && leader[lead_len - 1] == '*')
+		{
+			leader[lead_len++] = ' ';
+			leader[lead_len] = NUL;
+		}
+		newcol = lead_len - n;
+		/*
+		 * if a new indent will be set below, remove the indent that is in
+		 * the comment leader
+		 */
+		if (newindent || did_si)
+		{
+			while (lead_len && iswhite(*leader))
+			{
+				--lead_len;
+				++leader;
+			}
+		}
+	}
+
+	if (p_extra == NULL)
 		p_extra = (char_u *)"";				/* append empty line */
+
+		/* concatenate leader and p_extra, if there is a leader */
+	if (leader)
+	{
+		STRCAT(leader, p_extra);
+		p_extra = leader;
+	}
 
 	old_cursor = curwin->w_cursor;
 	if (dir == BACKWARD)
@@ -193,22 +332,42 @@ Opencmd(dir, redraw, delspaces)
 			newindent += (int)curbuf->b_p_sw;
 		}
 		set_indent(newindent, FALSE);
-		newcol = curwin->w_cursor.col;
+		/*
+		 * In REPLACE mode the new indent must be put on
+		 * the replace stack for when it is deleted with BS
+		 */
+		if (State == REPLACE)
+			for (n = 0; n < curwin->w_cursor.col; ++n)
+				replace_push(NUL);
+		newcol += curwin->w_cursor.col;
 		if (no_si)
 			did_si = FALSE;
 	}
+	/*
+	 * In REPLACE mode the extra leader must be put on the replace stack for
+	 * when it is deleted with BS.
+	 */
+	if (State == REPLACE)
+		while (lead_len-- > 0)
+			replace_push(NUL);
+
 	curwin->w_cursor = old_cursor;
 
 	if (dir == FORWARD)
 	{
-		if (truncate || State == INSERT || State == REPLACE)
+		if (trunc_line || State == INSERT || State == REPLACE)
 		{
-			if (truncate)
-				*ptr = NUL;
+			if (trunc_line)
+			{
+					/* find start of trailing white space */
+				for (n = strlen(saved_line); n > 0 && iswhite(saved_line[n - 1]); --n)
+					;
+				saved_line[n] = NUL;
+			}
 			else
-				*(ptr + curwin->w_cursor.col) = NUL;	/* truncate current line at cursor */
-			ml_replace(curwin->w_cursor.lnum, ptr, FALSE);
-			ptr = NULL;
+				*(saved_line + curwin->w_cursor.col) = NUL;	/* truncate current line at cursor */
+			ml_replace(curwin->w_cursor.lnum, saved_line, FALSE);
+			saved_line = NULL;
 		}
 
 		/*
@@ -252,8 +411,99 @@ Opencmd(dir, redraw, delspaces)
 
 	retval = TRUE;				/* success! */
 theend:
-	free(ptr);
+	free(saved_line);
+	free(allocated);
 	return retval;
+}
+
+/*
+ * get_leader_len() returns the length of the prefix of the given string
+ * which introduces a comment.  If this string is not a comment then 0 is
+ * returned.  If the FO_COMS_PADDED character in p_fo is present, then
+ * comments must be followed by at least one space or tab.
+ */
+	int
+get_leader_len(str)
+	char_u	*str;
+{
+	int		len;
+	int		i;
+	int		got_com = FALSE;
+
+	if (!fo_do_comments)		/* don't format comments at all */
+		return 0;
+	for (i = 0; str[i]; )
+	{
+		if (iswhite(str[i]))
+		{
+			++i;
+			continue;
+		}
+		if (!got_com && (len = prefix_in_list(str + i, curbuf->b_p_com)) > 0)
+		{
+			got_com = TRUE;
+			i += len;
+			break;
+		}
+		else if ((len = prefix_in_list(str + i, curbuf->b_p_ncom)) > 0)
+		{
+			got_com = TRUE;
+			i += len;
+		}
+		else
+			break;
+	}
+	return (got_com ? i : 0);
+}
+
+/*
+ * Check whether any word in 'list' is a prefix for 'str'.  Return 0 if no
+ * word is a prefix, or the length of the prefix otherwise.
+ * 'list' must be a comma separated list of strings. The strings cannot
+ * contain a comma.
+ */
+	static int
+prefix_in_list(str, list)
+	char_u	*str;
+	char_u	*list;
+{
+	int		len;
+	int		found;
+
+	if (list == NULL)		/* can happen if option is not set */
+		return 0;
+	while (*list)
+	{
+		found = TRUE;
+		for (len = 0; *list && *list != ','; ++len, ++list)
+		{
+		    /*
+		     * If string contains a ' ', accept any non-empty sequence of
+		     * blanks, and end-of-line.
+		     */
+		    if (*list == ' ' && (iswhite(str[len]) || str[len] == NUL))
+		    {
+		  	    while (iswhite(str[len]))
+			  	    ++len;
+				while (*list == ' ')
+					++list;
+			    if (*list == NUL || *list == ',')
+				    break;
+		    }
+		    if (str[len] != *list)
+			    found = FALSE;
+	    }
+	    if (found)
+	    {
+		    /* Match with any trailing blanks */
+		    while (iswhite(str[len]))
+			    ++len;
+		    return len;
+	    }
+		if (*list == ',')
+			++list;
+	}
+	return 0;
 }
 
 /*
@@ -282,8 +532,7 @@ plines_win(wp, p)
 	if (*s == NUL)				/* empty line */
 		return 1;
 
-	while (*s != NUL)
-		col += chartabsize(*s++, col);
+	col = linetabsize(s);
 
 	/*
 	 * If list mode is on, then the '$' at the end of the line takes up one
@@ -327,14 +576,14 @@ plines_m_win(wp, first, last)
 }
 
 /*
- * insert or replace a single character at the cursor position
+ * Insert or replace a single character at the cursor position.
+ * When in REPLACE mode, replace any existing character.
  */
 	void
 inschar(c)
 	int			c;
 {
 	register char_u  *p;
-	int				rir0;		/* reverse replace in column 0 */
 	char_u			*new;
 	char_u			*old;
 	int				oldlen;
@@ -345,63 +594,44 @@ inschar(c)
 	old = ml_get(lnum);
 	oldlen = STRLEN(old) + 1;
 
-	rir0 = (State == REPLACE && p_ri && col == 0);
-	if (rir0 || State != REPLACE || *(old + col) == NUL)
+	if (State != REPLACE || *(old + col) == NUL)
 		extra = 1;
 	else
 		extra = 0;
 
-	new = alloc((unsigned)(oldlen + extra));
+	/*
+	 * a character has to be put on the replace stack if there is a
+	 * character that is replaced, so it can be put back when BS is used.
+	 * Otherwise a 0 is put on the stack, indicating that a new character
+	 * was inserted, which can be deleted when BS is used.
+	 */
+	if (State == REPLACE)
+		replace_push(!extra ? *(old + col) : 0);
+	new = alloc_check((unsigned)(oldlen + extra));
 	if (new == NULL)
 		return;
 	memmove((char *)new, (char *)old, (size_t)col);
 	p = new + col;
 	memmove((char *)p + extra, (char *)old + col, (size_t)(oldlen - col));
-	if (rir0)					/* reverse replace in column 0 */
-	{
-		*(p + 1) = c;			/* replace the char that was in column 0 */
-		c = ' ';				/* insert a space */
-		extraspace = TRUE;
-	}
 	*p = c;
 	ml_replace(lnum, new, FALSE);
 
 	/*
-	 * If we're in insert mode and showmatch mode is set, then check for
+	 * If we're in insert or replace mode and 'showmatch' is set, then check for
 	 * right parens and braces. If there isn't a match, then beep. If there
 	 * is a match AND it's on the screen, then flash to it briefly. If it
 	 * isn't on the screen, don't do anything.
 	 */
-	if (p_sm && State == INSERT && (c == ')' || c == '}' || c == ']'))
-	{
-		FPOS		   *lpos, csave;
-
-		if ((lpos = showmatch(NUL)) == NULL)		/* no match, so beep */
-			beep();
-		else if (lpos->lnum >= curwin->w_topline)
-		{
-			updateScreen(VALID_TO_CURSCHAR); /* show the new char first */
-			csave = curwin->w_cursor;
-			curwin->w_cursor = *lpos; 	/* move to matching char */
-			cursupdate();
-			showruler(0);
-			setcursor();
-			cursor_on();		/* make sure that the cursor is shown */
-			flushbuf();
-			vim_delay();		/* brief pause */
-			curwin->w_cursor = csave; 	/* restore cursor position */
-			cursupdate();
-		}
-	}
-	if (!p_ri)							/* normal insert: cursor right */
+	if (p_sm && (State & INSERT) && (c == ')' || c == '}' || c == ']'))
+		showmatch();
+	if (!p_ri || State == REPLACE)		/* normal insert: cursor right */
 		++curwin->w_cursor.col;
-	else if (State == REPLACE && !rir0)	/* reverse replace mode: cursor left */
-		--curwin->w_cursor.col;
 	CHANGED;
 }
 
 /*
- * insert a string at the cursor position
+ * Insert a string at the cursor position.
+ * Note: Nothing special for replace mode.
  */
 	void
 insstr(s)
@@ -415,7 +645,7 @@ insstr(s)
 
 	old = ml_get(lnum);
 	oldlen = STRLEN(old);
-	new = alloc((unsigned)(oldlen + newlen + 1));
+	new = alloc_check((unsigned)(oldlen + newlen + 1));
 	if (new == NULL)
 		return;
 	memmove((char *)new, (char *)old, (size_t)col);
@@ -448,7 +678,7 @@ delchar(fixpos)
 		return FAIL;
 
 /*
- * If the old line has been allocated the deleteion can be done in the
+ * If the old line has been allocated the deletion can be done in the
  * existing line. Otherwise a new line has to be allocated
  */
 	was_alloced = ml_line_alloced();		/* check if old was allocated */
@@ -467,7 +697,7 @@ delchar(fixpos)
 
 	/*
 	 * If we just took off the last character of a non-blank line, we don't
-	 * want to end up positioned at the newline.
+	 * want to end up positioned at the NUL.
 	 */
 	if (fixpos && curwin->w_cursor.col > 0 && col == oldlen - 1)
 		--curwin->w_cursor.col;
@@ -496,7 +726,7 @@ dellines(nlines, dowindow, undo)
 		/* flaky way to clear rest of window */
 		win_del_lines(curwin, curwin->w_row, curwin->w_height, TRUE, TRUE);
 	}
-	if (undo && !u_savedel(curwin->w_cursor.lnum, nlines))
+	if (undo && u_savedel(curwin->w_cursor.lnum, nlines) == FAIL)
 		return;
 
 	mark_adjust(curwin->w_cursor.lnum, curwin->w_cursor.lnum + nlines - 1, MAXLNUM);
@@ -514,7 +744,7 @@ dellines(nlines, dowindow, undo)
 		if (dowindow)
 			num_plines += plines(curwin->w_cursor.lnum);
 
-		ml_delete(curwin->w_cursor.lnum);
+		ml_delete(curwin->w_cursor.lnum, TRUE);
 
 		CHANGED;
 
@@ -575,12 +805,12 @@ inindent()
 }
 
 /*
- * skipspace: skip over ' ' and '\t'.
+ * skipwhite: skip over ' ' and '\t'.
  *
  * note: you must give a pointer to a char_u pointer!
  */
 	void
-skipspace(pp)
+skipwhite(pp)
 	char_u **pp;
 {
     register char_u *p;
@@ -591,12 +821,12 @@ skipspace(pp)
 }
 
 /*
- * skiptospace: skip over text until ' ' or '\t'.
+ * skiptowhite: skip over text until ' ' or '\t'.
  *
  * note: you must give a pointer to a char_u pointer!
  */
 	void
-skiptospace(pp)
+skiptowhite(pp)
 	char_u **pp;
 {
 	register char_u *p;
@@ -700,8 +930,8 @@ check_status(buf)
 			wp->w_redr_status = TRUE;
 			++i;
 		}
-	if (i && must_redraw < NOT_VALID)		/* redraw later */
-		must_redraw = NOT_VALID;
+	if (i)
+		redraw_later(NOT_VALID);
 }
 
 /*
@@ -722,25 +952,41 @@ change_warning()
 }
 
 /*
- * ask for a reply from the user, a 'y' or a 'n'.
+ * Ask for a reply from the user, a 'y' or a 'n'.
  * No other characters are accepted, the message is repeated until a valid
  * reply is entered or CTRL-C is hit.
+ * If direct is TRUE, don't use vgetc but GetChars, don't get characters from
+ * any buffers but directly from the user.
  *
  * return the 'y' or 'n'
  */
 	int
-ask_yesno(str)
-	char_u *str;
+ask_yesno(str, direct)
+	char_u	*str;
+	int		direct;
 {
-	int r = ' ';
+	int		r = ' ';
+	char	buf[20];
+	int		len = 0;
+	int		idx = 0;
 
 	while (r != 'y' && r != 'n')
 	{
-		(void)set_highlight('r');		/* same highlighting as for wait_return */
+		(void)set_highlight('r');	/* same highlighting as for wait_return */
 		msg_highlight = TRUE;
 		smsg((char_u *)"%s (y/n)?", str);
-		r = vgetc();
-		if (r == Ctrl('C'))
+		if (direct)
+		{
+			if (idx >= len)
+			{
+				len = GetChars(&(buf[0]), 20, -1);
+				idx = 0;
+			}
+			r = buf[idx++];
+		}
+		else
+			r = vgetc();
+		if (r == Ctrl('C') || r == ESC)
 			r = 'n';
 		msg_outchar(r);		/* show what you typed */
 		flushbuf();
@@ -763,8 +1009,23 @@ msgmore(n)
 		pn = -n;
 
 	if (pn > p_report)
-		smsg((char_u *)"%ld %s line%s %s", pn, n > 0 ? "more" : "fewer", plural(pn),
-											got_int ? "(Interrupted)" : "");
+	{
+		sprintf((char_u *)msg_buf, (char_u *)"%ld %s line%s %s",
+				pn, n > 0 ? "more" : "fewer", plural(pn),
+				got_int ? "(Interrupted)" : "");
+		if (msg(msg_buf) && !msg_scroll)
+			keep_msg = msg_buf;
+	}
+}
+
+/*
+ * flush map and typeahead buffers and give a warning for an error
+ */
+	void
+beep_flush()
+{
+	flush_buffers(FALSE);
+	beep();
 }
 
 /*
@@ -773,7 +1034,6 @@ msgmore(n)
 	void
 beep()
 {
-	flush_buffers(FALSE);		/* flush internal buffers */
 	if (p_vb)
 	{
 		if (T_VB && *T_VB)
@@ -796,6 +1056,8 @@ beep()
  * Expand environment variable with path name.
  * "~/" is also expanded, like $HOME.
  * If anything fails no expansion is done and dst equals src.
+ * Note that IObuff must NOT be used as either src or dst!  This is because
+ * vimgetenv() may use IObuff to do its expansion.
  */
 	void
 expand_env(src, dst, dstlen)
@@ -807,40 +1069,44 @@ expand_env(src, dst, dstlen)
 	int		c;
 	char_u	*var;
 
-	if (*src == '$' || (*src == '~' && STRCHR("/ \t\n", src[1]) != NULL))
+	skipwhite(&src);
+	while (*src && dstlen > 0)
 	{
-/*
- * The variable name is copied into dst temporarily, because it may be
- * a string in read-only memory.
- */
-		if (*src == '$')
+		if (*src == '$' || (*src == '~' && STRCHR("/ \t\n", src[1]) != NULL))
 		{
-			tail = src + 1;
-			var = dst;
-			c = dstlen - 1;
-			while (c-- > 0 && *tail && isidchar(*tail))
-				*var++ = *tail++;
-			*var = NUL;
-/*
- * It is possible that vimgetenv() uses IObuff for the expansion, and that the
- * 'dst' is also IObuff. This works, as long as 'var' is the first to be copied
- * to 'dst'!
- */
-			var = vimgetenv(dst);
+			/*
+			 * The variable name is copied into dst temporarily, because it may
+			 * be a string in read-only memory.
+			 */
+			if (*src == '$')
+			{
+				tail = src + 1;
+				var = dst;
+				c = dstlen - 1;
+				while (c-- > 0 && *tail && isidchar(*tail))
+					*var++ = *tail++;
+				*var = NUL;
+				var = vimgetenv(dst);
+			}
+			else
+			{
+				var = vimgetenv((char_u *)"HOME");
+				tail = src + 1;
+			}
+			if (var && (STRLEN(var) + STRLEN(tail) + 1 < (unsigned)dstlen))
+			{
+				STRCPY(dst, var);
+				dstlen -= STRLEN(var);
+				dst += STRLEN(var);
+				src = tail;
+			}
 		}
-		else
-		{
-			var = vimgetenv((char_u *)"HOME");
-			tail = src + 1;
-		}
-		if (var && (STRLEN(var) + STRLEN(tail) + 1 < (unsigned)dstlen))
-		{
-			STRCPY(dst, var);
-			STRCAT(dst, tail);
-			return;
-		}
+		while (*src && *src != ' ' && --dstlen > 0)
+			*dst++ = *src++;
+		while (*src == ' ' && --dstlen > 0)
+			*dst++ = *src++;
 	}
-	STRNCPY(dst, src, (size_t)dstlen);
+	*dst = NUL;
 }
 
 /* 
@@ -864,7 +1130,7 @@ home_replace(src, dst, dstlen)
 		STRNCPY(dst, src, (size_t)dstlen);
 	else
 	{
-		skipspace(&src);
+		skipwhite(&src);
 		while (*src && dstlen > 0)
 		{
 			if (STRNCMP(src, home, len) == 0)
@@ -922,6 +1188,8 @@ gettail(fname)
 {
 	register char_u *p1, *p2;
 
+	if (fname == NULL)
+		return "";
 	for (p1 = p2 = fname; *p2; ++p2)	/* find last part of path */
 	{
 		if (ispathsep(*p2))
@@ -946,4 +1214,93 @@ ispathsep(c)
 	return (c == ':' || c == PATHSEP);
 # endif
 #endif
+}
+
+/*
+ * List the names of swap files in current directory and 'directory' option.
+ */
+	void
+recover_list()
+{
+	int			num_names = 1;
+	char_u		*(names[1]);
+	char_u		*p;
+	int			num_files;
+	char_u		**files;
+	int			i;
+	int			dir_num;
+
+	msg((char_u *)"Swap files found:");
+	outchar('\n');
+	expand_interactively = TRUE;
+	for (dir_num = 0; dir_num <= 1; ++dir_num)
+	{
+		if (dir_num == 0)			/* check current dir */
+			names[0] = (char_u *) "*.sw?";
+		else						/* check 'directory' dir */
+		{
+			p = p_dir;
+			if (*p == '>')
+				++p;
+			if (STRLEN(p) == 0)
+				num_names = 0;
+			else
+			{
+				names[0] = concat_fnames(p, (char_u *)"*.sw?");
+				if (names[1] == NULL)
+					num_names = 0;
+			}
+		}
+
+		if (dir_num == 0)
+			outstrn("In current directory:\n");
+		else
+		{
+			outstrn("In directory ");
+			outstrn(p);
+			outstrn(":\n");
+		}
+
+		if (num_names == 0)
+			num_files = 0;
+		else if (ExpandWildCards(num_names, names,
+							&num_files, &files, TRUE, FALSE) == FAIL)
+		{
+			outstrn((char_u *)files);		/* print error message */
+			num_files = 0;
+		}
+		if (num_files)
+		{
+			for (i = 0; i < num_files; ++i)
+			{
+				outstrn(files[i]);
+				outchar('\n');
+			}
+		}
+		else
+			outstrn((char_u *)"-- none --\n");
+	}
+	flushbuf();
+}
+
+/*
+ * Concatenate filenames fname1 and fname2 into allocated memory.
+ * Only add a '/' when neccesary.
+ */
+	char_u	*
+concat_fnames(fname1, fname2)
+	char_u	*fname1;
+	char_u	*fname2;
+{
+	char_u	*dest;
+
+	dest = alloc((unsigned)(STRLEN(fname1) + STRLEN(fname2) + 2));
+	if (dest != NULL)
+	{
+		STRCPY(dest, fname1);
+		if (*dest && !ispathsep(*(dest + STRLEN(dest) - 1)))
+			STRCAT(dest, PATHSEPSTR);
+		STRCAT(dest, fname2);
+	}
+	return dest;
 }

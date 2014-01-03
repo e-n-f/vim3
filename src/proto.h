@@ -16,33 +16,40 @@
 #include "regexp.h"		/* for struct regexp */
 
 /*
+ * don't include these while generating prototypes, prevents problems when
+ * files are missing
+ */
+#ifndef PROTO
+/*
  * Machine-dependent routines.
  */
-#ifdef AMIGA
-# include "proto/amiga.pro"
-#endif
-#ifdef UNIX
-# include "proto/unix.pro"
-#endif
-#ifdef MSDOS
-# include "proto/msdos.pro"
-#endif
+# ifdef AMIGA
+#  include "proto/amiga.pro"
+# endif
+# ifdef UNIX
+#  include "proto/unix.pro"
+#  if defined(M_XENIX) || defined(UTS2)
+	int rename __PARMS((char_u *, char_u *));
+#  endif
+# endif
+# ifdef MSDOS
+#  include "proto/msdos.pro"
+# endif
 
-#include "proto/alloc.pro"
-#include "proto/buffer.pro"
-#include "proto/charset.pro"
-#include "proto/cmdcmds.pro"
-#include "proto/cmdline.pro"
-#include "proto/csearch.pro"
-#include "proto/digraph.pro"
-#include "proto/edit.pro"
-#include "proto/fileio.pro"
-#include "proto/getchar.pro"
-#include "proto/help.pro"
-#include "proto/linefunc.pro"
-#include "proto/main.pro"
-#include "proto/mark.pro"
-
+# include "proto/alloc.pro"
+# include "proto/buffer.pro"
+# include "proto/charset.pro"
+# include "proto/cmdcmds.pro"
+# include "proto/cmdline.pro"
+# include "proto/csearch.pro"
+# include "proto/digraph.pro"
+# include "proto/edit.pro"
+# include "proto/fileio.pro"
+# include "proto/getchar.pro"
+# include "proto/help.pro"
+# include "proto/linefunc.pro"
+# include "proto/main.pro"
+# include "proto/mark.pro"
 #ifndef MESSAGE
 void smsg __PARMS((char_u *, ...));	/* cannot be produced automatically */
 #endif
@@ -62,3 +69,5 @@ void smsg __PARMS((char_u *, ...));	/* cannot be produced automatically */
 #include "proto/term.pro"
 #include "proto/undo.pro"
 #include "proto/window.pro"
+
+#endif /* PROTO */

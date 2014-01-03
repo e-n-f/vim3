@@ -72,7 +72,7 @@ EXE_dependencies =  \
  version.obj
  
 #		*Explicit Rules*
-#  add /v to TLINK for degubbing
+#  add /v to TLINK for debugging
 vim.exe: vim.cfg $(EXE_dependencies)
   $(CC) -c version.c
   $(TLINK) /x/c/L$(LIBPATH) @&&|
@@ -217,7 +217,7 @@ vim.cfg: makefile
 -wpre
 -I$(INCLUDEPATH)
 -L$(LIBPATH)
--DPC;MSDOS;SPAWNO;DIGRAPHS;WEBB_COMPLETE;WEBB_KEYWORD_COMPL
+-DPC;MSDOS;SPAWNO;DIGRAPHS
 | vim.cfg
 
 #
@@ -240,6 +240,4 @@ vim.cfg: makefile
 ### -DSYSEXRC_FILE	name of the global .exrc file
 ### -DDEFVIMRC_FILE	name of the system-wide .vimrc file
 ### -DVIM_HLP		name of the help file
-### -DWEBB_COMPLETE	include Webb's code for command line completion
-### -DWEBB_KEYWORD_COMPL include Webb's code for keyword completion
 ### -DNOTITLE		'title' option off by default

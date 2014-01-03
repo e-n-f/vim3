@@ -36,6 +36,8 @@ char		action
 ^V		insert next non-digit literally, insert three digit decimal 
 		number as a single byte.
 ^W		delete word before the cursor
+^X		enter CTRL-X sub mode, with several commands for keyword
+		completion and scrolling
 ^Y		insert the character which is above the cursor
 ^[ <ESC>	end insert mode
 <DEL>		same as ^H <BS>

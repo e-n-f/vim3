@@ -10,6 +10,7 @@
 ### -DNO_ARP		do not use arp.library, DOS 2.0 required
 ### -DCOMPATIBLE	start in vi-compatible mode
 ### -DNOBACKUP		default is no backup file
+### -DNOSTRTOL		strtol() function not available
 ### -DDEBUG		output a lot of debugging garbage
 ### -DTERMCAP		include termcap file support
 ### -DNO_BUILTIN_TCAPS	do not include builtin termcap entries
@@ -26,11 +27,9 @@
 ### -DDEFVIMRC_FILE	name of the system-wide .vimrc file
 ### -DVIM_HLP		name of the help file
 ### -DNOTITLE		'title' option off by default
-### -DWEBB_COMPLETE	include Webb's code for command line completion
-### -DWEBB_KEYWORD_COMPL include Webb's code for keyword completion
+### -DVIMINFO		include reading/writing viminfo file
 
-DEFINES = -DDIGRAPHS -DSOME_BUILTIN_TCAPS -DVIM_ISSPACE \
-		-DWEBB_COMPLETE -DWEBB_KEYWORD_COMPL
+DEFINES = -DDIGRAPHS -DSOME_BUILTIN_TCAPS -DVIM_ISSPACE
 
 #>>>>> if TERMCAP is defined obj/termlib.o has to be used
 #TERMLIB = obj/termlib.o
@@ -47,6 +46,13 @@ CFLAGS = $(OPTIONS) -wapruq -ps -qf $(DEFINES) -DAMIGA
 
 LIBS = -lc16
 SYMS = vim.syms
+
+SRC =	alloc.c amiga.c buffer.c charset.c cmdcmds.c cmdline.c \
+	csearch.c digraph.c edit.c fileio.c getchar.c help.c \
+	linefunc.c main.c mark.c memfile.c memline.c message.c misccmds.c \
+	normal.c ops.c param.c quickfix.c regexp.c \
+	regsub.c screen.c search.c \
+	tag.c term.c undo.c window.c version.c
 
 OBJ =	obj/alloc.o obj/amiga.o obj/buffer.o obj/charset.o obj/cmdcmds.o obj/cmdline.o \
 	obj/csearch.o obj/digraph.o obj/edit.o obj/fileio.o obj/getchar.o obj/help.o \
@@ -75,7 +81,7 @@ debug: $(OBJ) version.c
 proto: $(SYMS) $(PRO)
 
 ctags:
-	csh -c ctags *.c *.h
+	csh -c ctags $(SRC) *.h
 
 # can't use delete here, too many file names
 clean:

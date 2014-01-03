@@ -28,12 +28,24 @@
 #endif
 #include <signal.h>
 
+/*
+ * On an alpha where "uname -v" gives "358", USE_SYSTEM must be defined.  If it
+ * is not, then the status returned is 256 even when the shell command was
+ * successful!  I don't know what's happening here, but file completion never
+ * worked.  It does work though with USE_SYSTEM defined.  Note that it works
+ * fine either way on an alpha where "uname -v" gives "113".  I don't know
+ * about other alphas.  -- webb
+ */
+#ifdef __alpha
+# define USE_SYSTEM
+#endif
+
 #ifndef USE_SYSTEM		/* use fork/exec to start the shell */
 # include <sys/wait.h>
-# if !defined(SCO) && !defined(SOLARIS) && !defined(hpux) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(_SEQUENT_) && !defined(UNISYS)	/* SCO returns pid_t */
+# if !defined(__sgi) && !defined(__COHERENT__) && !defined(SCO) && !defined(SOLARIS) && !defined(hpux) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(_SEQUENT_) && !defined(UNISYS)	/* SCO returns pid_t */
 extern int fork();
 # endif
-# if !defined(linux) && !defined(SOLARIS) && !defined(USL) && !defined(sun) && !(defined(hpux) && defined(__STDC__)) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(USL) && !defined(UNISYS)
+# if !defined(__sgi) && !defined(linux) && !defined(SOLARIS) && !defined(USL) && !defined(sun) && !(defined(hpux) && defined(__STDC__)) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(USL) && !defined(UNISYS)
 extern int execvp __ARGS((const char *, const char **));
 # endif
 #endif
@@ -97,26 +109,28 @@ Window		x11_window = 0;
 Display		*x11_display = NULL;
 
 static int	get_x11_windis __ARGS((void));
-#ifdef BUGGY
 static void set_x11_title __ARGS((char_u *));
 static void set_x11_icon __ARGS((char_u *));
-#endif
 #endif
 
 static void get_x11_title __ARGS((void));
 static void get_x11_icon __ARGS((void));
 
+static int is_iris_ansi __ARGS((char_u *));
 static int	Read __ARGS((char_u *, long));
 static int	WaitForChar __ARGS((int));
 static int	RealWaitForChar __ARGS((int));
 static void fill_inbuf __ARGS((void));
 #ifdef USL
 static void sig_winch __ARGS((int));
+static void deathtrap __ARGS((int));
 #else
 # if defined(SIGWINCH) && !defined(linux) && !defined(__alpha) && !defined(mips) && !defined(_SEQUENT_) && !defined(SCO) && !defined(SOLARIS) && !defined(ISC)
 static void sig_winch __ARGS((int, int, struct sigcontext *));
+static void deathtrap __ARGS((int, int, struct sigcontext *));
 # endif
 #endif
+static void catch_signals __ARGS((void (*func)()));
 
 static int do_resize = FALSE;
 static char_u *oldtitle = NULL;
@@ -262,6 +276,53 @@ sig_winch(sig, code, scp)
 }
 
 /*
+ * This function handles deadly signals.
+ * It tries to preserve any swap file and exit properly.
+ * (partly from Elvis).
+ */
+	static void
+#if defined(__alpha) || (defined(mips) && !defined(USL))
+deathtrap()
+#else
+# if defined(_SEQUENT_) || defined(SCO) || defined(ISC)
+deathtrap(sig, code)
+	int		sig;
+	int		code;
+# else
+#  if defined(USL)
+deathtrap(sig)
+	int		sig;
+#  else
+deathtrap(sig, code, scp)
+	int		sig;
+	int		code;
+	struct sigcontext *scp;
+#  endif
+# endif
+#endif
+{
+	static int		entered = FALSE;
+	BUF		*buf;
+
+	if (entered)				/* double signal, exit now */
+		getout(1);
+	entered = TRUE;
+
+	windgoto((int)Rows - 1, 0);
+	outstr("Vim: deadly signal caught, preserving files...\n");
+	flushbuf();
+
+	for (buf = firstbuf; buf != NULL; buf = buf->b_next)
+		if (!buf->b_changed)
+			ml_close(buf, TRUE);	/* close all not-modified buffers */
+
+	ml_sync_all(FALSE, TRUE);		/* preserve all swap files */
+	ml_close_all(FALSE);			/* close all memfiles, without deleting */
+
+	getout(1);
+}
+
+/*
  * If the machine has job control, use it to suspend the program,
  * otherwise fake it by starting a new shell.
  */
@@ -269,11 +330,13 @@ sig_winch(sig, code, scp)
 mch_suspend()
 {
 #ifdef SIGTSTP
+	flushbuf();				/* needed to make cursor visible on some systems */
 	settmode(0);
+	flushbuf();				/* needed to disable mouse on some systems */
 	kill(0, SIGTSTP);		/* send ourselves a STOP signal */
 	settmode(1);
 #else
-	OUTSTR("new shell started\n");
+	msg_outstr((char_u *)"new shell started\n");
 	(void)call_shell(NULL, 0, TRUE);
 #endif
 }
@@ -287,8 +350,62 @@ mch_windinit()
 	flushbuf();
 
 	(void)mch_get_winsize();
+	/*
+	 * arrange for signals to be handled
+	 */
 #if defined(SIGWINCH)
 	signal(SIGWINCH, (void (*)())sig_winch);
+#endif
+#ifdef SIGTSTP
+	signal(SIGTSTP, SIG_DFL);
+#endif
+	catch_signals(deathtrap);
+}
+
+	static void
+catch_signals(func)
+	void (*func)();
+{
+#ifdef SIGHUP
+	signal(SIGHUP, func);
+#endif
+#ifdef SIGINT
+	signal(SIGINT, func);
+#endif
+#ifndef DEBUG
+# ifdef SIGILL
+	signal(SIGILL, func);
+# endif
+# ifdef SIGFPE
+	signal(SIGFPE, func);
+# endif
+# ifdef SIGBUS
+	signal(SIGBUS, func);
+# endif
+# ifdef SIGSEGV
+	signal(SIGSEGV, func);
+# endif
+# ifdef SIGSYS
+	signal(SIGSYS, func);
+# endif
+#endif /* !DEBUG */
+#ifdef SIGPIPE
+	signal(SIGPIPE, func);
+#endif
+#ifdef SIGTERM
+	signal(SIGTERM, func);
+#endif
+#ifdef SIGXCPU
+	signal(SIGXCPU, func);
+#endif
+#ifdef SIGXFSZ
+	signal(SIGXFSZ, func);
+#endif
+#ifdef SIGUSR1
+	signal(SIGUSR1, func);
+#endif
+#ifdef SIGUSR2
+	signal(SIGUSR2, func);
 #endif
 }
 
@@ -309,11 +426,10 @@ check_win(argc, argv)
 	int		argc;
 	char	**argv;
 {
-	if (!isatty(0) || !isatty(1))
-    {
-		fprintf(stderr, "VIM: no controlling terminal\n");
-		exit(2);
-    }
+	if (!isatty(0))
+		fprintf(stderr, "VIM: Warning: input does not come from a terminal\n");
+	if (!isatty(1))
+		fprintf(stderr, "VIM: Warning: output is not to a terminal\n");
 }
 
 /*
@@ -404,29 +520,27 @@ get_x11_icon()
 	}
 }
 
-#if BUGGY
-
-This is not included, because it probably does not work at all.
-On my FreeBSD/Xfree86 in a shelltool I get all kinds of error messages and
-Vim is stopped in an uncontrolled way.
-
 /*
  * Set x11 Window Title
  *
  * get_x11_windis() must be called before this and have returned OK
  */
-	static void
+    static void
 set_x11_title(title)
-	char_u		*title;
+    char_u      *title;
 {
-	XTextProperty text_prop;
+#if XtSpecificationRelease >= 4
+    XTextProperty text_prop;
 
-		/* Get icon name if any */
-	text_prop.value = title;
-	text_prop.nitems = STRLEN(title);
-	XSetWMName(x11_display, x11_window, &text_prop);
-	if (XGetWMName(x11_display, x11_window, &text_prop)) 	/* required? */
-		XFree((void *)text_prop.value);
+    text_prop.value = title;
+    text_prop.nitems = STRLEN(title);
+    text_prop.encoding = XA_STRING;
+    text_prop.format = 8;
+    XSetWMName(x11_display, x11_window, &text_prop);
+#else
+    XStoreName(x11_display, x11_window, (char *)title);
+#endif
+    XFlush(x11_display);
 }
 
 /*
@@ -434,20 +548,23 @@ set_x11_title(title)
  *
  * get_x11_windis() must be called before this and have returned OK
  */
-	static void
+    static void
 set_x11_icon(icon)
-	char_u		*icon;
+    char_u      *icon;
 {
-	XTextProperty text_prop;
+#if XtSpecificationRelease >= 4
+    XTextProperty text_prop;
 
-		/* Get icon name if any */
-	text_prop.value = icon;
-	text_prop.nitems = STRLEN(icon);
-	XSetWMIconName(x11_display, x11_window, &text_prop);
-	if (XGetWMIconName(x11_display, x11_window, &text_prop)) /* required? */
-		XFree((void *)text_prop.value);
-}
+    text_prop.value = icon;
+    text_prop.nitems = STRLEN(icon);
+    text_prop.encoding = XA_STRING;
+    text_prop.format = 8;
+    XSetWMIconName(x11_display, x11_window, &text_prop);
+#else
+    XSetIconName(x11_display, x11_window, (char *)icon);
 #endif
+    XFlush(x11_display);
+}
 
 #else	/* USE_X11 */
 
@@ -492,20 +609,14 @@ mch_settitle(title, icon)
 #endif
 
 	/*
-	 * note: if terminal is xterm, title is set with escape sequence rather
+	 * Note: if terminal is xterm, title is set with escape sequence rather
 	 * 		 than x11 calls, because the x11 calls don't always work
+	 * Check only if the start of the terminal name is "xterm", also catch "xterms".
 	 */
-	if (	STRCMP(term_strings.t_name, "xterm") == 0 ||
-			STRCMP(term_strings.t_name, "builtin_xterm") == 0)
+	if (is_xterm(term_strings.t_name))
 		type = 2;
 
-		/*
-		 * Note: getting the old window title for iris-ansi will only
-		 * currently work if you set WINDOWID by hand, it is not
-		 * done automatically like an xterm.
-		 */
-	if (STRCMP(term_strings.t_name, "iris-ansi") == 0 ||
-			 STRCMP(term_strings.t_name, "iris-ansi-net") == 0)
+	if (is_iris_ansi(term_strings.t_name))
 		type = 3;
 
 	if (type)
@@ -518,10 +629,8 @@ mch_settitle(title, icon)
 			switch(type)
 			{
 #ifdef USE_X11
-#ifdef BUGGY
 			case 1:	set_x11_title(title);				/* x11 */
 					break;
-#endif
 #endif
 			case 2: outstrn((char_u *)"\033]2;");		/* xterm */
 					outstrn(title);
@@ -545,10 +654,8 @@ mch_settitle(title, icon)
 			switch(type)
 			{
 #ifdef USE_X11
-#ifdef BUGGY
 			case 1:	set_x11_icon(icon);					/* x11 */
 					break;
-#endif
 #endif
 			case 2: outstrn((char_u *)"\033]1;");		/* xterm */
 					outstrn(icon);
@@ -564,6 +671,25 @@ mch_settitle(title, icon)
 			}
 		}
 	}
+}
+
+	int
+is_xterm(name)
+	char_u *name;
+{
+	if (name == NULL)
+		return FALSE;
+	return (STRNCMP(name, "xterm", 5) == 0 ||
+						STRCMP(name, "builtin_xterm") == 0);
+}
+
+	static int
+is_iris_ansi(name)
+	char_u	*name;
+{
+	if (name == NULL)
+		return FALSE;
+	return (STRNCMP(name, "iris-ansi", 9) == 0);
 }
 
 /*
@@ -745,7 +871,7 @@ mch_windexit(r)
 	mch_settitle(oldtitle, oldicon);	/* restore xterm title */
 	stoptermcap();
 	flushbuf();
-	ml_close_all(); 				/* remove all memfiles */
+	ml_close_all(TRUE); 				/* remove all memfiles */
 	exit(r);
 }
 
@@ -812,6 +938,29 @@ mch_settmode(raw)
 	else
 		ioctl(0, TIOCSETN, &ttybold);
 #endif
+
+	if (!raw)
+		setmouse(FALSE);			/* may switch mouse off */
+	else if (is_xterm(term_strings.t_name))
+		setmouse(p_mouse);			/* may switch mouse on */
+}
+
+/*
+ * set mouse clicks on or off (only works for xterms)
+ */
+	void
+setmouse(on)
+	int		on;
+{
+	static int	ison = FALSE;
+
+	if (on && !ison)
+		outstrn((char_u *)"\033[?9h"); /* xterm: enable mouse events */
+
+	if (!on && ison)
+		outstrn((char_u *)"\033[?9l"); /* xterm: disable mouse events */
+	
+	ison = on;
 }
 
 /*
@@ -911,7 +1060,15 @@ mch_get_winsize()
 	void
 mch_set_winsize()
 {
-	/* should try to set the window size to Rows and Columns */
+	char_u	string[10];
+
+	/* try to set the window size to Rows and Columns */
+	if (is_iris_ansi(term_strings.t_name))
+	{
+		sprintf((char *)string, "\033[203;%d;%d/y", Rows, Columns);
+		outstrn(string);
+		flushbuf();
+	}
 }
 
 	int 
@@ -935,22 +1092,19 @@ call_shell(cmd, dummy, cooked)
 	else
 	{
 		sprintf(newcmd, "%s %s -c \"%s\"", p_sh,
-						extra_shell_arg == NULL ? "" : extra_shell_arg, cmd);
+					extra_shell_arg == NULL ? "" : (char *)extra_shell_arg,
+					(char *)cmd);
 		x = system(newcmd);
 	}
 	if (x == 127)
 	{
-		outstrn((char_u *)"\nCannot execute shell sh\n");
+		msg_outstr((char_u *)"\nCannot execute shell sh\n");
 	}
-#ifdef WEBB_COMPLETE
 	else if (x && !expand_interactively)
-#else
-	else if (x)
-#endif
 	{
-		outchar('\n');
-		outnum((long)x);
-		outstrn((char_u *)" returned\n");
+		msg_outchar('\n');
+		msg_outnum((long)x);
+		msg_outstr((char_u *)" returned\n");
 	}
 
 	if (cooked)
@@ -958,7 +1112,7 @@ call_shell(cmd, dummy, cooked)
 	resettitle();
 	return (x ? FAIL : OK);
 
-#else /* USE_SYSTEM */		/* first attempt at not using system() */
+#else /* USE_SYSTEM */		/* don't use system(), use fork()/exec() */
 
 	char_u	newcmd[1024];
 	int		pid;
@@ -970,7 +1124,6 @@ call_shell(cmd, dummy, cooked)
 	int		inquote;
 
 	flushbuf();
-	signal(SIGINT, SIG_IGN);	/* we don't want to be killed here */
 	if (cooked)
 		settmode(0);			/* set to cooked mode */
 
@@ -999,7 +1152,7 @@ call_shell(cmd, dummy, cooked)
 				break;
 			if (i == 1)
 				*p++ = NUL;
-			skipspace(&p);
+			skipwhite(&p);
 		}
 		if (i == 0)
 		{
@@ -1019,52 +1172,46 @@ call_shell(cmd, dummy, cooked)
 
 	if ((pid = fork()) == -1)		/* maybe we should use vfork() */
 	{
-		outstrn((char_u *)"\nCannot fork\n");
+		msg_outstr((char_u *)"\nCannot fork\n");
 	}
 	else if (pid == 0)		/* child */
 	{
-		signal(SIGINT, SIG_DFL);
 		if (!show_shell_mess)
 		{
 			fclose(stdout);
 			fclose(stderr);
 		}
-		execvp(argv[0], (char **)argv);
+	/*
+	 * There is no type cast for the argv, because the type may be different
+	 * on different machines. This may cause a warning message with strict
+	 * compilers, don't worry about it.
+	 */
+		execvp(argv[0], argv);
 		exit(127);			/* exec failed, return failure code */
 	}
 	else					/* parent */
 	{
+		/*
+		 * While child is running, ignore terminating signals
+		 */
+		catch_signals(SIG_IGN);
 		wait(&status);
+		catch_signals(deathtrap);
 		status = (status >> 8) & 255;
 		if (status)
 		{
-#ifdef WEBB_COMPLETE
 			if (status == 127)
 			{
-				outstrn((char_u *)"\nCannot execute shell ");
-				outstrn(p_sh);
-				outchar('\n');
+				msg_outstr((char_u *)"\nCannot execute shell ");
+				msg_outstr(p_sh);
+				msg_outchar('\n');
 			}
 			else if (!expand_interactively)
 			{
-				outchar('\n');
-				outnum((long)status);
-				outstrn((char_u *)" returned\n");
+				msg_outchar('\n');
+				msg_outnum((long)status);
+				msg_outstr((char_u *)" returned\n");
 			}
-#else
-			outchar('\n');
-			if (status == 127)
-			{
-				outstrn((char_u *)"Cannot execute shell ");
-				outstrn(p_sh);
-			}
-			else
-			{
-				outnum((long)status);
-				outstrn((char_u *)" returned");
-			}
-			outchar('\n');
-#endif /* WEBB_COMPLETE */
 		}
 	}
 	free(argv);
@@ -1073,7 +1220,6 @@ error:
 	if (cooked)
 		settmode(1); 						/* set to raw mode */
 	resettitle();
-	signal(SIGINT, SIG_DFL);
 	return (status ? FAIL : OK);
 
 #endif /* USE_SYSTEM */
@@ -1125,8 +1271,9 @@ fill_inbuf()
 	len = read(0, inbuf + inbufcount, (long)(INBUFLEN - inbufcount));
 	if (len <= 0)	/* cannot read input??? */
 	{
+		windgoto((int)Rows - 1, 0);
 		fprintf(stderr, "Vim: Error reading input, exiting...\n");
-		exit(1);
+		getout(1);
 	}
 	while (len-- > 0)
 	{
@@ -1188,7 +1335,7 @@ RealWaitForChar(ticks)
 #endif
 }
 
-#if !defined(__alpha) && !defined(mips) && !defined(SCO) && !defined(remove) && !defined(CONVEX)
+#if !defined(__FreeBSD__) && !defined(__alpha) && !defined(mips) && !defined(SCO) && !defined(remove) && !defined(CONVEX)
 	int 
 remove(buf)
 # if defined(linux) || defined(__STDC__) || defined(__NeXT__) || defined(M_UNIX)
@@ -1203,7 +1350,7 @@ remove(buf)
 /*
  * ExpandWildCard() - this code does wild-card pattern matching using the shell
  *
- * Mool: return 0 for success, 1 for error (you may loose some memory) and
+ * Mool: return OK for success, FAIL for error (you may loose some memory) and
  *       put an error message in *file.
  *
  * num_pat is number of input patterns
@@ -1301,10 +1448,8 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 		STRCAT(command, pat[i]);
 #endif
 	}
-#ifdef WEBB_COMPLETE
 	if (expand_interactively)
 		show_shell_mess = FALSE;
-#endif /* WEBB_COMPLETE */
 	if (use_glob)							/* Use csh fast option */
 		extra_shell_arg = (char_u *)"-f";
 	i = call_shell(command, 0, FALSE);		/* execute it */
@@ -1314,10 +1459,8 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 	if (i == FAIL)							/* call_shell failed */
 	{
 		remove((char *)tmpname);
-#ifdef WEBB_COMPLETE
 		/* With interactive completion, the error message is not printed */
 		if (!expand_interactively)
-#endif /* WEBB_COMPLETE */
 		{
 			must_redraw = CLEAR;			/* probably messed up screen */
 			msg_outchar('\n');				/* clear bottom line quickly */
@@ -1373,7 +1516,7 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 		{
 			while (*p != ' ' && *p != '\n')	/* skip entry */
 				++p;
-			skipspace(&p);					/* skip to next entry */
+			skipwhite(&p);					/* skip to next entry */
 		}
 	}
 	*num_file = i;
@@ -1403,7 +1546,7 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 			else
 			{
 				*p++ = NUL;
-				skipspace(&p);					/* skip to next entry */
+				skipwhite(&p);					/* skip to next entry */
 			}
 		}
 	}

@@ -19,6 +19,10 @@
 /* we use modified Henry Spencer's regular expression routines */
 #include "regexp.h"
 
+#ifdef VIMINFO
+	static char_u   *old_sub = NULL;
+#endif /* VIMINFO */
+
 /* dosub(lp, up, cmd)
  *
  * Perform a substitution from line 'lp' to line 'up' using the
@@ -55,7 +59,9 @@ dosub(lp, up, cmd, nextcommand, use_old)
 	static int		do_all = FALSE; 	/* do multiple substitutions per line */
 	static int		do_ask = FALSE; 	/* ask for confirmation */
 	char_u		   *pat = NULL, *sub = NULL;
+#ifndef VIMINFO
 	static char_u   *old_sub = NULL;
+#endif
 	int 			delimiter;
 	int 			sublen;
 	int				got_quit = FALSE;
@@ -68,18 +74,19 @@ dosub(lp, up, cmd, nextcommand, use_old)
 	else
 		which_pat = 1;		/* use last substitute regexp */
 
-								   /* new pattern and substitution */
+							/* new pattern and substitution */
 	if (use_old == 0 && *cmd != NUL && strchr("0123456789gcr|\"", *cmd) == NULL)
 	{
-		if (isalpha(*cmd))			/* don't accept alpha for separator */
+							/* don't accept alphanumeric for separator */
+		if (isalpha(*cmd) || isdigit(*cmd))
 		{
-			emsg(e_invarg);
+			emsg("Regular expressions can't be delimited by letters or digits");
 			return;
 		}
 		/*
 		 * undocumented vi feature:
-		 *	"\/sub/" and "\?sub?" use last used search pattern (almost like //sub/r).
-		 *  "\&sub&" use last substitute pattern (like //sub/).
+		 *	"\/sub/" and "\?sub?" use last used search pattern (almost like
+		 *	//sub/r).  "\&sub&" use last substitute pattern (like //sub/).
 		 */
 		if (*cmd == '\\')
 		{
@@ -166,7 +173,7 @@ dosub(lp, up, cmd, nextcommand, use_old)
 	/*
 	 * check for a trailing count
 	 */
-	skipspace(&cmd);
+	skipwhite(&cmd);
 	if (isdigit(*cmd))
 	{
 		i = getdigits(&cmd);
@@ -182,7 +189,7 @@ dosub(lp, up, cmd, nextcommand, use_old)
 	/*
 	 * check for trailing '|', '"' or '\n'
 	 */
-	skipspace(&cmd);
+	skipwhite(&cmd);
 	if (*cmd)
 	{
 		if (strchr("|\"\n", *cmd) == NULL)
@@ -223,7 +230,9 @@ dosub(lp, up, cmd, nextcommand, use_old)
 				the screen */
 			if ((old_line = strsave(ptr)) == NULL)
 				continue;
-			regexec(prog, old_line, TRUE);  /* match again on this line to update the pointers. TODO: remove extra regexec() */
+			regexec(prog, old_line, TRUE);  /* match again on this line to
+											 * update the pointers. TODO:
+											 * remove extra regexec() */
 			if (!got_match)
 			{
 				setpcmark();
@@ -253,20 +262,34 @@ dosub(lp, up, cmd, nextcommand, use_old)
 				old_match = prog->endp[0];
 				prev_old_match = old_match;
 
-				while (do_ask)		/* loop until 'y', 'n' or 'q' typed */
+				while (do_ask)		/* loop until 'y', 'n', 'q', CTRL-E or CTRL-Y typed */
 				{
 					temp = RedrawingDisabled;
 					RedrawingDisabled = FALSE;
 					comp_Botline(curwin);
+					search_match_len = prog->endp[0] - prog->startp[0];
+									/* invert the matched string
+									 * remove the inversion afterwards */
+					highlight_match = TRUE;
 					updateScreen(CURSUPD);
+					highlight_match = FALSE;
+					redraw_later(NOT_VALID);
 									/* same highlighting as for wait_return */
 					(void)set_highlight('r');
 					msg_highlight = TRUE;
-					smsg((char_u *)"replace by %s (y/n/q)?", sub);
+					smsg((char_u *)"replace by %s (y/n/a/q/^E/^Y)?", sub);
 					showruler(TRUE);
-					setcursor();
 					RedrawingDisabled = temp;
-					if ((i = vgetc()) == 'q' || i == ESC || i == Ctrl('C'))
+					
+					temp = State;
+					State = NOMAPPING;	/* don't map this key */
+					i = vgetc();
+					State = temp;
+						/* clear the question */
+					msg_didout = FALSE;			/* don't scroll up */
+					msg_col = 0;
+					gotocmdline(TRUE);
+					if (i == 'q' || i == ESC || i == Ctrl('C'))
 					{
 						got_quit = TRUE;
 						break;
@@ -275,19 +298,29 @@ dosub(lp, up, cmd, nextcommand, use_old)
 						goto skip;
 					else if (i == 'y')
 						break;
+					else if (i == 'a')
+					{
+						do_ask = FALSE;
+						break;
+					}
+					else if (i == Ctrl('E'))
+						scrollup_clamp();
+					else if (i == Ctrl('Y'))
+						scrolldown_clamp();
 				}
 				if (got_quit)
 					break;
 
 						/* get length of substitution part */
-				sublen = regsub(prog, sub, old_line, 0, (int)p_magic);
+				sublen = regsub(prog, sub, old_line, FALSE, (int)p_magic);
 				if (new_start == NULL)
 				{
 					/*
-					 * Get some space for a temporary buffer to do the substitution
-					 * into.
+					 * Get some space for a temporary buffer to do the
+					 * substitution into.
 					 */
-					if ((new_start = alloc((unsigned)(STRLEN(old_line) + sublen + 5))) == NULL)
+					if ((new_start = alloc_check((unsigned)(STRLEN(old_line) +
+												sublen + 5))) == NULL)
 						goto outofmem;
 					*new_start = NUL;
 				}
@@ -296,7 +329,8 @@ dosub(lp, up, cmd, nextcommand, use_old)
 					/*
 					 * extend the temporary buffer to do the substitution into.
 					 */
-					if ((p1 = alloc((unsigned)(STRLEN(new_start) + STRLEN(old_copy) + sublen + 1))) == NULL)
+					if ((p1 = alloc_check((unsigned)(STRLEN(new_start) +
+									STRLEN(old_copy) + sublen + 1))) == NULL)
 						goto outofmem;
 					STRCPY(p1, new_start);
 					free(new_start);
@@ -311,7 +345,7 @@ dosub(lp, up, cmd, nextcommand, use_old)
 				while (old_copy < prog->startp[0])
 					*new_end++ = *old_copy++;
 
-				regsub(prog, sub, new_end, 1, (int)p_magic);
+				regsub(prog, sub, new_end, TRUE, (int)p_magic);
 				nsubs++;
 				did_sub = TRUE;
 
@@ -326,7 +360,7 @@ dosub(lp, up, cmd, nextcommand, use_old)
 				{
 					if (p1 == new_end || p1[-1] != Ctrl('V'))
 					{
-						if (u_inssub(lnum))				/* prepare for undo */
+						if (u_inssub(lnum) == OK)		/* prepare for undo */
 						{
 							*p1 = NUL;					/* truncate up to the CR */
 							mark_adjust(lnum, MAXLNUM, 1L);
@@ -365,7 +399,7 @@ skip:
 						 */
 						STRCAT(new_start, old_copy);
 						i = old_line + STRLEN(old_line) - old_match;
-						if (u_savesub(lnum))
+						if (u_savesub(lnum) == OK)
 							ml_replace(lnum, new_start, TRUE);
 
 						free(old_line);			/* free the temp buffer */
@@ -490,6 +524,11 @@ doglob(type, lp, up, cmd)
 		++cmd;
 		pat = (char_u *)"";
 	}
+	else if (*cmd == NUL)
+	{
+		EMSG("Regular expression missing from global");
+		return;
+	}
 	else
 	{
 		delim = *cmd; 			/* get the delimiter */
@@ -508,7 +547,6 @@ doglob(type, lp, up, cmd)
 		emsg(e_invcmd);
 		return;
 	}
-	MSG("");
 
 /*
  * pass 1: set marks for each (not) matching line
@@ -537,45 +575,55 @@ doglob(type, lp, up, cmd)
 	else
 	{
 		global_busy = 1;
-		dont_sleep = 1;			/* don't sleep in emsg() */
-		no_wait_return = 1;		/* dont wait for return until finished */
-		need_wait_return = FALSE;
-		RedrawingDisabled = TRUE;
 		old_lcount = curbuf->b_ml.ml_line_count;
-		did_msg = FALSE;
 		while (!got_int && (lnum = ml_firstmarked()) != 0 && global_busy == 1)
 		{
-			/*
-			 * If there was a message from the previous command, scroll
-			 * the lines up for the next, otherwise it will be overwritten.
-			 * did_msg is set by msg_start().
-			 */
-			if (did_msg)
-			{
-				cmdline_row = msg_row;
-				did_msg = FALSE;
-			}
 			curwin->w_cursor.lnum = lnum;
 			curwin->w_cursor.col = 0;
 			if (*cmd == NUL || *cmd == '\n')
-				docmdline((char_u *)"p");
+				docmdline((char_u *)"p", FALSE, TRUE);
 			else
-				docmdline(cmd);
+				docmdline(cmd, FALSE, TRUE);
 			breakcheck();
 		}
 
-		RedrawingDisabled = FALSE;
 		global_busy = 0;
-		dont_sleep = 0;
-		no_wait_return = 0;
-		if (need_wait_return)                /* wait for return now */
-			wait_return(FALSE);
 
-		screenclear();
-		updateScreen(CURSUPD);
+		must_redraw = CLEAR;
+		cursupdate();
 		msgmore(curbuf->b_ml.ml_line_count - old_lcount);
 	}
 
 	ml_clearmarked();      /* clear rest of the marks */
 	free(prog);
 }
+
+#ifdef VIMINFO
+	int
+read_viminfo_sub_string(line, lnum, fp, force)
+	char_u	*line;
+	linenr_t *lnum;
+	FILE	*fp;
+	int		force;
+{
+	if (old_sub != NULL && force)
+		free(old_sub);
+	if (force || old_sub == NULL)
+	{
+		viminfo_readstring(line);
+		old_sub = strsave(line + 1);
+	}
+	return vim_fgets(line, LSIZE, fp, lnum);
+}
+
+	void
+write_viminfo_sub_string(fp)
+	FILE	*fp;
+{
+	if (old_sub != NULL)
+	{
+		fprintf(fp, "\n# Last Substitute String:\n$");
+		viminfo_writestring(fp, old_sub);
+	}
+}
+#endif /* VIMINFO */

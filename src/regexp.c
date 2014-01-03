@@ -364,7 +364,7 @@ regcomp(exp)
 /*	r = (regexp *) malloc((unsigned) (sizeof(regexp) + regsize));*/
 	r = (regexp *) alloc((unsigned) (sizeof(regexp) + regsize));
 	if (r == NULL)
-		EMSG_RETURN(e_outofmem);
+		return NULL;
 
 #ifdef EMPTY_RE			/* this is done outside of regexp */
 	if (exp != reg_prev_re) {
@@ -699,9 +699,20 @@ regatom(flagp)
 		EMSG_RETURN(e_internal);	/* Supposed to be caught earlier. */
 		/* break; Not Reached */
 	  case Magic('='):
+		EMSG_RETURN((char_u *)"\\= follows nothing");
+		/* break; Not Reached */
 	  case Magic('+'):
+		EMSG_RETURN((char_u *)"\\+ follows nothing");
+		/* break; Not Reached */
 	  case Magic('*'):
-		EMSG_RETURN((char_u *)"=+* follows nothing");
+		if (reg_magic)
+		{
+			EMSG_RETURN((char_u *)"* follows nothing");
+		}
+		else
+		{
+			EMSG_RETURN((char_u *)"\\* follows nothing");
+		}
 		/* break; Not Reached */
 #ifdef TILDE
 	  case Magic('~'):			/* previous substitute pattern */
@@ -925,6 +936,12 @@ regoptail(p, val)
 /* static int		curchr; */
 static int		prevchr;
 static int		nextchr;	/* used for ungetchr() */
+/*
+ * Note: prevchr is sometimes -1 when we are not at the start,
+ * eg in /[ ^I]^ the pattern was never found even if it existed, because ^ was
+ * taken to be magic -- webb
+ */
+static int		at_start;	/* True when we are on the first character */
 
 static void
 initchr(str)
@@ -932,6 +949,7 @@ char_u *str;
 {
 	regparse = str;
 	curchr = prevchr = nextchr = -1;
+	at_start = TRUE;
 }
 
 static int
@@ -940,7 +958,6 @@ peekchr()
 	if (curchr < 0) {
 		switch (curchr = regparse[0]) {
 		case '.':
-		case '*':
 	/*	case '+':*/
 	/*	case '=':*/
 		case '[':
@@ -948,9 +965,14 @@ peekchr()
 			if (reg_magic)
 				curchr = Magic(curchr);
 			break;
+		case '*':
+			/* * is not magic as the very first character, eg "?*ptr" */
+			if (reg_magic && !at_start)
+				curchr = Magic('*');
+			break;
 		case '^':
 			/* ^ is only magic as the very first character */
-			if (prevchr < 0)
+			if (at_start)
 				curchr = Magic('^');
 			break;
 		case '$':
@@ -971,6 +993,7 @@ peekchr()
 				 * Therefore, \ is so meta-magic that it is not in META.
 				 */
 				curchr = -1;
+				at_start = FALSE;			/* We still want to be able to say "/\*ptr" */
 				peekchr();
 				curchr ^= Magic(0);
 			}
@@ -993,6 +1016,7 @@ static void
 skipchr()
 {
 	regparse++;
+	at_start = FALSE;
 	prevchr = curchr;
 	curchr = nextchr;		/* use previously unget char, or -1 */
 	nextchr = -1;
@@ -1180,7 +1204,6 @@ regmatch(prog)
 				return 0;
 			break;
 		  case BOW:		/* \<word; reginput points to w */
-#define isidchar(x)	(isalnum(x) || ((x) == '_'))
 		  	if (reginput != regbol && isidchar(reginput[-1]))
 				return 0;
 		  	if (!reginput[0] || !isidchar(reginput[0]))

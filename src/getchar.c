@@ -44,6 +44,7 @@ struct buffheader
 
 static struct buffheader stuffbuff = {{NULL, {NUL}}, NULL, 0, 0};
 static struct buffheader redobuff = {{NULL, {NUL}}, NULL, 0, 0};
+static struct buffheader old_redobuff = {{NULL, {NUL}}, NULL, 0, 0};
 static struct buffheader recordbuff = {{NULL, {NUL}}, NULL, 0, 0};
 
 	/*
@@ -78,28 +79,19 @@ static struct mapblock maplist = {NULL, NULL, 0, NULL, 0, 0};
  * no_abbr_cnt is the number of characters in typestr that should not be
  * considered for abbreviations.
  * Some parts of typestr may not be mapped. These parts are remembered in
- * the noremaplist. 
+ * noremapstr, which is the same length as typestr and contains TRUE for the
+ * characters that are not to be remapped. 
+ * (typestr has been put in globals.h, because check_termcode() needs it).
  */
-#define MAXMAPLEN 50				/* maximum length of key sequence to be mapped */
-									/* must be able to hold an Amiga resize report */
-static char_u	*typestr = NULL;	/* NUL-terminated buffer for typeahead characters */
-static char_u	typebuf[MAXMAPLEN + 3]; /* initial typestr */
+#define MAXMAPLEN 50		/* maximum length of key sequence to be mapped */
+							/* must be able to hold an Amiga resize report */
+static char_u	*noremapstr = NULL;
+							/* NUL-terminated buffer for typeahead characters */
+static char_u	typebuf[MAXMAPLEN + 3];			/* initial typestr */
+static char_u	noremapbuf[MAXMAPLEN + 3];		/* initial noremapstr */
 
-static int		typemaplen = 0;		/* number of mapped characters in typestr */
-static int		no_abbr_cnt = 0;	/* number of chars without abbrev. in typestr */
-
-/* 
- * parts int typestr that should not be mapped are remembered with a list
- * of noremap structs. Noremaplist is the first.
- */
-struct noremap
-{
-	int				nr_off;			/* offset to not remappable chars */
-	int				nr_len;			/* number of not remappable chars */
-	struct noremap	*nr_next;		/* next entry in the list */
-};
-
-static struct noremap noremaplist = {0, 0, NULL};
+static int		typemaplen = 0;		/* nr of mapped characters in typestr */
+static int		no_abbr_cnt = 0;	/* nr of chars without abbrev. in typestr */
 
 static void		free_buff __ARGS((struct buffheader *));
 static char_u	*get_bufcont __ARGS((struct buffheader *, int));
@@ -108,7 +100,8 @@ static void		add_num_buff __ARGS((struct buffheader *, long));
 static void		add_char_buff __ARGS((struct buffheader *, int));
 static int		read_stuff __ARGS((int));
 static void		start_stuff __ARGS((void));
-static int		read_redo __ARGS((int));
+static int		read_redo __ARGS((int, int));
+static void		copy_redo __ARGS((int));
 static void		init_typestr __ARGS((void));
 static void		gotchars __ARGS((char_u *, int));
 static int		vgetorpeek __ARGS((int));
@@ -139,21 +132,25 @@ get_bufcont(buffer, dozero)
 	struct buffheader	*buffer;
 	int					dozero;		/* count == zero is not an error */
 {
-		long_u			count = 0;
-		char_u			*p = NULL;
-		struct bufblock	*bp;
+	long_u			count = 0;
+	char_u			*p = NULL;
+	char_u			*p2;
+	char_u			*str;
+	struct bufblock	*bp;
 
 /* compute the total length of the string */
-		for (bp = buffer->bh_first.b_next; bp != NULL; bp = bp->b_next)
-				count += STRLEN(bp->b_str);
+	for (bp = buffer->bh_first.b_next; bp != NULL; bp = bp->b_next)
+		count += STRLEN(bp->b_str);
 
-		if ((count || dozero) && (p = lalloc(count + 1, TRUE)) != NULL)
-		{
-				*p = NUL;
-				for (bp = buffer->bh_first.b_next; bp != NULL; bp = bp->b_next)
-						strcat((char *)p, (char *)bp->b_str);
-		}
-		return (p);
+	if ((count || dozero) && (p = lalloc(count + 1, TRUE)) != NULL)
+	{
+		p2 = p;
+		for (bp = buffer->bh_first.b_next; bp != NULL; bp = bp->b_next)
+			for (str = bp->b_str; *str; )
+				*p2++ = *str++;
+		*p2 = NUL;
+	}
+	return (p);
 }
 
 /*
@@ -248,11 +245,23 @@ add_char_buff(buf, c)
 	struct buffheader *buf;
 	int 			  c;
 {
-		char_u	temp[2];
+	char_u	temp[3];
 
+	/*
+	 * translate special key code into two byte sequence
+	 */
+	if (c >= 0x100)
+	{
+		temp[0] = K_SPECIAL;
+		temp[1] = K_SECOND(c);
+		temp[2] = NUL;
+	}
+	else
+	{
 		temp[0] = c;
 		temp[1] = NUL;
-		add_buff(buf, temp);
+	}
+	add_buff(buf, temp);
 }
 
 /*
@@ -316,8 +325,6 @@ stuff_empty()
 flush_buffers(typeahead)
 	int typeahead;
 {
-	struct noremap *p;
-
 	init_typestr();
 
 	start_stuff();
@@ -336,24 +343,27 @@ flush_buffers(typeahead)
 		*typestr = NUL;
 	}
 	else					/* remove mapped characters only */
+	{
 		STRCPY(typestr, typestr + typemaplen);
+		memmove(noremapstr, noremapstr + typemaplen, STRLEN(typestr));
+	}
 	typemaplen = 0;
 	no_abbr_cnt = 0;
-	noremaplist.nr_len = 0;
-	noremaplist.nr_off = 0;
-	while (noremaplist.nr_next)
-	{
-		p = noremaplist.nr_next->nr_next;
-		free(noremaplist.nr_next);
-		noremaplist.nr_next = p;
-	}
 }
 
+/*
+ * The previous contents of the redo buffer is kept in old_redobuffer.
+ * This is used for the CTRL-O <.> command in insert mode.
+ */
 	void
 ResetRedobuff()
 {
 	if (!block_redo)
-		free_buff(&redobuff);
+	{
+		free_buff(&old_redobuff);
+		old_redobuff = redobuff;
+		redobuff.bh_first.b_next = NULL;
+	}
 }
 
 	void
@@ -405,10 +415,12 @@ stuffnumReadbuff(n)
  * Read a character from the redo buffer.
  * The redo buffer is left as it is.
  * if init is TRUE, prepare for redo, return FAIL if nothing to redo, OK otherwise
+ * if old is TRUE, use old_redobuff instead of redobuff
  */
 	static int
-read_redo(init)
+read_redo(init, old)
 	int			init;
+	int			old;
 {
 	static struct bufblock	*bp;
 	static char_u			*p;
@@ -416,7 +428,11 @@ read_redo(init)
 
 	if (init)
 	{
-		if ((bp = redobuff.bh_first.b_next) == NULL)
+		if (old)
+			bp = old_redobuff.bh_first.b_next;
+		else
+			bp = redobuff.bh_first.b_next;
+		if (bp == NULL)
 			return FAIL;
 		p = bp->b_str;
 		return OK;
@@ -434,65 +450,70 @@ read_redo(init)
 
 /*
  * copy the rest of the redo buffer into the stuff buffer (could be done faster)
+ * if old is TRUE, use old_redobuff instead of redobuff
  */
-	void
-copy_redo()
+	static void
+copy_redo(old)
+	int		old;
 {
 	register int c;
 
-	while ((c = read_redo(FALSE)) != NUL)
+	while ((c = read_redo(FALSE, old)) != NUL)
 		stuffcharReadbuff(c);
 }
-
-extern int redo_Visual_busy;		/* this is in normal.c */
 
 /*
  * Stuff the redo buffer into the stuffbuff.
  * Insert the redo count into the command.
+ * If 'old' is TRUE, the last but one command is repeated
+ * instead of the last command (inserting text). This is used for
+ * CTRL-O <.> in insert mode
+ *
  * return FAIL for failure, OK otherwise
  */
 	int
-start_redo(count)
-	long count;
+start_redo(count, old)
+	long	count;
+	int		old;
 {
 	register int c;
 
-	if (read_redo(TRUE) == FAIL)	/* init the pointers; return if nothing to redo */
+	if (read_redo(TRUE, old) == FAIL)	/* init the pointers; return if nothing to redo */
 		return FAIL;
 
-	c = read_redo(FALSE);
+	c = read_redo(FALSE, old);
 
 /* copy the buffer name, if present */
 	if (c == '"')
 	{
 		add_buff(&stuffbuff, (char_u *)"\"");
-		c = read_redo(FALSE);
+		c = read_redo(FALSE, old);
 
 /* if a numbered buffer is used, increment the number */
 		if (c >= '1' && c < '9')
 			++c;
 		add_char_buff(&stuffbuff, c);
-		c = read_redo(FALSE);
+		c = read_redo(FALSE, old);
 	}
 
 	if (c == 'v')	/* redo Visual */
 	{
 		VIsual = curwin->w_cursor;
 		redo_Visual_busy = TRUE;
-		c = read_redo(FALSE);
+		c = read_redo(FALSE, old);
 	}
 
 /* try to enter the count (in place of a previous count) */
 	if (count)
 	{
 		while (isdigit(c))		/* skip "old" count */
-			c = read_redo(FALSE);
+			c = read_redo(FALSE, old);
 		add_num_buff(&stuffbuff, count);
 	}
 
 /* copy from the redo buffer into the stuff buffer */
 	add_char_buff(&stuffbuff, c);
-	copy_redo();
+	copy_redo(old);
 	return OK;
 }
 
@@ -506,12 +527,12 @@ start_redo_ins()
 {
 	register int c;
 
-	if (read_redo(TRUE) == FAIL)
+	if (read_redo(TRUE, FALSE) == FAIL)
 		return FAIL;
 	start_stuff();
 
 /* skip the count and the command character */
-	while ((c = read_redo(FALSE)) != NUL)
+	while ((c = read_redo(FALSE, FALSE)) != NUL)
 	{
 		c = TO_UPPER(c);
 		if (strchr("AIRO", c) != NULL)
@@ -523,7 +544,7 @@ start_redo_ins()
 	}
 
 /* copy the typed text from the redo buffer into the stuff buffer */
-	copy_redo();
+	copy_redo(FALSE);
 	block_redo = TRUE;
 	return OK;
 }
@@ -552,21 +573,35 @@ init_typestr()
 	{
 		typestr = typebuf;
 		typebuf[0] = NUL;
+		noremapstr = noremapbuf;
 	}
 }
 
 /*
- * insert a string in front of the typeahead buffer (for '@' command and vgetorpeek)
+ * insert a string in position 'offset' in the typeahead buffer (for '@'
+ * command, vgetorpeek() and check_termcode())
+ *
+ * If noremap is 0, new string can be mapped again.
+ * If noremap is -1, new string cannot be mapped again.
+ * If noremap is >0, that many characters of the new string cannot be mapped.
+ *
+ * If nottyped is TRUE, the string does not return KeyTyped (don't use when
+ * offset is non-zero!).
+ *
  * return FAIL for failure, OK otherwise
  */
 	int
-ins_typestr(str, noremap)
+ins_typestr(str, noremap, offset, nottyped)
 	char_u	*str;
 	int		noremap;
+	int		offset;
+	int		nottyped;
 {
-	register char_u	*s;
+	register char_u	*s1, *s2;
 	register int	newlen;
 	register int	addlen;
+	register int	oldlen;
+	register int	i;
 
 	init_typestr();
 
@@ -574,95 +609,94 @@ ins_typestr(str, noremap)
 	 * In typestr there must always be room for MAXMAPLEN + 3 characters
 	 */
 	addlen = STRLEN(str);
-	newlen = STRLEN(typestr) + addlen + MAXMAPLEN + 3;
+	oldlen = STRLEN(typestr);
+	newlen = oldlen + addlen + MAXMAPLEN + 3;
 	if (newlen < 0)				/* string is getting too long */
 	{
 		emsg(e_toocompl);		/* also calls flush_buffers */
 		setcursor();
 		return FAIL;
 	}
-	s = alloc(newlen);
-	if (s == NULL)				/* out of memory */
+	s1 = alloc(newlen);
+	if (s1 == NULL)				/* out of memory */
 		return FAIL;
+	s2 = alloc(newlen);
+	if (s2 == NULL)				/* out of memory */
+	{
+		free(s1);
+		return FAIL;
+	}
 
-	STRCPY(s, str);
-	STRCAT(s, typestr);
+	STRNCPY(s1, typestr, offset);
+	STRCPY(s1 + offset, str);
+	STRCPY(s1 + offset + addlen, typestr + offset);
 	if (typestr != typebuf)
 		free(typestr);
-	typestr = s;
-	typemaplen += addlen;		/* the inserted string is not typed */
-	if (no_abbr_cnt)			/* and not used for abbreviations */
-		no_abbr_cnt += addlen;
-	if (noremap)
-	{
-		if (noremaplist.nr_off == 0)
-			noremaplist.nr_len += addlen;
-		else
-		{
-			struct noremap *p;
+	typestr = s1;
 
-			p = (struct noremap *)alloc((int)sizeof(struct noremap));
-			if (p != NULL)
-			{
-				p->nr_next = noremaplist.nr_next;
-				p->nr_off = noremaplist.nr_off;
-				p->nr_len = noremaplist.nr_len;
-				noremaplist.nr_next = p;
-				noremaplist.nr_len = addlen;
-				noremaplist.nr_off = 0;
-			}
+	/*
+	 * Adjust the noremapstr:
+	 * If noremap  < 0: all the new characters are flagged not remappable
+	 * If noremap == 0: all the new characters are flagged mappable
+	 * If noremap  > 0: 'noremap' characters are flagged not remappable, the
+	 *					rest mappable
+	 */
+	memmove(s2, noremapstr, offset);
+	memmove(s2 + addlen + offset, noremapstr + offset, oldlen - offset);
+	if (noremap < 0)		/* length not specified */
+		noremap = addlen;
+	for (i = 0; i < addlen; ++i)
+	{
+		if (noremap)
+		{
+			--noremap;
+			s2[i + offset] = TRUE;			/* not mappable character */
 		}
+		else
+			s2[i + offset] = FALSE;			/* mappable character */
 	}
-	else if (noremaplist.nr_len)
-		noremaplist.nr_off += addlen;
+	if (noremapstr != noremapbuf)
+		free(noremapstr);
+	noremapstr = s2;
+
+					/* this is only correct for offset == 0! */
+	if (nottyped)						/* the inserted string is not typed */
+		typemaplen += addlen;
+	if (no_abbr_cnt && offset == NULL)	/* and not used for abbreviations */
+		no_abbr_cnt += addlen;
+
 	return OK;
 }
 
 /*
- * remove "len" characters from the front of typestr
+ * remove "len" characters from typestr[offset]
  */
 	void
-del_typestr(len)
+del_typestr(len, offset)
 	int	len;
+	int	offset;
 {
-	struct noremap *p;
-
-	STRCPY(typestr, typestr + len);
 										/* remove chars from the buffer */
-	if ((typemaplen -= len) < 0)		/* adjust typemaplen */
-		typemaplen = 0;
-	if ((no_abbr_cnt -= len) < 0)		/* adjust no_abbr_cnt */
-		no_abbr_cnt = 0;
+	STRCPY(typestr + offset, typestr + offset + len);
+										/* adjust noremapstr */
+	memmove(noremapstr + offset, noremapstr + offset + len,
+												STRLEN(typestr + offset));
 
-	while (len)							/* adjust noremaplist */
+	if (typemaplen > offset)			/* adjust typemaplen */
 	{
-		if (noremaplist.nr_off >= len)
-		{
-			noremaplist.nr_off -= len;
-			break;
-		}
-		len -= noremaplist.nr_off;
-		noremaplist.nr_off = 0;
-		if (noremaplist.nr_len > len)
-		{
-			noremaplist.nr_len -= len;
-			break;
-		}
-		len -= noremaplist.nr_len;
-		p = noremaplist.nr_next;
-		if (p == NULL)
-		{
-			noremaplist.nr_len = 0;
-			break;
-		}
-		noremaplist.nr_next = p->nr_next;
-		noremaplist.nr_len = p->nr_len;
-		noremaplist.nr_off = p->nr_off;
-		free(p);
+		if (typemaplen < offset + len)
+			typemaplen = offset;
+		else
+			typemaplen -= len;
+	}
+	if (no_abbr_cnt > offset)			/* adjust no_abbr_cnt */
+	{
+		if (no_abbr_cnt < offset + len)
+			no_abbr_cnt = offset;
+		else
+			no_abbr_cnt -= len;
 	}
 }
-
-extern int arrow_used;			/* this is in edit.c */
 
 /*
  * Write typed characters to script file.
@@ -750,26 +784,45 @@ updatescript(c)
 		putc(c, scriptout);
 	if (c == 0 || ++count >= p_uc)
 	{
-		ml_sync_all(c == 0);
+		ml_sync_all(c == 0, TRUE);
 		count = 0;
 	}
 }
 
 #define NEEDMORET 9999		/* value for incomplete mapping or key-code */
 
-/*
- * get a character: 1. from the stuffbuffer
- *					2. from the typeahead buffer
- *					3. from the user
- *
- * KeyTyped is set to TRUE in the case the user typed the key.
- * vgetc() (advance is TRUE): really get the character.
- * vpeekc() (advance is FALSE): just look whether there is a character available.
- */
+static int old_char = -1;		/* ungotten character */
+
 	int
 vgetc()
 {
-	return (vgetorpeek(TRUE));
+	int		c;
+	int		save_State;
+
+	c = vgetorpeek(TRUE);
+/*
+ * get extra byte for special keys
+ */
+	if (c == K_SPECIAL)
+	{
+		save_State = State;
+		State = NOMAPPING;
+		c = vgetorpeek(TRUE);		/* no mapping for second char */
+		State = save_State;
+		if (c == KS_SPECIAL)
+			c = K_SPECIAL;
+		else
+			c += KS_OFF;
+	}
+#ifdef MSDOS
+/*
+ * If K_NUL was typed, it is replaced by K_NUL, 3 in GetChars().
+ * Delete the 3 here.
+ */
+	else if (c == K_NUL && vpeekc() == 3)
+		(void)vgetorpeek(TRUE);
+#endif
+	return c;
 }
 
 	int
@@ -777,6 +830,42 @@ vpeekc()
 {
 	return (vgetorpeek(FALSE));
 }
+
+/*
+ * Call vpeekc() without causing anything to be mapped.
+ * Return TRUE if a character is available, FALSE otherwise.
+ */
+	int
+char_avail()
+{
+	int		save_State;
+	int		retval;
+
+	save_State = State;
+	State = NOMAPPING;
+	retval = vpeekc();
+	State = save_State;
+	return (retval != NUL);
+}
+
+	void
+vungetc(c)		/* unget one character (can only be done once!) */
+	int		c;
+{
+	old_char = c;
+}
+
+/*
+ * get a character: 1. from a previously ungotten character
+ *					2. from the stuffbuffer
+ *					3. from the typeahead buffer
+ *					4. from the user
+ *
+ * KeyTyped is set to TRUE in the case the user typed the key.
+ * advance is TRUE (vgetc()): really get the character.
+ * advance is FALSE (vpeekc()): just look whether there is a character
+ * available.
+ */
 
 	static int
 vgetorpeek(advance)
@@ -794,12 +883,26 @@ vgetorpeek(advance)
 	int				mapdepth = 0;			/* check for recursive mapping */
 	int				mode_deleted = FALSE;	/* set when mode has been deleted */
 
+/*
+ * get a character: 1. from a previously ungotten character
+ */
+	if (old_char >= 0)
+	{
+		c = old_char;
+		if (advance)
+			old_char = -1;
+		return c;
+	}
+
 	init_typestr();
 	start_stuff();
-	if (typemaplen == 0)
+	if (advance && typemaplen == 0)
 		Exec_reg = FALSE;
 	do
 	{
+/*
+ * get a character: 2. from the stuffbuffer
+ */
 		c = read_stuff(advance);
 		if (c != NUL && !got_int)
 			KeyTyped = FALSE;
@@ -843,21 +946,35 @@ vgetorpeek(advance)
 					 * - timed out
 					 * - typestr[0] should not be remapped
 					 * - in insert or cmdline mode and 'paste' option set
-					 * - waiting for "hit return to continue" and CR or SPACE typed
+					 * - waiting for "hit return to continue" and CR or SPACE
+					 *   typed
+					 * - waiting for a char with --more--
+					 * - in Ctrl-X mode, and we get a valid char for that mode
 					 */
 					mp = NULL;
-					if (!timedout && (typemaplen == 0 || (p_remap &&
-							(noremaplist.nr_len == 0 || noremaplist.nr_off != 0)))
+					if (!timedout && (typemaplen == 0 ||
+								(p_remap && *noremapstr == FALSE))
 							&& !((State & (INSERT + CMDLINE)) && p_paste)
-							&& !(State == HITRETURN && (typestr[0] == CR || typestr[0] == ' ')))
+							&& !(State == HITRETURN && (typestr[0] == CR
+								|| typestr[0] == ' '))
+							&& State != ASKMORE
+							&& !is_ctrl_x_key(typestr[0]))
 					{
 						for (mp = maplist.m_next; mp; mp = mp->m_next)
 						{
 							if ((mp->m_mode & ABBREV) || !(mp->m_mode & State))
 								continue;
-							n = mp->m_keylen;
-							if (noremaplist.nr_off != 0 && n > noremaplist.nr_off)
+								/* if one of the typed keys cannot be
+								 * remapped, skip it */
+							n = mp->m_keylen - 1;
+							if (n >= len)
+								n = len - 1;
+							for ( ; n >= 0; --n)
+								if (noremapstr[n] == TRUE)
+									break;
+							if (n >= 0)
 								continue;
+							n = mp->m_keylen;
 							if (!STRNCMP(mp->m_keys, typestr, (size_t)(n > len ? len : n)))
 								break;
 						}
@@ -872,11 +989,8 @@ vgetorpeek(advance)
 							 *		p_ek is on,
 							 *	and when not timed out,
 							 */
-						if (State != NOMAPPING &&
-								/* typemaplen == 0 && */ /* allow mapped keys anyway */
-								(typestr[0] != ESC || p_ek || !(State & INSERT)) &&
-								!timedout)
-							n = check_termcode(typestr);
+						if (State != NOMAPPING && !timedout)
+							n = check_termcode();
 						else
 							n = 0;
 						if (n == 0)		/* no matching terminal code */
@@ -888,7 +1002,7 @@ vgetorpeek(advance)
 									;
 								if (*s == 'r' || *s == '|')	/* found one */
 								{
-									STRCPY(typestr, s + 1);
+									del_typestr(s + 1 - typestr, 0);
 									set_winsize(0, 0, FALSE);		/* get size and redraw screen */
 									continue;
 								}
@@ -898,17 +1012,21 @@ vgetorpeek(advance)
 							if (n != -1)			/* got a single character */
 #endif
 							{
+/*
+ * get a character: 3. from the typeahead buffer
+ */
 								c = typestr[0] & 255;
 								if (typemaplen)
 									KeyTyped = FALSE;
 								else
 								{
 									KeyTyped = TRUE;
-									if (advance)	/* write char to script file(s) */
+										/* write char to script file(s) */
+									if (advance)
 										gotchars(typestr, 1);
 								}
-								if (advance)		/* remove chars from typestr */
-									del_typestr(1);
+								if (advance)	/* remove chars from typestr */
+									del_typestr(1, 0);
 								break;		/* got character, break for loop */
 							}
 						}
@@ -923,7 +1041,7 @@ vgetorpeek(advance)
 						if (n > typemaplen)		/* write chars to script file(s) */
 							gotchars(typestr + typemaplen, n - typemaplen);
 
-						del_typestr(n);	/* remove the mapped keys */
+						del_typestr(n, 0);	/* remove the mapped keys */
 
 						/*
 						 * Put the replacement string in front of mapstr.
@@ -941,7 +1059,16 @@ vgetorpeek(advance)
 							c = -1;
 							break;
 						}
-						if (ins_typestr(mp->m_str, mp->m_noremap) == FAIL)
+						/*
+						 * Insert the 'to' part in the typestr.
+						 * If 'from' field is the same as the start of the
+						 * 'to' field, don't remap this part.
+						 * If m_noremap is set, don't remap the whole 'to'
+						 * part.
+						 */
+						if (ins_typestr(mp->m_str, mp->m_noremap ? -1 :
+								STRNCMP(mp->m_str, mp->m_keys, n) ? 0 : n,
+															0, TRUE) == FAIL)
 						{
 							c = -1;
 							break;
@@ -970,10 +1097,24 @@ vgetorpeek(advance)
 						{
 							if (did_ai)
 							{
-								if (curwin->w_p_nu)
-									curwin->w_col = 8;
-								else
-									curwin->w_col = 0;
+								/*
+								 * We are expecting to truncate the trailing
+								 * white-space, so find the last non-white
+								 * character -- webb
+								 */
+								int		col, vcol;
+								char_u	*ptr;
+
+								col = vcol = curwin->w_col = 0;
+								ptr = ml_get(curwin->w_cursor.lnum);
+								while (col < curwin->w_cursor.col)
+								{
+									if (!iswhite(ptr[col]))
+										curwin->w_col = vcol;
+									vcol += chartabsize(ptr[col++], vcol);
+								}
+  								if (curwin->w_p_nu)
+									curwin->w_col += 8;
 							}
 							else
 								--curwin->w_col;
@@ -994,6 +1135,9 @@ vgetorpeek(advance)
 					timedout = TRUE;
 					continue;
 				}
+/*
+ * get a character: 4. from the user
+ */
 				c = inchar(typestr + len, typemaplen + MAXMAPLEN - len, !advance ? 0 : ((len == 0 || !(p_timeout || (p_ttimeout && n == NEEDMORET))) ? -1 : (int)p_tm));
 				if (c <= NUL)		/* no character available */
 				{
@@ -1004,6 +1148,11 @@ vgetorpeek(advance)
 						timedout = TRUE;
 						continue;
 					}
+				}
+				else
+				{			/* allow mapping for just typed characters */
+					while (typestr[len] != NUL)
+						noremapstr[len++] = FALSE;
 				}
 			}		/* for (;;) */
 		}		/* if (!character from stuffbuf) */
@@ -1074,6 +1223,9 @@ domap(maptype, keys, mode)
 	int					did_it = FALSE;
 	int					abbrev = 0;
 	int					round;
+	char_u				*keys_buf = NULL;
+	char_u				*arg_buf = NULL;
+	int					retval = 0;
 
 	if (mode & ABBREV)		/* not a mapping but an abbreviation */
 	{
@@ -1093,40 +1245,70 @@ domap(maptype, keys, mode)
 	}
 	if (*p != NUL)
 		*p++ = NUL;
-	skipspace(&p);
+	skipwhite(&p);
 	arg = p;
 	hasarg = (*arg != NUL);
 	haskey = (*keys != NUL);
 
 		/* check for :unmap without argument */
 	if (maptype == 1 && !haskey)	
-		return 1;
+	{
+		retval = 1;
+		goto theend;
+	}
+
+	/*
+	 * If mapping has been given as ^V<C_UP> say, then replace the term codes
+	 * with the appropriate two bytes.
+	 * The length may be doubled, we need to allocate some memory.
+	 */
+	if (haskey)
+	{
+		keys_buf = alloc(STRLEN(keys) * 2 + 1);
+		if (keys_buf != NULL)
+		{
+			STRCPY(keys_buf, keys);
+			keys = keys_buf;
+			replace_termcodes(keys);
+		}
+	}
+	if (hasarg)
+	{
+		arg_buf = alloc(STRLEN(arg) * 2 + 1);
+		if (arg_buf != NULL)
+		{
+			STRCPY(arg_buf, arg);
+			arg = arg_buf;
+			replace_termcodes(arg);
+		}
+	}
 
 /*
  * remove CTRL-Vs from argument
  */
-	while (*p)
-	{
+	for (p = arg; *p; ++p)
 		if (*p == Ctrl('V') && p[1] != NUL)
 			STRCPY(p, p + 1);			/* remove CTRL-V */
-		++p;
-	}
 
 /*
  * check arguments and translate function keys
  */
 	if (haskey)
 	{
-		if (*keys == '#' && isdigit(*(keys + 1)))	/* function key */
+		if (keys[0] == '#' && isdigit(keys[1]))		/* function key */
 		{
-			if (*++keys == '0')
-				*keys = K_F10;
+			keys[0] = K_SPECIAL;
+			if (keys[1] == '0')
+				keys[1] = KS_F10;
 			else
-				*keys += K_F1 - '1';
+				keys[1] = keys[1] - '1' + KS_F1;
 		}
 		len = STRLEN(keys);
 		if (len > MAXMAPLEN)			/* maximum lenght of MAXMAPLEN chars */
-			return 1;
+		{
+			retval = 1;
+			goto theend;
+		}
 
 		/*
 		 * abbreviation must end in id-char
@@ -1135,10 +1317,16 @@ domap(maptype, keys, mode)
 		if (abbrev)
 		{
 			if (!isidchar(*(keys + len - 1)))		/* does not end in id char */
-				return 1;
+				{
+					retval = 1;
+					goto theend;
+				}
 			for (n = 0; n < len - 2; ++n)
 				if (isidchar(*(keys + n)) != isidchar(*(keys + len - 2)))
-					return 1;
+				{
+					retval = 1;
+					goto theend;
+				}
 		}
 	}
 
@@ -1202,7 +1390,8 @@ domap(maptype, keys, mode)
 					{
 						if (abbrev)				/* for abbreviations that's ok */
 							continue;
-						return 3;
+						retval = 3;
+						goto theend;
 					}
 					else
 					{
@@ -1211,7 +1400,10 @@ domap(maptype, keys, mode)
 						{
 							newstr = strsave(arg);
 							if (newstr == NULL)
-								return 4;			/* no mem */
+							{
+								retval = 4;			/* no mem */
+								goto theend;
+							}
 							free(mp->m_str);
 							mp->m_str = newstr;
 							mp->m_noremap = maptype;
@@ -1234,32 +1426,35 @@ domap(maptype, keys, mode)
 
 	if (maptype == 1)						/* delete entry */
 	{
-		if (did_it)
-			return 0;						/* removed OK */
-		else
-			return 2;						/* no match */
+		if (!did_it)
+			retval = 2;						/* no match */
+		goto theend;
 	}
 
 	if (!haskey || !hasarg)					/* print entries */
 	{
-		if (did_it)
-			msg_end();
-		else if (abbrev)
-			MSG("No abbreviation found");
-		else
-			MSG("No mapping found");
-		return 0;							/* listing finished */
+		if (!did_it)
+		{
+			if (abbrev)
+				MSG("No abbreviation found");
+			else
+				MSG("No mapping found");
+		}
+		goto theend;						/* listing finished */
 	}
 
 	if (did_it)					/* have added the new entry already */
-		return 0;
+		goto theend;
 /*
  * get here when we have to add a new entry
  */
 		/* allocate a new entry for the maplist */
 	mp = (struct mapblock *)alloc((unsigned)sizeof(struct mapblock));
 	if (mp == NULL)
-		return 4;			/* no mem */
+	{
+		retval = 4;			/* no mem */
+		goto theend;
+	}
 	mp->m_keys = strsave(keys);
 	mp->m_str = strsave(arg);
 	if (mp->m_keys == NULL || mp->m_str == NULL)
@@ -1267,7 +1462,8 @@ domap(maptype, keys, mode)
 		free(mp->m_keys);
 		free(mp->m_str);
 		free(mp);
-		return 4;		/* no mem */
+		retval = 4;		/* no mem */
+		goto theend;
 	}
 	mp->m_keylen = STRLEN(mp->m_keys);
 	mp->m_noremap = maptype;
@@ -1277,7 +1473,10 @@ domap(maptype, keys, mode)
 	mp->m_next = maplist.m_next;
 	maplist.m_next = mp;
 
-	return 0;				/* added OK */
+theend:
+	free(keys_buf);
+	free(arg_buf);
+	return retval;
 }
 
 	static void
@@ -1286,14 +1485,15 @@ showmap(mp)
 {
 	int len;
 
-	msg_pos(-1, 0);						/* always start in column 0 */
+	if (msg_didout)
+		msg_outchar('\n');
 	if ((mp->m_mode & (INSERT + CMDLINE)) == INSERT + CMDLINE)
 		msg_outstr((char_u *)"! ");
 	else if (mp->m_mode & INSERT)
 		msg_outstr((char_u *)"i ");
 	else if (mp->m_mode & CMDLINE)
 		msg_outstr((char_u *)"c ");
-	len = msg_outtrans(mp->m_keys, -1);	/* get length of what we have written */
+	len = msg_outtrans_meta(mp->m_keys, TRUE);	/* get length of what we write */
 	do
 	{
 		msg_outchar(' ');				/* padd with blanks */
@@ -1303,8 +1503,10 @@ showmap(mp)
 		msg_outchar('*');
 	else
 		msg_outchar(' ');
-	msg_outtrans(mp->m_str, -1);
-	msg_outchar('\n');
+	/* Use FALSE below if we only want things like <C_UP> to show up as such on
+	 * the rhs, and not M-x etc, TRUE gets both -- webb
+	 */
+	msg_outtrans_meta(mp->m_str, TRUE);
 	flushbuf();							/* show one line at a time */
 }
 
@@ -1315,7 +1517,8 @@ showmap(mp)
  *
  * Historic vi practice: The last character of an abbreviation must be an id
  * character ([a-zA-Z0-9_]). The characters in front of it must be all id
- * characters or all non-id characters. This allows for abbr. "#i" to "#include".
+ * characters or all non-id characters. This allows for abbr. "#i" to
+ * "#include".
  *
  * return TRUE if there is an abbreviation, FALSE if not
  */
@@ -1359,18 +1562,39 @@ check_abbr(c, ptr, col, mincol)
 						!STRNCMP(mp->m_keys, ptr, (size_t)len))
 				break;
 		}
-		if (mp)								/* found a match */
+		if (mp)
 		{
+			/*
+			 * Found a match:
+			 * Insert the rest of the abbreviation in typestr.
+			 * This goes from end to start.
+			 *
+			 * Characters 0x000 - 0x100: normal chars, may need CTRL-V.
+			 * Characters 0x100 - 0x200: key codes, need K_SPECIAL.
+			 * Characters   above 0x200: don't use CTRL-V
+			 */
 			j = 0;
-			if (c < 0x100 && (c < ' ' || c > '~'))
-				tb[j++] = Ctrl('V');		/* special char needs CTRL-V */
+			if (c < 0x100)
+			{
+				if (c < ' ' || c > '~')
+					tb[j++] = Ctrl('V');	/* special char needs CTRL-V */
+			}
+			else if (c < 0x200)				/* special key code, split up */
+			{
+				tb[j++] = K_SPECIAL;
+				c = K_SECOND(c);
+			}
 			tb[j++] = c;
 			tb[j] = NUL;
-			(void)ins_typestr(tb, TRUE);					/* insert the last typed char */
-			(void)ins_typestr(mp->m_str, mp->m_noremap);	/* insert the to string */
-			no_abbr_cnt += STRLEN(mp->m_str) + j;	/* no abbrev. for these chars */
+												/* insert the last typed char */
+			(void)ins_typestr(tb, TRUE, 0, TRUE);
+												/* insert the to string */
+			(void)ins_typestr(mp->m_str, mp->m_noremap, 0, TRUE);
+												/* no abbrev. for these chars */
+			no_abbr_cnt += STRLEN(mp->m_str) + j;
 			while (len--)
-				(void)ins_typestr((char_u *)"\b", TRUE);	/* delete the from string */
+												/* delete the from string */
+				(void)ins_typestr((char_u *)"\b", TRUE, 0, TRUE);
 			return TRUE;
 		}
 	}
@@ -1450,25 +1674,47 @@ putescstr(fd, str, set)
 	char_u		*str;
 	int			set;		/* TRUE for makeset, FALSE for makemap */
 {
+	int		c;
+
 	for ( ; *str; ++str)
 	{
+		c = *str;
+		/*
+		 * Special key codes have to be translated to be able to make sense
+		 * when they are read back.
+		 */
+		if (c == K_SPECIAL)
+		{
+			c = *++str;
+			if (!set && c >= KS_UARROW && c <= KS_MAXKEY)
+			{
+					/* sorry, no check for write error on this one */
+				fprintf(fd, "<%s>", (char *)get_key_names()[c - KS_UARROW]);
+				continue;
+			}
+			else if (c == KS_SPECIAL)
+				c = K_SPECIAL;
+			else if (c == KS_ZERO)
+				c = NUL;
+			/* else: illegal key code !? */
+		}
 		/*
 		 * some characters have to be escaped with CTRL-V to
 		 * prevent them from misinterpreted in DoOneCmd().
 		 * A space has to be escaped with a backslash to
 		 * prevent it to be misinterpreted in doset().
 		 */
-		if (*str < ' ' || *str > '~' || (*str == ' ' && !set))
+		if (c < ' ' || c > '~' || (c == ' ' && !set))
 		{
 			if (putc(Ctrl('V'), fd) < 0)
 				return FAIL;
 		}
-		else if ((set && *str == ' ') || *str == '|')
+		else if ((set && c == ' ') || c == '|')
 		{
 			if (putc('\\', fd) < 0)
 				return FAIL;
 		}
-		if (putc(*str, fd) < 0)
+		if (putc(c, fd) < 0)
 			return FAIL;
 	}
 	return OK;

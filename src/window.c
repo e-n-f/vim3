@@ -11,6 +11,7 @@
 #include "proto.h"
 #include "param.h"
 
+static void reset_Visual __ARGS((void));
 static int win_comp_pos __ARGS((void));
 static void win_exchange __ARGS((long));
 static void win_rotate __ARGS((int, int));
@@ -30,6 +31,9 @@ do_window(nchar, Prenum)
 	long	Prenum1;
 	WIN		*wp;
 	char_u	*ptr;
+	int		len;
+	int		type = -1;
+	BUF		*old_curbuf = curbuf;
 
 	if (Prenum == 0)
 		Prenum1 = 1;
@@ -41,13 +45,22 @@ do_window(nchar, Prenum)
 /* split current window in two parts */
 	case 'S':
 	case Ctrl('S'):
-	case 's':	VIsual.lnum = 0;		/* stop Visual mode */
+	case 's':	reset_Visual();					/* stop Visual mode */
 				win_split(Prenum, TRUE);
+				break;
+
+/* split current window and edit alternate file */
+	case K_CCIRCM:
+				reset_Visual();					/* stop Visual mode */
+				stuffReadbuff(":split #");
+				if (Prenum)
+					stuffnumReadbuff(Prenum);	/* buffer number */
+				stuffcharReadbuff('\n');
 				break;
 
 /* open new window */
 	case Ctrl('N'):
-	case 'n':	VIsual.lnum = 0;					/* stop Visual mode */
+	case 'n':	reset_Visual();					/* stop Visual mode */
 				stuffcharReadbuff(':');
 				if (Prenum)
 					stuffnumReadbuff(Prenum);		/* window height */
@@ -56,19 +69,19 @@ do_window(nchar, Prenum)
 
 /* quit current window */
 	case Ctrl('Q'):
-	case 'q':	VIsual.lnum = 0;		/* stop Visual mode */
+	case 'q':	reset_Visual();					/* stop Visual mode */
 				stuffReadbuff((char_u *)":quit\n");	/* it is cmdline.c */
 				break;
 
 /* close current window */
 	case Ctrl('C'):
-	case 'c':	VIsual.lnum = 0;		/* stop Visual mode */
+	case 'c':	reset_Visual();					/* stop Visual mode */
 				stuffReadbuff((char_u *)":close\n");	/* it is cmdline.c */
 				break;
 
 /* close all but current window */
 	case Ctrl('O'):
-	case 'o':	VIsual.lnum = 0;		/* stop Visual mode */
+	case 'o':	reset_Visual();					/* stop Visual mode */
 				stuffReadbuff((char_u *)":only\n");	/* it is cmdline.c */
 				break;
 
@@ -76,20 +89,29 @@ do_window(nchar, Prenum)
 	case 'j':
 	case K_DARROW:
 	case Ctrl('J'):
-				VIsual.lnum = 0;		/* stop Visual mode */
 				for (wp = curwin; wp->w_next != NULL && Prenum1-- > 0;
 															wp = wp->w_next)
 					;
+new_win:
 				win_enter(wp, TRUE);
 				cursupdate();
+					/* When jumping to another buffer, stop visual mode */
+				if (curbuf != old_curbuf && VIsual.lnum != 0)
+				{
+					VIsual.lnum = 0;
+					for (wp = firstwin; wp; wp = wp->w_next)
+						if (wp->w_buffer == old_curbuf &&
+											wp->w_redr_type < NOT_VALID)
+							wp->w_redr_type = NOT_VALID;
+					updateScreen(NOT_VALID);
+				}
 				break;
 
 /* cursor to next window with wrap around */
 	case Ctrl('W'):
 	case 'w':
-				VIsual.lnum = 0;		/* stop Visual mode */
 				if (lastwin == firstwin)		/* just one window */
-					beep();
+					beep_flush();
 				else
 				{
 					if (Prenum)					/* go to specified window */
@@ -108,8 +130,7 @@ do_window(nchar, Prenum)
 						if (wp == NULL)
 							wp = firstwin;		/* wrap around */
 					}
-					win_enter(wp, TRUE);
-					cursupdate();
+					goto new_win;
 				}
 				break;
 
@@ -117,24 +138,32 @@ do_window(nchar, Prenum)
 	case 'k':
 	case K_UARROW:
 	case Ctrl('K'):
-				VIsual.lnum = 0;		/* stop Visual mode */
 				for (wp = curwin; wp->w_prev != NULL && Prenum1-- > 0;
 															wp = wp->w_prev)
 					;
-				win_enter(wp, TRUE);
-				cursupdate();
-				break;
+				goto new_win;
+
+/* cursor to top window */
+	case 't':
+	case Ctrl('T'):
+				wp = firstwin;
+				goto new_win;
+
+/* cursor to bottom window */
+	case 'b':
+	case Ctrl('B'):
+				wp = lastwin;
+				goto new_win;
 
 /* cursor to last accessed (previous) window */
 	case 'p':
 	case Ctrl('P'):
-				VIsual.lnum = 0;		/* stop Visual mode */
 				if (prevwin == NULL)
-					beep();
+					beep_flush();
 				else
 				{
-					win_enter(prevwin, TRUE);
-					cursupdate();
+					wp = prevwin;
+					goto new_win;
 				}
 				break;
 
@@ -146,12 +175,12 @@ do_window(nchar, Prenum)
 
 /* rotate windows downwards */
 	case Ctrl('R'):
-	case 'r':	VIsual.lnum = 0;					/* stop Visual mode */
+	case 'r':	reset_Visual();					/* stop Visual mode */
 				win_rotate(FALSE, (int)Prenum1);	/* downwards */
 				break;
 
 /* rotate windows upwards */
-	case 'R':	VIsual.lnum = 0;					/* stop Visual mode */
+	case 'R':	reset_Visual();					/* stop Visual mode */
 				win_rotate(TRUE, (int)Prenum1);		/* upwards */
 				break;
 
@@ -175,7 +204,7 @@ do_window(nchar, Prenum)
 /* jump to tag and split window if tag exists */
 	case ']':
 	case Ctrl(']'):
-				VIsual.lnum = 0;		/* stop Visual mode */
+				reset_Visual();					/* stop Visual mode */
 				postponed_split = TRUE;
 				stuffcharReadbuff(Ctrl(']'));
 				break;
@@ -183,11 +212,9 @@ do_window(nchar, Prenum)
 /* edit file name under cursor in a new window */
 	case 'f':
 	case Ctrl('F'):
-				VIsual.lnum = 0;		/* stop Visual mode */
+				reset_Visual();					/* stop Visual mode */
 				ptr = file_name_at_cursor();
-				if (ptr == NULL)
-					beep();
-				else
+				if (ptr != NULL)
 				{
 					stuffReadbuff((char_u *) ":split ");
 					stuffReadbuff(ptr);
@@ -196,8 +223,40 @@ do_window(nchar, Prenum)
 				}
 				break;
 
-	default:	beep();
+/* Go to the first occurence of the identifier under cursor along path in a
+ * new window -- webb
+ */
+	case 'i':						/* Go to any match */
+	case Ctrl('I'):
+	case 'I':
+				type = FIND_ANY;
+				/* FALLTHROUGH */
+	case 'd':						/* Go to definition, using p_def */
+	case Ctrl('D'):
+	case 'D':
+				if (type == -1)
+					type = FIND_DEFINE;
+
+				if ((len = find_ident_under_cursor(&ptr, FALSE)) == 0)
+					break;
+				find_pattern_in_path(ptr, len, TRUE, type,
+										Prenum1, ACTION_SPLIT,
+										(linenr_t)1, (linenr_t)MAXLNUM);
+				curwin->w_set_curswant = TRUE;
 				break;
+
+	default:	beep_flush();
+				break;
+	}
+}
+
+	static void
+reset_Visual()
+{
+	if (VIsual.lnum != 0)
+	{
+		VIsual.lnum = 0;
+		update_curbuf(NOT_VALID);		/* delete the inversion */
 	}
 }
 
@@ -308,6 +367,7 @@ win_split(new_height, redraw)
 	wp->w_leftcol = curwin->w_leftcol;
 	wp->w_pcmark = curwin->w_pcmark;
 	wp->w_prev_pcmark = curwin->w_prev_pcmark;
+	wp->w_alt_fnum = curwin->w_alt_fnum;
 
 	wp->w_arg_idx = curwin->w_arg_idx;
 	/*
@@ -344,6 +404,13 @@ win_split(new_height, redraw)
 	}
 	wp->w_topline = lnum;
 	curwin->w_topline = lnum;
+	if (need_status)
+	{
+		msg_pos((int)Rows - 1, sc_col);
+		msg_clr_eos();		/* Old command/ruler may still be there -- webb */
+		comp_col();
+		msg_pos((int)Rows - 1, 0);	/* put position back at start of line */
+	}
 /*
  * make the new window the current window and redraw
  */
@@ -414,7 +481,7 @@ win_exchange(Prenum)
 
 	if (lastwin == firstwin)		/* just one window */
 	{
-		beep();
+		beep_flush();
 		return;
 	}
 
@@ -476,7 +543,7 @@ win_rotate(upwards, count)
 
 	if (firstwin == lastwin)			/* nothing to do */
 	{
-		beep();
+		beep_flush();
 		return;
 	}
 	while (count--)
@@ -589,13 +656,37 @@ win_equal(next_curwin, redraw)
 }
 
 /*
+ * close all windows for buffer 'buf'
+ */
+	void
+close_windows(buf)
+	BUF		*buf;
+{
+	WIN 	*win;
+
+	++RedrawingDisabled;
+	for (win = firstwin; win != NULL && lastwin != firstwin; )
+	{
+		if (win->w_buffer == buf)
+		{
+			close_window(win, FALSE);
+			win = firstwin;			/* go back to the start */
+		}
+		else
+			win = win->w_next;
+	}
+	--RedrawingDisabled;
+}
+
+/*
  * close current window
  * If "free_buf" is TRUE related buffer may be freed.
  *
  * called by :quit, :close, :xit, :wq and findtag()
  */
 	void
-close_window(free_buf)
+close_window(win, free_buf)
+	WIN		*win;
 	int		free_buf;
 {
 	WIN 	*wp;
@@ -609,25 +700,27 @@ close_window(free_buf)
 /*
  * Close the link to the buffer.
  */
-	close_buffer(curbuf, free_buf, FALSE);
+	close_buffer(win->w_buffer, free_buf, FALSE);
 
 /*
  * Remove the window.
  */
-	if (curwin->w_prev == NULL)		/* freed space goes to next window */
+	if (win->w_prev == NULL)		/* freed space goes to next window */
 	{
-		wp = curwin->w_next;
-		wp->w_winpos = curwin->w_winpos;
+		wp = win->w_next;
+		wp->w_winpos = win->w_winpos;
 	}
 	else							/* freed space goes to previous window */
-		wp = curwin->w_prev;
-	wp->w_height += curwin->w_height + curwin->w_status_height;
+		wp = win->w_prev;
+	wp->w_height += win->w_height + win->w_status_height;
 
-	win_free(curwin);
-	curwin = NULL;
+	win_free(win);
+	if (win == curwin)
+		curwin = NULL;
 	if (p_ea)
 		win_equal(wp, FALSE);
-	win_enter(wp, FALSE);
+	if (curwin == NULL)
+		win_enter(wp, FALSE);
 	/*
 	 * if last window has status line now and we don't want one,
 	 * remove the status line
@@ -638,8 +731,9 @@ close_window(free_buf)
 		lastwin->w_height += lastwin->w_status_height;
 		lastwin->w_status_height = 0;
 		win_comp_scroll(lastwin);
+		comp_col();
 	}
-	win_comp_scroll(curwin);
+	win_comp_scroll(wp);
 	updateScreen(NOT_VALID);
 }
 
@@ -767,6 +861,7 @@ win_alloc(after)
 
 		/* position the display and the cursor at the top of the file. */
 		new->w_topline = 1;
+		new->w_botline = 2;
 		new->w_cursor.lnum = 1;
 	}
 	return new;
@@ -1108,43 +1203,41 @@ last_status()
 	char_u *
 file_name_at_cursor()
 {
+	return get_file_name_in_path(ml_get(curwin->w_cursor.lnum),
+												curwin->w_cursor.col, TRUE);
+}
+
+	char_u *
+get_file_name_in_path(ptr, col, mess)
 	char_u	*ptr;
+	int		col;
+	int		mess;						/* Do we give error messages? */
+{
 	char_u	*dir;
 	char_u	*file_name;
 	char_u	save_char;
-	int		col;
+	char_u	*curr_path = NULL;
+	int		curr_path_len;
 	int		len;
 
-		/* characters in a file name besides alfa-num */
-#ifdef UNIX
-	char_u	*file_chars = (char_u *)"/.-_+,~$";
-#endif
-#ifdef AMIGA
-	char_u	*file_chars = (char_u *)"/.-_+,$:";
-#endif
-#ifdef MSDOS
-	char_u	*file_chars = (char_u *)"/.-_+,$\\:";
-#endif
-
-	ptr = ml_get(curwin->w_cursor.lnum);
-	col = curwin->w_cursor.col;
-
 		/* search forward for what could be the start of a file name */
-	while (!isalnum((char) ptr[col]) && STRCHR(file_chars, ptr[col]) == NULL)
+	while (!isfilechar(ptr[col]))
 		++col;
 	if (ptr[col] == NUL)			/* nothing found */
+	{
+		if (mess)
+			EMSG("No file name under cursor");
 		return NULL;
+	}
 
 		/* search backward for char that cannot be in a file name */
-	while (col >= 0 &&
-	  (isalnum((char) ptr[col]) || STRCHR(file_chars, ptr[col]) != NULL))
+	while (col >= 0 && isfilechar(ptr[col]))
 		--col;
 	ptr += col + 1;
 	col = 0;
 
 		/* search forward for a char that cannot be in a file name */
-	while (ptr[col] != NUL
-	  && (isalnum((char) ptr[col]) || STRCHR(file_chars, ptr[col]) != NULL))
+	while (isfilechar(ptr[col]))
 		++col;
 
 		/* copy file name into NameBuff, expanding environment variables */
@@ -1159,15 +1252,29 @@ file_name_at_cursor()
 			return NULL;
 		if (getperm(file_name) >= 0)
 			return file_name;
+		if (mess)
+		{
+			sprintf((char *)IObuff, "Can't find file `%s'", NameBuff);
+			emsg(IObuff);
+		}
 	}
 	else							/* relative path, use 'path' option */
 	{
-		if ((file_name = alloc((int)(STRLEN(p_path) + STRLEN(NameBuff) + 2))) == NULL)
+		if (curbuf->b_sfilename != NULL)
+		{
+			curr_path = curbuf->b_sfilename;
+			ptr = gettail(curr_path);
+			curr_path_len = ptr - curr_path;
+		}
+		else
+			curr_path_len = 0;
+		if ((file_name = alloc((int)(curr_path_len + STRLEN(p_path) +
+											STRLEN(NameBuff) + 2))) == NULL)
 			return NULL;
 		dir = p_path;
 		for (;;)
 		{
-			skipspace(&dir);
+			skipwhite(&dir);
 			for (len = 0; dir[len] != NUL && dir[len] != ' '; len++)
 				;
 			if (len == 0)
@@ -1185,9 +1292,73 @@ file_name_at_cursor()
 			}
 			if (getperm(file_name) >= 0)
 				return file_name;
+			if (curr_path_len > 0)
+			{
+				/* Look for file relative to current file also -- webb */
+				STRNCPY(file_name, curr_path, curr_path_len);
+				if (len == 1 && dir[0] == '.')	/* current dir */
+					STRCPY(file_name + curr_path_len, NameBuff);
+				else
+				{
+					STRNCPY(file_name + curr_path_len, dir, len);
+#ifdef AMIGA
+					if (file_name[curr_path_len + len - 1] != ':')
+#endif
+						file_name[curr_path_len + len] = '/';
+					STRCPY(file_name + curr_path_len + len + 1, NameBuff);
+				}
+				if (getperm(file_name) >= 0)
+					return file_name;
+			}
 			dir += len;
+		}
+		if (mess)
+		{
+			sprintf((char *)IObuff, "Can't find file `%s' in path", NameBuff);
+			emsg(IObuff);
 		}
 	}
 	free(file_name);			/* file doesn't exist */
 	return NULL;
+}
+
+/*
+ * Is the character 'c' a valid file-name character?
+ */
+	int
+isfilechar(c)
+	int	c;
+{
+		/* characters in a file name besides alfa-num */
+#ifdef UNIX
+	static char_u	*file_chars = (char_u *)"/.-_+,~$";
+#endif
+#ifdef AMIGA
+	static char_u	*file_chars = (char_u *)"/.-_+,$:";
+#endif
+#ifdef MSDOS
+	static char_u	*file_chars = (char_u *)"/.-_+,$\\:";
+#endif
+	
+	return isalnum((char) c) || (c != NUL &&
+		STRCHR(file_chars, (char) c) != NULL);
+}
+
+/*
+ * Return the minimal number of rows that is needed on the screen to display
+ * the current number of windows.
+ */
+	int
+min_rows()
+{
+	WIN		*wp;
+	int		total;
+
+	if (firstwin == NULL)		/* not initialized yet */
+		return MIN_ROWS + 1;	/* one window plus command line */
+
+	total = p_ch;		/* count the room for the status line */
+	for (wp = firstwin; wp != NULL; wp = wp->w_next)
+		total += MIN_ROWS + wp->w_status_height;
+	return total;
 }

@@ -44,7 +44,7 @@ usage(n)
 	fprintf(stderr, "\noptions:\t-v\t\treadonly mode (view)\n");
 	fprintf(stderr, "\t\t-n\t\tno swap file, use memory only\n");
 	fprintf(stderr, "\t\t-b\t\tbinary mode\n");
-	fprintf(stderr, "\t\t-r\t\trecovery mode\n");
+	fprintf(stderr, "\t\t-r\t\trecovery mode (needs a file name)\n");
 #ifdef AMIGA
 	fprintf(stderr, "\t\t-x\t\tdon't use newcli to open window\n");
 	fprintf(stderr, "\t\t-d device\tuse device for I/O\n");
@@ -212,7 +212,8 @@ main(argc, argv)
 	/*
 	 * Allocate space for the generic buffers
 	 */
-	if ((IObuff = alloc(IOSIZE)) == NULL || (NameBuff = alloc(MAXPATHL)) == NULL)
+	if ((IObuff = alloc(IOSIZE)) == NULL ||
+							(NameBuff = alloc(MAXPATHL)) == NULL)
 		mch_windexit(0);
 
 	/* note that we may use mch_windexit() before mch_windinit()! */
@@ -299,6 +300,12 @@ main(argc, argv)
 
 	RedrawingDisabled = TRUE;
 
+	/*
+	 * When listing swap file names, don't do cursor positioning et. al.
+	 */
+	if (recoverymode && fname == NULL)
+		not_full_screen = TRUE;
+
 	curbuf->b_nwindows = 1;		/* there is one window */
 	win_init(curwin);			/* init cursor position */
 	init_yank();				/* init yank buffers */
@@ -306,42 +313,30 @@ main(argc, argv)
 	screenclear();				/* clear screen (just inits screen structures,
 									because starting is TRUE) */
 
+	if (!not_full_screen)
+		msg_start();		/* in case a mapping or error message is printed */
+	msg_scroll = TRUE;
+	no_wait_return = TRUE;
+
 #ifdef MSDOS /* default mapping for some often used keys */
 	domap(0, "#1 :help\r", NORMAL);			/* F1 is help key */
-	domap(0, "\316R i", NORMAL);			/* INSERT is 'i' */
-	domap(0, "\316S \177", NORMAL);			/* DELETE is 0x7f */
-	domap(0, "\316G 0", NORMAL);			/* HOME is '0' */
 	domap(0, "\316w H", NORMAL);			/* CTRL-HOME is 'H' */
-	domap(0, "\316O $", NORMAL);			/* END is '$' */
 	domap(0, "\316u L", NORMAL);			/* CTRL-END is 'L' */
-	domap(0, "\316I \002", NORMAL);			/* PageUp is '^B' */
 	domap(0, "\316\204 1G", NORMAL);		/* CTRL-PageUp is '1G' */
-	domap(0, "\316Q \006", NORMAL);			/* PageDown is '^F' */
 	domap(0, "\316v G", NORMAL);			/* CTRL-PageDown is 'G' */
 			/* insert mode */
 	domap(0, "#1 \017:help\r", INSERT);		/* F1 is help key */
-	domap(0, "\316R \033", INSERT);			/* INSERT is ESC */
-			/* note: extra space needed to avoid the same memory used for this
-			   and the one above, domap() will add a NUL to it */
-	domap(0, "\316S  \177", INSERT+CMDLINE);	/* DELETE is 0x7f */
-	domap(0, "\316G \017""0", INSERT);		/* HOME is '^O0' */
 	domap(0, "\316w \017H", INSERT);		/* CTRL-HOME is '^OH' */
-	domap(0, "\316O \017$", INSERT);		/* END is '^O$' */
 	domap(0, "\316u \017L", INSERT);		/* CTRL-END is '^OL' */
-	domap(0, "\316I \017\002", INSERT);		/* PageUp is '^O^B' */
 	domap(0, "\316\204 \017\061G", INSERT);	/* CTRL-PageUp is '^O1G' */
-	domap(0, "\316Q \017\006", INSERT);		/* PageDown is '^O^F' */
 	domap(0, "\316v \017G", INSERT);		/* CTRL-PageDown is '^OG' */
 #endif
-
-	msg_start();		/* in case a mapping is printed */
-	no_wait_return = TRUE;
 
 /*
  * get system wide defaults (for unix)
  */
 #ifdef DEFVIMRC_FILE
-	(void)dosource(DEFVIMRC_FILE);
+	(void)dosource((char_u *)DEFVIMRC_FILE);
 #endif
 
 /*
@@ -352,12 +347,20 @@ main(argc, argv)
  * - file s:.exrc ($HOME/.exrc for Unix)
  * The first that exists is used, the rest is ignored.
  */
-	if ((initstr = vimgetenv((char_u *)"VIMINIT")) != NULL)
-		docmdline(initstr);
+	if ((initstr = vimgetenv((char_u *)"VIMINIT")) != NULL && *initstr != NUL)
+	{
+		sourcing_name = (char_u *)"VIMINIT";
+		docmdline(initstr, TRUE, TRUE);
+		sourcing_name = NULL;
+	}
 	else if (dosource((char_u *)SYSVIMRC_FILE) == FAIL)
 	{
 		if ((initstr = vimgetenv((char_u *)"EXINIT")) != NULL)
-			docmdline(initstr);
+		{
+			sourcing_name = (char_u *)"EXINIT";
+			docmdline(initstr, TRUE, TRUE);
+			sourcing_name = NULL;
+		}
 		else
 			(void)dosource((char_u *)SYSEXRC_FILE);
 	}
@@ -407,6 +410,25 @@ main(argc, argv)
 			(void)dosource((char_u *)EXRC_FILE);
 	}
 
+	/*
+	 * Recovery mode without a file name: List swap files.
+	 * This uses the 'dir' option, therefore it must be after the
+	 * initializations.
+	 */
+	if (recoverymode && fname == NULL)
+	{
+		recover_list();
+		mch_windexit(0);
+	}
+
+#ifdef VIMINFO
+/*
+ * Read in registers, history etc, but not marks, from the viminfo file
+ */
+	if (p_viminfo)
+		read_viminfo(NULL, TRUE, FALSE, FALSE);
+#endif /* VIMINFO */
+
 #ifdef SPAWNO			/* special MSDOS swapping library */
 	init_SPAWNO("", SWAP_ANY);
 #endif
@@ -416,12 +438,7 @@ main(argc, argv)
  */
 	settmode(1);
 	starttermcap();
-
-	no_wait_return = FALSE;
-		/* done something that is not allowed or error message */
-	if (secure == 2 || need_wait_return)
-		wait_return(TRUE);		/* must be called after settmode(1) */
-	secure = 0;
+	scroll_start();
 
 	if (bin_mode)					/* -b option used */
 	{
@@ -434,8 +451,7 @@ main(argc, argv)
 		curbuf->b_p_et = 0;			/* no expand tab */
 	}
 
-	(void)setfname(fname, NULL, TRUE);
-	maketitle();
+	(void)setfname(fname, NULL, TRUE);	/* includes maketitle() */
 
 	if (win_count == 0)
 		win_count = arg_count;
@@ -450,18 +466,25 @@ main(argc, argv)
  * Clear screen now, so file message will not be cleared.
  */
 	starting = FALSE;
-	if (T_CVV != NULL && *T_CVV)
-	{
-		outstr(T_CVV);
-		outstr(T_CV);
-	}
+
+	no_wait_return = FALSE;
+	msg_scroll = FALSE;
+		/* done something that is not allowed or error message */
+	if (secure == 2 || need_wait_return || msg_didany)
+		wait_return(TRUE);				/* must be called after settmode(1) */
+	secure = 0;
+
 	screenclear();						/* clear screen */
+
+	no_wait_return = TRUE;
 
 	if (recoverymode)					/* do recover */
 	{
+		msg_scroll = TRUE;				/* scroll message up */
 		if (ml_open() == FAIL)			/* Initialize storage structure */
 			getout(1);
-		ml_recover();
+		ml_recover();					/* recover the file */
+		msg_scroll = FALSE;
 	}
 	else
 		(void)open_buffer();			/* create memfile and read file */
@@ -474,7 +497,6 @@ main(argc, argv)
 	/*
 	 * If opened more than one window, start editing files in the other windows.
 	 * Make_windows() has already opened the windows.
-	 * This is all done by putting commands in the stuff buffer.
 	 */
 	for (i = 1; i < win_count; ++i)
 	{
@@ -482,9 +504,11 @@ main(argc, argv)
 			break;
 		win_enter(curwin->w_next, FALSE);
 											/* edit file i, if there is one */
-		(void)doecmd(i < arg_count ? arg_files[i] : NULL,
+		(void)doecmd(0, i < arg_count ? arg_files[i] : NULL,
 											NULL, NULL, TRUE, (linenr_t)1);
 		curwin->w_arg_idx = i;
+		if (i == arg_count - 1)
+			arg_had_last = TRUE;
 	}
 	win_enter(firstwin, FALSE);				/* back to first window */
 
@@ -496,7 +520,11 @@ main(argc, argv)
 		(void)buflist_add(arg_files[i]);
 
 	if (command)
-		docmdline(command);
+	{
+		sourcing_name = (char_u *)"command line";
+		docmdline(command, TRUE, TRUE);
+		sourcing_name = NULL;
+	}
 	/*
 	 * put the :ta command in the stuff buffer here, so that it will not
 	 * be erased by an emsg().
@@ -509,35 +537,55 @@ main(argc, argv)
 	}
 
 	RedrawingDisabled = FALSE;
-	updateScreen(NOT_VALID);
+	redraw_later(NOT_VALID);
+	no_wait_return = FALSE;
 
 		/* start in insert mode (already taken care of for :ta command) */
 	if (p_im && stuff_empty())
 		stuffReadbuff((char_u *)"i");
+
 /*
  * main command loop
  */
 	for (;;)
 	{
+										/* if wait_return still needed ... */
+		if (stuff_empty() && (need_wait_return ||
+								(msg_scrolled && !dont_wait_return)))
+			wait_return(FALSE);			/* ... call it now */
+		dont_wait_return = FALSE;
 		if (got_int)
 		{
 			(void)vgetc();				/* flush all buffers */
 			got_int = FALSE;
 		}
 		adjust_cursor();				/* put cursor on an existing line */
-		if (skip_redraw)				/* skip redraw (for ":" in wait_return()) */
+		if (skip_redraw)				/* skip redraw (for ":" in
+											wait_return()) */
 			skip_redraw = FALSE;
 		else if (stuff_empty())			/* only when no command pending */
 		{
 			cursupdate();				/* Figure out where the cursor is based
 											on curwin->w_cursor. */
-			if (VIsual.lnum)
-				updateScreen(INVERTED);	/* update inverted part */
+			if (need_sleep)				/* sleep before redrawing */
+			{
+				sleep(1);
+				need_sleep = FALSE;
+			}
+			msg_scroll = FALSE;
+			if (VIsual.lnum != 0)
+				update_curbuf(INVERTED);/* update inverted part */
 			if (must_redraw)
 				updateScreen(must_redraw);
 			if (keep_msg)
 				msg(keep_msg);			/* display message after redraw */
+			if (need_fileinfo)			/* used after jumping to a tag */
+			{
+				fileinfo(did_cd);
+				need_fileinfo = FALSE;
+			}
 
+			msg_didany = FALSE;			/* reset lines_left in msg_start() */
 			showruler(FALSE);
 
 			setcursor();
@@ -554,6 +602,11 @@ getout(r)
 	int 			r;
 {
 	windgoto((int)Rows - 1, 0);
+#ifdef VIMINFO
+	/* Write out the registers, history, marks etc, to the viminfo file */
+	if (p_viminfo)
+		write_viminfo(NULL, FALSE);
+#endif /* VIMINFO */
 	outchar('\r');
 	outchar('\n');
 	mch_windexit(r);

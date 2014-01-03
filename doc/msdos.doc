@@ -148,6 +148,10 @@ A swap file is used to store most of the text. You should be able to edit very
 large files. However, memory is used for undo and other things. If you delete
 a lot of text you can still run out of memory.
 
+The line length is limited to about 32000 characters. When reading a file the
+lines are automatically split. But when editing a line in such a way that
+it becomes too long may give unexpected results.
+
 If Vim gives an "Out of memory" warning you should stop editing. Result of
 further editing actions is unpredictable. Setting 'undolevels' to 0 saves some
 memory. Running the maze macros on a big maze is guaranteed to run out of

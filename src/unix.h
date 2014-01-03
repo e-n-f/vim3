@@ -34,6 +34,12 @@
 # define VIM_HLP		"/usr/local/lib/vim.hlp"
 #endif
 
+#ifdef VIMINFO
+#ifndef VIMINFO_FILE
+# define VIMINFO_FILE	"$HOME/.viminfo"
+#endif
+#endif /* VIMINFO */
+
 #ifndef BACKUPDIR
 # define BACKUPDIR		"$HOME"
 #endif
@@ -82,10 +88,12 @@ int		stricmp __ARGS((char *, char *));
 /* memmove is not present on all systems, use our own version or bcopy */
 #if !defined(SCO) && !defined(SOLARIS) && !defined(AIX) && !defined(UTS4) && !defined(USL) && !defined(MIPS) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(linux) && !defined(UNISYS)
 # ifdef SYSV_UNIX
+#  ifndef __COHERENT__
 #   define MEMMOVE
 void *memmove __ARGS((void *, void *, int));
+#  endif /* __COHERENT__ */
 # else
-#  define memmove(to, from, len) bcopy(from, to, len)
+#  define memmove(to, from, len) bcopy((char *)(from), (char *)(to), len)
 #  if !(defined(hpux) && defined(__STDC__))
 #   ifdef linux
 extern void bcopy __ARGS((const void *, void *, int));
@@ -125,3 +133,10 @@ extern char *getwd __ARGS((char *));
 #if defined(system_that_does_not_have_access_in_an_include_file)
 extern int access __ARGS((char *, int));
 #endif
+
+/* codes for xterm mouse event */
+#define MOUSE_MASK		0x03
+#define MOUSE_LEFT		0x00
+#define MOUSE_MIDDLE	0x01
+#define MOUSE_RIGHT		0x02
+#define MOUSE_UP		0x03

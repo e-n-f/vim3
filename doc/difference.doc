@@ -236,6 +236,10 @@ expect it and the file is not written with ':rewind!'.
 "5r<CR>" replaces five characters by five line breaks. Vi replaces five
 characters with a single line break.
 
+In Vi when entering a CR in replace mode deletes a character only when 'ai'
+is set (but does not show it until you hit ESC). Vim always deletes a
+character (and shows it immediately).
+
 Added :wnext command. Same as ":write" followed by ":next".
 
 The ":w!" command always writes, also when the file is write protected.
@@ -271,6 +275,11 @@ file. ':mkvimrc' writes to a ".vimrc" file.
 
 No check for "tail recursion" with mappings. This allows things like
 ":map! foo ^]foo".
+
+When a mapping starts with number, vi looses the count typed before it (e.g.
+when using the mapping ":map g 4G" the command "7g" goes to line 4). This is
+considered a vi bug. Vim concatenates the counts (in the example it becomes
+"74G"), as most people would expect.
 
 The :put! command inserts the contents of a register above the current line.
 
@@ -383,6 +392,10 @@ entered with "CTRL-K {char1} {char2}" or "{char1} BS {char2}" (only when
 
 When repeating an insert, e.g. "10atest <ESC>" vi would only handle wrapmargin
 for the first insert. Vim does it for all.
+
+A count to the 'i' or 'a' command is used for all the text. Vi uses the count
+only for one line. "3iabc<NL>def<ESC>" would insert "abcabcacc<NL>def" in Vi
+but "abc<NL>defabc<NL>defabc<NL>def" in Vim.
 
 
 In command line mode:

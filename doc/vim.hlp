@@ -202,7 +202,8 @@ N  =={command}
 :[range]s[ubstitute] [g][c]
                 repeat previous :s with new range and options
    &            Repeat previous :s on current line without options
-
+:[range]ret[ab][!] [tabstop]
+                set 'tabstop' to new value and adjust white space accordingly
 Deleting text
 N  x            delete N characters under and after the cursor
 N  X            delete N characters before the cursor
@@ -313,7 +314,7 @@ icon                toggle    off   set icon title to file name
 ignorecase (ic)     toggle    off   ignore case in search patterns
 insertmode (im)     toggle    off   start editing in insert mode
 joinspaces (js)     toggle    on    insert two spaces after a '.' with join
-keywordprg (kp)     string    "ref" name of program for 'K' command
+keywordprg (kp)     string    "man" name of program for 'K' command
 laststatus (ls)     number    1     when 0 last window has no status line, when
                                     1 only with multiple windows, when 2 always
 lines               number    25    number of lines in the display
@@ -345,6 +346,7 @@ shellpipe (sh)      string          pipe command to be used for :make
 shelltype (st)      number    0     how to use the shell (Amiga only)
 shiftround (sr)     toggle    off   round indent to shiftwidth with > and <
 shiftwidth (sw)     number    8     number of spaces to use for (auto)indent
+shortmess (shm)     number    0     short file message when 1, truncate when 2
 shortname (sn)      toggle    off   MSDOS-like filesystem being used
 showcmd (sc)        toggle    on    show command in status line
 showmatch (sm)      toggle    off   show matching bracket if one is inserted
@@ -352,8 +354,10 @@ showmatch (sm)      toggle    off   show matching bracket if one is inserted
 showmode (smd)      toggle    on    show insert/replace mode message
 sidescroll (ss)     number    0     minimal nr of columns for horiz. scroll
 smartindent (si)    toggle    off   do smart autoindenting
+smartmatch (sma)    toggle    on    with % command recognize parens in quotes
 smarttab (sta)      toggle    off   tab size depends on position
 splitbelow (sb)     toggle    off   create new windows below current one
+startofline (sol)   toggle    on    cursor to startofline for some commands
 suffixes (su)       string    ".bak.o.h.info.swp" suffixes that are ignored
                                     when multiple files match a wildcard
 tabstop (ts)        number    8     number of spaces that a TAB counts for
@@ -388,7 +392,6 @@ wrapmargin (wm)     number    0     wrap text when at (columns - wrapmargin)
 wrapscan (ws)       toggle    on    searches wrap around the end of the file
 writeany (wa)       toggle    off   always write file without asking
 writebackup (wb)    toggle    on    backup a file WHILE overwriting it
-yankendofline (ye)  toggle    off   'Y' yanks from cursor to end of line
 Undo/Redo commands
 N  u            undo N last changes
 N  CTRL-R       redo N last undone changes
@@ -542,6 +545,8 @@ CTRL-W o  or :o[nly]    Make current window only one on the screen
 CTRL-W j                Move cursor to window below
 CTRL-W k                Move cursor to window above
 CTRL-W CTRL-W           Move cursor to next window (wrap around)
+CTRL-W t                Move cursor to top window
+CTRL-W b                Move cursor to bottom window
 CTRL-W p                Move cursor to previous active window
 
 CTRL-W r                Rotate windows downwards

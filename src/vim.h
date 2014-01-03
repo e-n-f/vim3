@@ -109,6 +109,10 @@ typedef unsigned long	long_u;
 # define __ARGS(x)	x
 # define __PARMS(x)	x
 #endif
+#ifdef __sgi
+# define __ARGS(x)	x
+# define __PARMS(x) x
+#endif
 
 #ifdef __TURBOC__
 # define __ARGS(x) x
@@ -117,6 +121,7 @@ typedef unsigned long	long_u;
 #if defined(MSDOS) && !defined(NT)
 # include <dos.h>
 # include <dir.h>
+# include <time.h>
 #endif
 
 #ifdef SOLARIS
@@ -129,7 +134,7 @@ typedef unsigned long	long_u;
 #  undef M_XENIX
 #  include <sys/ndir.h>		/* for MAXNAMLEN */
 # else
-#  if defined(SOLARIS) || defined(AIX) || defined(ARCHIE)
+#  if defined(SOLARIS) || defined(AIX) || defined(ARCHIE) || defined(__COHERENT__)
 #   include <dirent.h>		/* for MAXNAMLEN */
 #  else
 #   include <sys/dir.h>		/* for MAXNAMLEN */
@@ -144,6 +149,10 @@ typedef unsigned long	long_u;
 # if defined(NAME_MAX) && !defined(MAXNAMLEN)
 #  define MAXNAMLEN NAME_MAX			/* for Linux before .99p3 */
 # endif
+/*
+ * Note: if MAXNAMLEN has the wrong value, you will get error messages
+ * 	     for not being able to open the swap file.
+ */
 # if !defined(MAXNAMLEN)
 #  define MAXNAMLEN 512                 /* for all other Unix */
 # endif
@@ -170,6 +179,15 @@ typedef unsigned long	long_u;
 # endif
 #endif /* __STDC__ */
 
+#ifdef __COHERENT__
+#undef __ARGS
+#endif /* __COHERENT__ */
+
+#ifdef __ARGS
+# ifndef __PARMS
+#  define __PARMS(x) x
+# endif
+#endif
 #ifndef __ARGS
 #define __ARGS(x)	()
 #endif
@@ -221,12 +239,14 @@ typedef unsigned long	long_u;
 #define NOMAPPING 				0x40	/* no :mapping mode for vgetc() */
 #define ONLYKEY 				0x70	/* like NOMAPPING, but keys allowed */
 #define HITRETURN				0x51	/* waiting for a return */
+#define ASKMORE					0x90	/* Asking if you want --more-- */
 #define SETWSIZE				0x60	/* window size has changed */
 #define ABBREV					0x80	/* abbreviation instead of mapping */
 
 /* directions */
-#define FORWARD 				 1
-#define BACKWARD				 -1
+#define FORWARD 				1
+#define BACKWARD				-1
+#define BOTH_DIRECTIONS			2
 
 /* return values for functions */
 #define OK						1
@@ -237,9 +257,6 @@ typedef unsigned long	long_u;
 #define T_WAIT					2	/* wait for a short time */
 #define T_BLOCK					3	/* wait forever */
 
-#define VISUALLINE			MAXCOL	/* Visual is linewise */
-
-#ifdef WEBB_COMPLETE
 /*
  * values for command line completion
  */
@@ -252,7 +269,19 @@ typedef unsigned long	long_u;
 #define EXPAND_SETTINGS			4
 #define EXPAND_BOOL_SETTINGS	5
 #define EXPAND_TAGS				6
-#endif /* WEBB_COMPLETE */
+#define EXPAND_OLD_SETTING		7
+
+/* Values for the find_pattern_in_path() function args 'type' and 'action': */
+#define FIND_ANY		1
+#define FIND_DEFINE		2
+#define CHECK_PATH		3
+
+#define ACTION_SHOW		1
+#define ACTION_GOTO		2
+#define ACTION_SPLIT	3
+#define ACTION_SHOW_ALL	4
+#define ACTION_EXPAND	5
+
 /*
  * Boolean constants
  */
@@ -260,6 +289,23 @@ typedef unsigned long	long_u;
 #define FALSE	(0)			/* note: this is an int, not a long! */
 #define TRUE	(1)
 #endif
+#define MAYBE	(2)			/* for beginline() and the 'sol' option */
+
+/* May be returned by add_new_completion(): */
+#define RET_ERROR				-1
+
+/* Returned by vim_fgets(): */
+#define VIM_EOF					1
+
+/* Formatting options for the p_fo variable: */
+#define FO_WRAP			't'
+#define FO_WRAP_COMS	'c'
+#define FO_RET_COMS		'r'
+#define FO_OPEN_COMS	'o'
+#define FO_Q_COMS		'q'
+#define FO_COMS_PADDED	's'
+
+#define FO_DFLT			"tcqs"
 
 /*
  * Maximum and minimum screen size (height is unlimited)
@@ -269,8 +315,8 @@ typedef unsigned long	long_u;
 #else
 # define MAX_COLUMNS 	255L
 #endif
-#define MIN_COLUMNS		5
-#define MIN_ROWS		1
+#define MIN_COLUMNS		12		/* minimal columns for screen */
+#define MIN_ROWS		1		/* minimal rows for one window */
 #define STATUS_HEIGHT	1		/* height of a status line under a window */
 
 /*
@@ -285,6 +331,7 @@ typedef unsigned long	long_u;
 #define LSIZE		512			/* max. size of a line in the tags file */
 
 #define IOSIZE	   (1024+1) 	/* file i/o and sprintf buffer size */
+#define MSG_BUF_LEN	80			/* lenght of buffer for small messages */
 
 #define	TERMBUFSIZE	1024
 

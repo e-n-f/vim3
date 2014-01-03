@@ -7,6 +7,7 @@
 ### -DDIGRAPHS		digraph support (at the cost of 1.6 Kbyte code)
 ### -DCOMPATIBLE	start in vi-compatible mode
 ### -DNOBACKUP		default is no backup file
+### -DNOSTRTOL		strtol() function not available
 ### -DDEBUG		output a lot of debugging garbage
 ### -DTERMCAP		include termcap file support
 ### -DNO_BUILTIN_TCAPS	do not include builtin termcap entries
@@ -21,10 +22,9 @@
 ### -DSYSEXRC_FILE	name of the global .exrc file
 ### -DDEFVIMRC_FILE	name of the system-wide .vimrc file
 ### -DVIM_HLP		name of the help file
-### -DWEBB_COMPLETE	include Webb's code for command line completion
-### -DWEBB_KEYWORD_COMPL include Webb's code for keyword completion
 ### -DNOTITLE		'title' option off by default
-DEFINES = -DDIGRAPHS -DWEBB_COMPLETE -DWEBB_KEYWORD_COMPL
+### -DVIMINFO		include reading/writing viminfo file
+DEFINES = -DDIGRAPHS
 
 #>>>>> name of the compiler and linker, name of lib directory
 CC = cl
@@ -40,6 +40,13 @@ CFLAGS = -c -DMSDOS -DNT $(DEFINES) /Ox
 
 INCL = vim.h globals.h param.h keymap.h macros.h ascii.h term.h msdos.h structs.h
 
+SRC =	alloc.c winnt.c buffer.c charset.c cmdcmds.c cmdline.c \
+	csearch.c digraph.c edit.c fileio.c getchar.c help.c \
+	linefunc.c main.c mark.c memfile.c memline.c message.c misccmds.c \
+	normal.c ops.c param.c quickfix.c regexp.c \
+	regsub.c screen.c search.c \
+	tag.c term.c undo.c window.c version.c
+
 OBJ =	obj/alloc.obj obj/winnt.obj obj/buffer.obj obj/charset.obj obj/cmdcmds.obj obj/cmdline.obj \
 	obj/csearch.obj obj/digraph.obj obj/edit.obj obj/fileio.obj obj/getchar.obj obj/help.obj \
 	obj/linefunc.obj obj/main.obj obj/mark.obj obj/memfile.obj obj/memline.obj obj/message.obj obj/misccmds.obj \
@@ -53,7 +60,7 @@ OBJ =	obj/alloc.obj obj/winnt.obj obj/buffer.obj obj/charset.obj obj/cmdcmds.obj
         del version.obj
 
 ctags:
-	command /c ctags *.c *.h
+	command /c ctags $(SRC) $(INCL)
 
 clean:
 	del $(OBJ) version.obj mkcmdtab.obj ..\vim mkcmdtab cmdtab.h

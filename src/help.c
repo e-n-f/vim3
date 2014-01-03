@@ -68,36 +68,26 @@ help()
 		if ((c = vgetc()) == '\n' || c == '\r' || c == Ctrl('C') || c == ESC)
 			break;
 
-		if (c == ' ' ||
-#ifdef MSDOS
-				(c == K_NUL && vpeekc() == 'Q') ||	/* page down */
-#endif
-				c == Ctrl('F'))						/* one screen forwards */
+											/* one screen forwards */
+		if (c == ' ' || c == K_PAGEDOWN || c == Ctrl('F'))
 		{
 			if (screennr < MAXSCREENS && !eof)
 				++screennr;
 		}
 		else if (c == 'a')					/* go to first screen */
 			screennr = 0;
-		else if (c == 'b' ||
-#ifdef MSDOS
-				(c == K_NUL && vpeekc() == 'I') ||	/* page up */
-#endif
-				c == Ctrl('B'))					/* go one screen backwards */
+											/* go one screen backwards */
+		else if (c == 'b' || c == K_PAGEUP || c == Ctrl('B'))
 		{
 			if (screennr > 0)
 				--screennr;
 		}
-		else if (isalpha(c))				/* go to specified screen */
+		else if (c < 0x100 && isalpha(c))	/* go to specified screen */
 		{
 			if (isupper(c))
 				c = c - 'A' + 'z' + 1;		/* 'A' comes after 'z' */
 			screennr = c - 'b';
 		}
-#ifdef MSDOS
-		if (c == K_NUL)
-			c = vgetc();
-#endif
 		for (i = screennr; i > 0; --i)
 			if (filepos[i])
 				break;

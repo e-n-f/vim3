@@ -169,7 +169,7 @@ static linenr_t	lowest_marked = 0;
 #define ML_SIMPLE(x)	(x & 0x10)	/* DEL, INS or FIND */
 
 static int ml_append_int __ARGS((BUF *, linenr_t, char_u *, colnr_t, int));
-static int ml_delete_int __ARGS((BUF *, linenr_t));
+static int ml_delete_int __ARGS((BUF *, linenr_t, int));
 static char_u *findswapname __ARGS((BUF *, int));
 static void ml_flush_line __ARGS((BUF *));
 static BHDR *ml_new_data __ARGS((MEMFILE *, int, int));
@@ -191,6 +191,8 @@ ml_open()
 	char_u		*fname = NULL;
 	BHDR		*hp = NULL;
 	ZERO_BL		*b0p;
+	PTR_BL		*pp;
+	DATA_BL		*dp;
 	struct stat	st;
 	int			i;
 
@@ -231,15 +233,16 @@ ml_open()
 	if (mfp == NULL)
 		goto error;
 	curbuf->b_ml.ml_mfp = mfp;
+	curbuf->b_ml.ml_flags = ML_EMPTY;
 	curbuf->b_neverloaded = FALSE;
+	curbuf->b_ml.ml_line_count = 1;
+
 	if (p_uc != 0 && mfp->mf_fname == NULL)
 	{
-				/* call wait_return if not done by emsg() */
-		if (EMSG("Unable to open swap file, recovery impossible"))
-		{
-			msg_outchar('\n');
-			wait_return(FALSE);
-		}
+		need_wait_return = TRUE;		/* call wait_return later */
+		++no_wait_return;
+		(void)EMSG("Unable to open swap file, recovery impossible");
+		--no_wait_return;
 	}
 
 /*
@@ -267,6 +270,9 @@ ml_open()
 		b0p->b0_fname[0] = NUL;
 	b0p->b0_page_size = mfp->mf_page_size;
 	mf_put(mfp, hp, TRUE, FALSE);
+		/* sync block number 0 to disk, so we can check the file name in the
+		 * swap file in findswapname() */
+	mf_sync(mfp, FALSE, FALSE);
 
 /*
  * fill in root pointer block and write page 1
@@ -278,8 +284,30 @@ ml_open()
 		EMSG("didn't get block nr 1?");
 		goto error;
 	}
+	pp = (PTR_BL *)(hp->bh_data);
+	pp->pb_count = 1;
+	pp->pb_pointer[0].pe_bnum = 2;
+	pp->pb_pointer[0].pe_page_count = 1;
+	pp->pb_pointer[0].pe_old_lnum = 1;
+	pp->pb_pointer[0].pe_line_count = 1;	/* line count after insertion */
 	mf_put(mfp, hp, TRUE, FALSE);
-	curbuf->b_ml.ml_flags = ML_EMPTY;
+
+/*
+ * allocate first data block and create an empty line 1.
+ */
+	if ((hp = ml_new_data(mfp, FALSE, 1)) == NULL)
+		goto error;
+	if (hp->bh_bnum != 2)
+	{
+		EMSG("didn't get block nr 2?");
+		goto error;
+	}
+
+	dp = (DATA_BL *)(hp->bh_data);
+	dp->db_index[0] = --dp->db_txt_start;		/* at end of block */
+	dp->db_free -= 1 + INDEX_SIZE;
+	dp->db_line_count = 1;
+	*((char_u *)dp + dp->db_txt_start) = NUL;	/* emtpy line */
 
 	return OK;
 
@@ -294,6 +322,80 @@ error:
 		free(fname);
 	curbuf->b_ml.ml_mfp = NULL;
 	return FAIL;
+}
+
+/*
+ * ml_setname() is called when the file name has been changed.
+ * It may rename the swap file.
+ */
+	void
+ml_setname()
+{
+	int			success = FALSE;
+	MEMFILE		*mfp;
+	char_u		*fname;
+	int			i;
+
+/*
+ * When 'updatecount' is 0 there is never a swap file.
+ */
+	if (p_uc == 0)
+		return;
+
+/*
+ * If a file name given, 'directory' option is set and does not start with '>'
+ * try twice: First in current dir and if that fails in 'directory'.
+ */
+	mfp = curbuf->b_ml.ml_mfp;
+	fname = findswapname(curbuf, FALSE);		/* NULL detected below */
+	if (fname != NULL && *p_dir != NUL && *p_dir != '>')
+		i = 0;		/* try twice */
+	else
+		i = 1;		/* try once */
+	for ( ; i < 2; ++i)
+	{
+		if (fname == NULL)			/* no file name found */
+			break;
+			/* if the file name is the same we don't have to do anything */
+		if (fnamecmp(fname, mfp->mf_fname) == 0)
+		{
+			free(fname);
+			success = TRUE;
+			break;
+		}
+			/* need to close the swap file before renaming */
+		close(mfp->mf_fd);
+		mfp->mf_fd = -1;
+
+			/* try to rename the swap file */
+		if (vim_rename(mfp->mf_fname, fname) == 0)
+		{
+			success = TRUE;
+			free(mfp->mf_fname);
+			mfp->mf_fname = fname;
+			free(mfp->mf_xfname);
+			if (FullName(fname, NameBuff, MAXPATHL) == FAIL)
+				mfp->mf_xfname = NULL;
+			else
+				mfp->mf_xfname = strsave(NameBuff);
+			break;
+		}
+			/* prepare for second try */
+		free(fname);
+		if (i == 0)
+			fname = findswapname(curbuf, TRUE);
+	}
+	if (mfp->mf_fd == -1)
+	{
+		mfp->mf_fd = open(mfp->mf_fname, O_RDWR);
+		if (mfp->mf_fd == -1)
+		{
+			/* what can we do???? */
+			EMSG("Oops, lost the swap file!!!");
+		}
+	}
+	if (!success)
+		EMSG("Could not rename swap file");
 }
 
 /*
@@ -337,28 +439,28 @@ ml_open_files()
 		}
 		if (mfp->mf_fname == NULL)
 		{
-					/* call wait_return if not done by emsg() */
-			if (EMSG2("Unable to open swap file for \"%s\", recovery impossible",
+			need_wait_return = TRUE;		/* call wait_return later */
+			++no_wait_return;
+			(void)EMSG2("Unable to open swap file for \"%s\", recovery impossible",
 					buf->b_xfilename == NULL ? (char_u *)"No File"
-											 : buf->b_xfilename))
-			{
-				msg_outchar('\n');
-				wait_return(FALSE);
-			}
+											 : buf->b_xfilename);
+			--no_wait_return;
 		}
 	}
 }
 
 /*
- * close memline for buffer 'buf' and delete the swap file
+ * Close memline for buffer 'buf'.
+ * If 'delete' is TRUE, delete the swap file
  */
 	void
-ml_close(buf)
+ml_close(buf, delete)
 	BUF		*buf;
+	int		delete;
 {
 	if (buf->b_ml.ml_mfp == NULL)				/* not open */
 		return;
-	mf_close(buf->b_ml.ml_mfp, TRUE);			/* delete the .swp file */
+	mf_close(buf->b_ml.ml_mfp, delete);			/* close the .swp file */
 	if (buf->b_ml.ml_line_lnum != 0 && (buf->b_ml.ml_flags & ML_LINE_DIRTY))
 		free(buf->b_ml.ml_line_ptr);
 	free(buf->b_ml.ml_stack);
@@ -368,14 +470,16 @@ ml_close(buf)
 /*
  * Close all existing memlines and memfiles.
  * Used when exiting.
+ * When 'delete' is TRUE, delete the memfiles.
  */
 	void
-ml_close_all()
+ml_close_all(delete)
+	int		delete;
 {
 	BUF		*buf;
 
 	for (buf = firstbuf; buf != NULL; buf = buf->b_next)
-		ml_close(buf);
+		ml_close(buf, delete);
 }
 
 /*
@@ -550,8 +654,9 @@ ml_recover()
 			org_stat.st_mtime > swp_stat.st_mtime) ||
 			org_stat.st_mtime != b0p->b0_mtime))
 	{
-		MSG("Warning: Original file may have been changed");
+		EMSG("Warning: Original file may have been changed");
 	}
+	flushbuf();
 	mf_put(mfp, hp, FALSE, FALSE);		/* release block 0 */
 	hp = NULL;
 
@@ -739,13 +844,25 @@ ml_recover()
 		page_count = 1;
 	}
 
+	/*
+	 * The dummy line from the empty buffer will now be after the last line in
+	 * the buffer. Delete it.
+	 */
+	ml_delete(curbuf->b_ml.ml_line_count, FALSE);
+
 	recoverymode = 0;
 	if (got_int)
 		EMSG("Recovery Interrupted");
 	else if (error)
 		EMSG("Errors detected while recovering; look for lines starting with ???");
 	else
-		MSG("Recovery completed; If everything is OK: Save this file and delete the .swp file");
+	{
+		MSG("Recovery completed. Check if everything is OK.");
+		msg_outstr("\n(You might want to write out this file under another name\n");
+		msg_outstr("and run diff with the original file to check for changes)\n");
+		msg_outstr("Delete the .swp file afterwards.\n\n");
+		cmdline_row = msg_row;
+	}
 
 theend:
 	if (mfp != NULL)
@@ -763,13 +880,14 @@ theend:
 /*
  * sync all memlines
  *
- * Stop syncing when character becomes available, but always sync at
- * least one block.
  * If 'check_file' is TRUE, check if original file exists and was not changed.
+ * If 'check_char' is TRUE, stop syncing when character becomes available, but
+ * always sync at least one block.
  */
 	void
-ml_sync_all(check_file)
+ml_sync_all(check_file, check_char)
 	int		check_file;
+	int		check_char;
 {
 	BUF				*buf;
 	struct stat		st;
@@ -779,8 +897,9 @@ ml_sync_all(check_file)
 		if (buf->b_ml.ml_mfp == NULL || buf->b_ml.ml_mfp->mf_fname == NULL)
 			continue;						/* no file */
 
-		ml_flush_line(buf);								/* flush buffered line */
-		(void)ml_find_line(buf, (linenr_t)0, ML_FLUSH);	/* flush locked block */
+		ml_flush_line(buf);					/* flush buffered line */
+											/* flush locked block */
+		(void)ml_find_line(buf, (linenr_t)0, ML_FLUSH);
 		if (buf->b_changed && check_file && mf_need_trans(buf->b_ml.ml_mfp) &&
 									buf->b_filename != NULL)
 		{
@@ -794,8 +913,8 @@ ml_sync_all(check_file)
 		}
 		if (buf->b_ml.ml_mfp->mf_dirty)
 		{
-			mf_sync(buf->b_ml.ml_mfp, FALSE, TRUE);
-			if (mch_char_avail())			/* character available now */
+			mf_sync(buf->b_ml.ml_mfp, FALSE, check_char);
+			if (check_char && mch_char_avail())	/* character available now */
 				break;
 		}
 	}
@@ -840,14 +959,16 @@ ml_preserve(buf, message)
 	 * positive block number. In that case the pointer blocks need to be updated.
 	 *
 	 * We don't know in which pointer block the references are, so we visit
-	 * all data blocks until there are no more translations to be done.
+	 * all data blocks until there are no more translations to be done (or
+	 * we hit the end of the file, which can only happen in case a write fails,
+	 * e.g. when file system if full).
 	 * ml_find_line() does the work by translating the negative block numbers
 	 * when getting the first line of each data block.
 	 */
 	if (mf_need_trans(mfp))
 	{
 		lnum = 1;
-		while (mf_need_trans(mfp))
+		while (mf_need_trans(mfp) && lnum <= buf->b_ml.ml_line_count)
 		{
 			hp = ml_find_line(buf, lnum, ML_FIND);
 			if (hp == NULL)
@@ -924,6 +1045,9 @@ errorret:
 		STRCPY(IObuff, "???");
 		return IObuff;
 	}
+	
+	if (buf->b_ml.ml_mfp == NULL)		/* there are no lines */
+		return (char_u *)"";
 
 /*
  * See if it is the same line as requested last time.
@@ -932,9 +1056,6 @@ errorret:
 	if (buf->b_ml.ml_line_lnum != lnum)
 	{
 		ml_flush_line(buf);
-
-		if (buf->b_ml.ml_flags & ML_EMPTY)					/* empty buffer */
-			return (char_u *)"";
 
 		/*
 		 * find the data block containing the line
@@ -1007,13 +1128,13 @@ ml_append_int(buf, lnum, line, len, newfile)
 	int			page_count;
 	int			db_idx;			/* index for lnum in data block */
 	BHDR		*hp = NULL;
-	BHDR		*hp2;
 	MEMFILE		*mfp;
 	DATA_BL		*dp;
 	PTR_BL		*pp;
 	IPTR		*ip;
 
-	if (lnum > buf->b_ml.ml_line_count)	/* lnum out of range */
+										/* lnum out of range */
+	if (lnum > buf->b_ml.ml_line_count || buf->b_ml.ml_mfp == NULL)
 		return FAIL;
 	
 	if (lowest_marked && lowest_marked > lnum)
@@ -1026,78 +1147,23 @@ ml_append_int(buf, lnum, line, len, newfile)
 	mfp = buf->b_ml.ml_mfp;
 	page_size = mfp->mf_page_size;
 
- 	if (buf->b_ml.ml_flags & ML_EMPTY)			/* empty file */
-	{
-/*
- * Special case: Add first line to empty file.
- * Create the first data block.
- * If lnum == 0, line 1 is inserted below.
- * If lnum == 1, insert an empty line 1 and insert line 2 below.
- */
-		/*
-		 * allocate the first data block
-		 */
-		if (lnum == 1)					/* reserve space for line 1 */
-			space_needed += 1 + INDEX_SIZE;
-		page_count = ((space_needed + HEADER_SIZE) + page_size - 1) / page_size;
-		if ((hp = ml_new_data(mfp, newfile, page_count)) == NULL)
-			return FAIL;
-
-		if (lnum == 1)					/* insert line 1 here, empty */
-		{
-			dp = (DATA_BL *)(hp->bh_data);
-			dp->db_index[0] = --dp->db_txt_start;		/* at end of block */
-			dp->db_free -= 1 + INDEX_SIZE;
-			dp->db_line_count = 1;
-			*((char_u *)dp + dp->db_txt_start) = NUL;	/* emtpy line */
-			space_needed -= 1 + INDEX_SIZE;				/* space for line 1 */
-		}
-
-		/*
-		 * update the first pointer block
-		 */
-		if ((hp2 = mf_get(mfp, (blocknr_t)1, 1)) == NULL)
-		{
-			mf_free(mfp, hp);
-			return FAIL;
-		}
-		pp = (PTR_BL *)(hp2->bh_data);	/* must be pointer block */
-		if (pp->pb_id != PTR_ID)
-		{
-			EMSG("pointer block id wrong 5");
-			mf_free(mfp, hp);
-			mf_put(mfp, hp2, FALSE, FALSE);
-			return FAIL;
-		}
-		pp->pb_count = 1;
-		pp->pb_pointer[0].pe_bnum = hp->bh_bnum;
-		pp->pb_pointer[0].pe_page_count = page_count;
-		pp->pb_pointer[0].pe_old_lnum = 1;
-		pp->pb_pointer[0].pe_line_count = lnum + 1;		/* line count after insertion */
-		mf_put(mfp, hp2, TRUE, FALSE);
-
-		buf->b_ml.ml_flags &= ~ML_EMPTY;
-		line_count = lnum;				/* 0 or 1 line in block before insertion */
-		buf->b_ml.ml_line_count = lnum;
-		db_idx = lnum - 1;				/* append new line after -1 or 0 */
-	}
-	else			/* not empty file */
-	{
 /*
  * find the data block containing the previous line
  * This also fills the stack with the blocks from the root to the data block
  * This also releases any locked block.
  */
-		if ((hp = ml_find_line(buf, lnum == 0 ? (linenr_t)1 : lnum, ML_INSERT)) == NULL)
-			return FAIL;
+	if ((hp = ml_find_line(buf, lnum == 0 ? (linenr_t)1 : lnum,
+													ML_INSERT)) == NULL)
+		return FAIL;
 
-		if (lnum == 0)				/* got line one instead, correct db_idx */
-			db_idx = -1;			/* careful, it is negative! */
-		else
-			db_idx = lnum - buf->b_ml.ml_locked_low;
-					/* get line count before the insertion */
-		line_count = buf->b_ml.ml_locked_high - buf->b_ml.ml_locked_low;
-	}
+	buf->b_ml.ml_flags &= ~ML_EMPTY;
+
+	if (lnum == 0)				/* got line one instead, correct db_idx */
+		db_idx = -1;			/* careful, it is negative! */
+	else
+		db_idx = lnum - buf->b_ml.ml_locked_low;
+				/* get line count before the insertion */
+	line_count = buf->b_ml.ml_locked_high - buf->b_ml.ml_locked_low;
 
 	dp = (DATA_BL *)(hp->bh_data);
 
@@ -1205,12 +1271,12 @@ ml_append_int(buf, lnum, line, len, newfile)
 		PTR_BL		*pp_new;
 
 		/*
-		 * We are going to allocate a new data block. Depending on the situation
-		 * it will be put to the left or right of the existing block.
-		 * If possible we put the new line in the left block and move the
-		 * lines after it to the right block. Otherwise the new line is also put
-		 * in the right block. This method is more efficient when inserting a lot
-		 * of lines at one place.
+		 * We are going to allocate a new data block. Depending on the
+		 * situation it will be put to the left or right of the existing
+		 * block.  If possible we put the new line in the left block and move
+		 * the lines after it to the right block. Otherwise the new line is
+		 * also put in the right block. This method is more efficient when
+		 * inserting a lot of lines at one place.
 		 */
 		if (db_idx < 0)			/* left block is new, right block is existing */
 		{
@@ -1226,7 +1292,8 @@ ml_append_int(buf, lnum, line, len, newfile)
 										/* space_needed does not change */
 			else
 			{
-				data_moved = ((dp->db_index[db_idx]) & DB_INDEX_MASK) - dp->db_txt_start;
+				data_moved = ((dp->db_index[db_idx]) & DB_INDEX_MASK) -
+															dp->db_txt_start;
 				total_moved = data_moved + lines_moved * INDEX_SIZE;
 				if ((int)dp->db_free + total_moved >= space_needed)
 				{
@@ -1519,44 +1586,18 @@ ml_replace(lnum, line, copy)
 	char_u		*line;
 	int			copy;
 {
-	int			status;
-
 	if (line == NULL)			/* just checking... */
 		return FAIL;
 
-	/*
-	 * if empty file simply append the one and only line
-	 */
-	if (curbuf->b_ml.ml_flags & ML_EMPTY)
-	{
-		if (*line == NUL)		/* nothing to do */
-			return OK;
-		status = ml_append_int(curbuf, lnum - 1, line, (colnr_t)0, FALSE);
-		if (!copy)
-			free(line);
-		return status;
-	}
-
-	/*
-	 * if only line replaced by empty line, buffer becomes empty
-	 */
-	if (lnum == 1 && *line == NUL && curbuf->b_ml.ml_line_count == 1)
-	{
-		status = ml_delete(lnum);
-		if (!copy)
-			free(line);
-		return status;
-	}
-
-	if (curbuf->b_ml.ml_line_lnum != lnum)		/* other line currently buffered */
-		ml_flush_line(curbuf);					/* flush it */
-	else if (curbuf->b_ml.ml_flags & ML_LINE_DIRTY)	/* same line has been allocated */
-		free(curbuf->b_ml.ml_line_ptr);			/* free it */
-	if (copy && (line = strsave(line)) == NULL)	/* allocate memory for the line */
+	if (curbuf->b_ml.ml_line_lnum != lnum)			/* other line buffered */
+		ml_flush_line(curbuf);						/* flush it */
+	else if (curbuf->b_ml.ml_flags & ML_LINE_DIRTY)	/* same line allocated */
+		free(curbuf->b_ml.ml_line_ptr);				/* free it */
+	if (copy && (line = strsave(line)) == NULL)		/* allocate memory */
 		return FAIL;
 	curbuf->b_ml.ml_line_ptr = line;
 	curbuf->b_ml.ml_line_lnum = lnum;
-	curbuf->b_ml.ml_flags |= ML_LINE_DIRTY;
+	curbuf->b_ml.ml_flags = (curbuf->b_ml.ml_flags | ML_LINE_DIRTY) & ~ML_EMPTY;
 
 	return OK;
 }
@@ -1567,17 +1608,19 @@ ml_replace(lnum, line, copy)
  * return FAIL for failure, OK otherwise
  */
 	int
-ml_delete(lnum)
+ml_delete(lnum, message)
 	linenr_t	lnum;
+	int			message;
 {
 	ml_flush_line(curbuf);
-	return ml_delete_int(curbuf, lnum);
+	return ml_delete_int(curbuf, lnum, message);
 }
 
 	static int
-ml_delete_int(buf, lnum)
+ml_delete_int(buf, lnum, message)
 	BUF			*buf;
 	linenr_t	lnum;
+	int			message;
 {
 	BHDR	*hp;
 	MEMFILE	*mfp;
@@ -1598,15 +1641,25 @@ ml_delete_int(buf, lnum)
 	if (lowest_marked && lowest_marked > lnum)
 		lowest_marked--;
 
-	if (buf->b_ml.ml_flags & ML_EMPTY)			/* nothing to delete */
-		return FAIL;
+/*
+ * If the file becomes empty the last line is replaced by an empty line.
+ */
+	if (buf->b_ml.ml_line_count == 1)		/* file becomes empty */
+	{
+		buf->b_ml.ml_flags |= ML_EMPTY;
+		if (message)
+			emsg("No lines in buffer");
+		return ml_replace(1, (char_u *)"", TRUE);
+	}
 
-	/*
-	 * find the data block containing the line
-	 * This also fills the stack with the blocks from the root to the data block
-	 * This also releases any locked block.
-	 */
+/*
+ * find the data block containing the line
+ * This also fills the stack with the blocks from the root to the data block
+ * This also releases any locked block.
+ */
 	mfp = buf->b_ml.ml_mfp;
+	if (mfp == NULL)
+		return FAIL;
 
 	if ((hp = ml_find_line(buf, lnum, ML_DELETE)) == NULL)
 		return FAIL;
@@ -1616,21 +1669,7 @@ ml_delete_int(buf, lnum)
 	count = (long)(buf->b_ml.ml_locked_high) - (long)(buf->b_ml.ml_locked_low) + 2;
 	idx = lnum - buf->b_ml.ml_locked_low;
 
-/*
- * If the file becomes empty the data block is freed.
- * The pointer blocks will be updated when the first line is appended.
- */
-	if (--buf->b_ml.ml_line_count == 0)		/* file becomes empty */
-	{
-		CHECK(count != 1, "ml_delete: count not 1");
-		CHECK(idx != 0, "ml_delete: idx not 0");
-		buf->b_ml.ml_line_count = 1;
-		buf->b_ml.ml_flags |= ML_EMPTY;
-		mf_free(mfp, hp);						/* free the data block */
-		buf->b_ml.ml_locked = NULL;
-		buf->b_ml.ml_stack_top = 0;				/* flush stack */
-		return OK;
-	}
+	--buf->b_ml.ml_line_count;
 
 /*
  * special case: If there is only one line in the data block it becomes empty.
@@ -1728,9 +1767,10 @@ ml_setmarked(lnum)
 {
 	BHDR	*hp;
 	DATA_BL	*dp;
-
-	if (lnum < 1 || lnum > curbuf->b_ml.ml_line_count)		/* invalid line number */
-		return;				/* give error message? */
+									/* invalid line number */
+	if (lnum < 1 || lnum > curbuf->b_ml.ml_line_count ||
+												curbuf->b_ml.ml_mfp == NULL)
+		return;						/* give error message? */
 
 	if (lowest_marked == 0 || lowest_marked > lnum)
 		lowest_marked = lnum;
@@ -1759,6 +1799,9 @@ ml_firstmarked()
 	linenr_t	lnum;
 	int			i;
 
+	if (curbuf->b_ml.ml_mfp == NULL)
+		return (linenr_t) 0;
+
 	/*
 	 * The search starts with lowest_marked line. This is the last line where
 	 * a mark was found, adjusted by inserting/deleting lines.
@@ -1767,8 +1810,8 @@ ml_firstmarked()
 	{
 		/*
 		 * Find the data block containing the line.
-		 * This also fills the stack with the blocks from the root to the data block
-		 * This also releases any locked block.
+		 * This also fills the stack with the blocks from the root to the data
+		 * block This also releases any locked block.
 		 */
 		if ((hp = ml_find_line(curbuf, lnum, ML_FIND)) == NULL)
 			return (linenr_t)0;				/* give error message? */
@@ -1799,7 +1842,8 @@ ml_has_mark(lnum)
 	BHDR		*hp;
 	DATA_BL		*dp;
 
-	if ((hp = ml_find_line(curbuf, lnum, ML_FIND)) == NULL)
+	if (curbuf->b_ml.ml_mfp == NULL ||
+						(hp = ml_find_line(curbuf, lnum, ML_FIND)) == NULL)
 		return FALSE;
 
 	dp = (DATA_BL *)(hp->bh_data);
@@ -1816,6 +1860,9 @@ ml_clearmarked()
 	DATA_BL		*dp;
 	linenr_t	lnum;
 	int			i;
+
+	if (curbuf->b_ml.ml_mfp == NULL)		/* nothing to do */
+		return;
 
 	/*
 	 * The search starts with line lowest_marked.
@@ -1865,7 +1912,8 @@ ml_flush_line(buf)
 	int			count;
 	int			i;
 
- 	if (buf->b_ml.ml_line_lnum == 0)		/* nothing to do */
+ 	if (buf->b_ml.ml_line_lnum == 0 ||
+						buf->b_ml.ml_mfp == NULL)		/* nothing to do */
 		return;
 
 	if (buf->b_ml.ml_flags & ML_LINE_DIRTY)
@@ -1875,7 +1923,7 @@ ml_flush_line(buf)
 
 		hp = ml_find_line(buf, lnum, ML_FIND);
 		if (hp == NULL)
-			EMSG2("Cannot fine line %ld", (char_u *)lnum);
+			EMSG2("Cannot find line %ld", (char_u *)lnum);
 		else
 		{
 			dp = (DATA_BL *)(hp->bh_data);
@@ -1923,7 +1971,7 @@ ml_flush_line(buf)
 				 * Cannot do it in one data block: delete and append.
 				 */
 					/* How about handling errors??? */
-				(void)ml_delete_int(buf, lnum);
+				(void)ml_delete_int(buf, lnum, FALSE);
 				(void)ml_append_int(buf, lnum - 1, new_line, new_len, FALSE);
 			}
 		}
@@ -2208,10 +2256,12 @@ ml_add_stack(buf)
 	{
 		CHECK(top > 0, "Stack size increases");	/* more than 5 levels??? */
 
-		newstack = (IPTR *)alloc((unsigned)sizeof(IPTR) * (buf->b_ml.ml_stack_size + STACK_INCR));
+		newstack = (IPTR *)alloc((unsigned)sizeof(IPTR) *
+										(buf->b_ml.ml_stack_size + STACK_INCR));
 		if (newstack == NULL)
 			return -1;
-		memmove((char *)newstack, (char *)buf->b_ml.ml_stack, (size_t)top * sizeof(IPTR));
+		memmove((char *)newstack, (char *)buf->b_ml.ml_stack,
+										(size_t)top * sizeof(IPTR));
 		free(buf->b_ml.ml_stack);
 		buf->b_ml.ml_stack = newstack;
 		buf->b_ml.ml_stack_size += STACK_INCR;
@@ -2286,14 +2336,7 @@ makeswapname(buf, second_try)
 		pdir = p_dir + 1;
 	else
 		pdir = p_dir;
-	s = alloc((unsigned)(STRLEN(pdir) + STRLEN(fname) + 2));
-	if (s != NULL)
-	{
-		STRCPY(s, pdir);
-		if (*s && !ispathsep(*(s + STRLEN(s) - 1)))	/* don't add '/' after ':' */
-			STRCAT(s, PATHSEPSTR);
-		STRCAT(s, fname);
-	}
+	s = concat_fnames(pdir, fname);
 	free(r);
 	return s;
 }
@@ -2302,6 +2345,9 @@ makeswapname(buf, second_try)
  * Find out what name to use for the swap file for buffer 'buf'.
  *
  * Several names are tried to find one that does not exist
+ *
+ * Note: if MAXNAMLEN is not correct, you will get error messages for
+ *       not being able to open the swapfile
  */
 	static char_u *
 findswapname(buf, second_try)
@@ -2312,8 +2358,11 @@ findswapname(buf, second_try)
 	int			n;
 
 #ifdef AMIGA
-	int			r;
 	BPTR		fh;
+#endif
+
+#ifndef MSDOS
+	int			r;
 	FILE		*dummyfd = NULL;
 
 /*
@@ -2341,7 +2390,84 @@ findswapname(buf, second_try)
 			fname = NULL;
 			break;
 		}
-		
+#if defined(UNIX) && !defined(ARCHIE)
+/*
+ * Some systems have a MS-DOS compatible filesystem that use 8.3 character
+ * file names. If this is the first try and the swap file name does not fit in
+ * 8.3, detect if this is the case, set shortname and try again.
+ */
+		if (fname[n - 1] == 'p' && !(buf->b_p_sn || buf->b_shortname))
+		{
+			char_u			*tail;
+			char_u			*fname2;
+			struct stat		s1, s2;
+			int				f1, f2;
+			int				created1 = FALSE, created2 = FALSE;
+			int				equal = FALSE;
+
+			/*
+			 * Check if swapfilename does not fit in 8.3:
+			 * It either contains two dots or it is longer than 8 chars.
+			 */
+			tail = gettail(curbuf->b_xfilename);
+			if (STRCHR(tail, '.') != NULL || STRLEN(tail) > 8)
+			{
+				fname2 = alloc(n + 1);
+				if (fname2 != NULL)
+				{
+					STRCPY(fname2, fname);
+					if (STRCHR(tail, '.') != NULL)
+						fname2[n - 1] = 'x';	/* change ".swp" to ".swx" */
+					else
+						fname2[n - 5] += 1;		/* change "x.swp" to "y.swp" */
+					/*
+					 * may need to create the files to be able to use stat()
+					 */
+					f1 = open(fname, O_RDONLY);
+					if (f1 < 0)
+					{
+						f1 = open(fname, O_RDWR|O_CREAT|O_EXCL);
+						created1 = TRUE;
+					}
+					if (f1 >= 0)
+					{
+						f2 = open(fname2, O_RDONLY);
+						if (f2 < 0)
+						{
+							f2 = open(fname, O_RDWR|O_CREAT|O_EXCL);
+							created2 = TRUE;
+						}
+						if (f2 >= 0)
+						{
+							/*
+							 * Both files exist now. If stat() returns the
+							 * same device and inode they are the same file.
+							 */
+							if (fstat(f1, &s1) != -1 &&
+										fstat(f2, &s2) != -1 &&
+										s1.st_dev == s2.st_dev &&
+										s1.st_ino == s2.st_ino)
+								equal = TRUE;
+							close(f2);
+							if (created2)
+								remove((char *)fname2);
+						}
+						close(f1);
+						if (created1)
+							remove((char *)fname);
+					}
+					free(fname2);
+					if (equal)
+					{
+						buf->b_shortname = TRUE;
+						free(fname);
+						fname = makeswapname(buf, second_try);
+						continue;		/* try again with '.' replaced by '_' */
+					}
+				}
+			}
+		}
+#endif
 		/*
 		 * check if the scriptfile already exists
 		 */
@@ -2368,7 +2494,7 @@ findswapname(buf, second_try)
 	 */
 		if (fname[n - 1] == 'p')		/* first try */
 		{
-#ifdef AMIGA
+#ifndef MSDOS
 		/*
 		 * on MS-DOS compatible filesystems (e.g. messydos) file.doc.swp
 		 * and file.doc are the same file. To guess if this problem is
@@ -2386,22 +2512,67 @@ findswapname(buf, second_try)
 				{
 					buf->b_shortname = TRUE;
 					free(fname);
-					fname = makeswapname(buf, second_try);	/* '.' replaced by '_' */
-					continue;						/* try again */
+					fname = makeswapname(buf, second_try);
+					continue;		/* try again with '.' replaced by '_' */
 				}
 			}
 #endif
 			/*
 			 * If we get here ".swp" file really exists.
-			 * Give an error message, unless recovering or no file name.
+			 * Give an error message, unless recovering, no file name or when
+			 * the path of the file is different (happens when all .swp files
+			 * are in one directory).
 			 */
 			if (!recoverymode && buf->b_xfilename != NULL)
 			{
-						/* call wait_return if not done by emsg() */
-				if (EMSG2(".swp file exists: An edit of file \"%s\" may not have been finished", buf->b_xfilename))
+				int				fd;
+				struct block0	b0;
+				int				differ = FALSE;
+
+				fd = open(fname, O_RDONLY);
+				if (fd >= 0)
 				{
-					msg_outchar('\n');
-					wait_return(FALSE);		/* do call wait_return now */
+					if (read(fd, &b0, sizeof(b0)) == sizeof(b0) &&
+							fnamecmp(b0.b0_fname, buf->b_filename) != 0)
+						differ = TRUE;
+					close(fd);
+				}
+				if (differ == FALSE)
+				{
+					struct stat st;
+
+					++no_wait_return;
+					++dont_sleep;
+					(void)EMSG("ATTENTION");
+					--dont_sleep;
+					msg_outstr("\nFound a swap file by the name \"");
+					msg_outstr(fname);
+					msg_outstr("\"\n");
+					if (stat((char *)fname, &st) != -1)
+					{
+						msg_outstr((char_u *)"                        dated ");
+						msg_outstr((char_u *)ctime(&st.st_mtime));
+					}
+					msg_outstr("           while opening file \"");
+					msg_outstr(buf->b_xfilename);
+					msg_outstr("\"\n");
+					if (stat((char *)buf->b_xfilename, &st) != -1)
+					{
+						msg_outstr((char_u *)"                        dated ");
+						msg_outstr((char_u *)ctime(&st.st_mtime));
+					}
+					msg_outstr("\n(1) Another program may be editing the same file.\n");
+					msg_outstr("    If this is the case, quit this edit session to avoid problems.\n");
+					msg_outstr("\n(2) An edit session for this file crashed.\n");
+					msg_outstr("    If this is the case, use \":recover\" or \"Vim -r ");
+					msg_outstr(buf->b_xfilename);
+					msg_outstr("\"\n    to recover the changes.\n");
+					msg_outstr("    If you did this already, delete the swap file \"");
+					msg_outstr(fname);
+					msg_outstr("\"\n    to avoid this message.\n\n");
+					cmdline_row = msg_row;
+					--no_wait_return;
+					need_wait_return = TRUE;		/* call wait_return later */
 				}
 			}
 		}
@@ -2415,7 +2586,7 @@ findswapname(buf, second_try)
 		--fname[n - 1];				/* change last char of the name */
 	}
 
-#ifdef AMIGA
+#ifndef MSDOS
 	if (dummyfd)		/* file has been created temporarily */
 	{
 		fclose(dummyfd);

@@ -13,11 +13,14 @@ unchanged until you write the buffer to the file.
 
 A buffer can be in one of three states:
 
+					*active_buffer*
 active:   The buffer is displayed in a window. If there is a file for this
 	  buffer it has been read into the buffer. The buffer may have been
 	  modified.
+					*hidden_buffer*
 hidden:   The buffer is not displayed. If there is a file for this buffer it
           has been read into the buffer. The buffer may have been modified.
+					*inactive_buffer*
 inactive: The buffer is not displayed and does not contain anything. Options
           for the buffer are remembered if the file was once loaded.
 
@@ -76,6 +79,11 @@ CTRL-W CTRL_N
 		the existing height). Reduces the current window height to
 		create room (and others, if the 'equalalways' option is set).
 
+CTRL-W CTRL-^
+		Does ":split #", split window in two and edit alternate file.
+		When a count is given it becomes ":split #N", split window and
+		edit buffer N.
+
 
 Closing a window
 ----------------
@@ -118,8 +126,17 @@ CTRL-W CTRL-W	Without count: move cursor to window below current one. If
 		there is no window below, go to upper window.
 		With count: go to Nth window.
 
+CTRL-W t
+CTRL-W CTRL-T	move cursor to top window.
+
+CTRL-W b
+CTRL-W CTRL-B	move cursor to bottom window.
+
 CTRL-W p
 CTRL-W CTRL-P	go to previous (last accessed) window.
+
+If visual mode is active and the new window is not for the same buffer, the
+visual mode is ended.
 
 
 Moving windows around
@@ -244,7 +261,7 @@ The meaning of [N] depends on the command:
 [N] is number of buffers to go forward/backward on ?2, ?3, ?4
 [N] is an argument number, defaulting to current argument, for 1, 21
 [N] is a buffer number, defaulting to current buffer, for 11, 31
-[N] is a count for 17, 39
+[N] is a count for 19, 39
 
 Note: ":next" is an exception, because it must accept a list of file names
 for compatibility with vi.
@@ -301,7 +318,10 @@ CTRL-W CTRL-]	split current window in two. Use identifier under cursor as a
 
 CTRL-W f
 CTRL-W CTRL-F	split current window in two. Edit file name under cursor. Like
-		":split ]f", but window isn't split if the file does not exist.
+		":split ]f", but window isn't split if the file does not
+		exist.  Uses the 'path' variable as a list of directory names
+		where to look for the file. Also the path for current file
+		is used to search for the file name.
 
 
 Using hidden buffers
@@ -319,8 +339,9 @@ although the 'hidden' option is not set (see below).
 You can make a hidden buffer not hidden, by starting to edit it with any
 command. Or by deleting it with the ":bdelete" command.
 
-:files
-:buffers	Show all buffers. Example:
+:files						*c_files*
+:buffers					*c_buffers* *c_ls*
+:ls		Show all buffers. Example:
 
 			1 #h  "/test/text" line 1
 			2  -  "asdf" line 0
@@ -340,15 +361,17 @@ command. Or by deleting it with the ":bdelete" command.
 :bdelete [N]
 		Unload buffer [N] (default: current buffer) and delete it from
 		the buffer list. If the buffer was changed this fails. The
-		file remains unaffected. If buffer [N] is the current buffer,
-		the next buffer becomes the current buffer.
+		file remains unaffected. Any windows for this buffer are
+		closed. If buffer [N] is the current buffer, the next buffer
+		(displayed in a window) becomes the current buffer.
 
 :[N]bdelete!
 :bdelete! [N]
 		Unload buffer [N] (default: current buffer) and delete it from
 		the buffer list. If the buffer was changed the changes are
-		lost. The file remains unaffected. If buffer [N] is the
-		current buffer, the next buffer becomes the current buffer.
+		lost. The file remains unaffected. Any windows for this buffer
+		are closed. If buffer [N] is the current buffer, the next
+		buffer (displayed in a window) becomes the current buffer.
 
 :N,Mbdelete[!]	do :bdelete[!] for all buffers in the range N to M (inclusive).
 
@@ -359,16 +382,18 @@ command. Or by deleting it with the ":bdelete" command.
 :bunload [N]
 		Unload buffer [N] (default: current buffer). The memory
 		allocated for this buffer will be freed. The buffer remains in
-		the buffer list. If the buffer was changed this fails. If
-		buffer [N] is the current buffer, the next buffer becomes the
-		current buffer.
+		the buffer list. If the buffer was changed this fails. Any
+		windows for this buffer are closed. If buffer [N] is the
+		current buffer, the next buffer (displayed in a window)
+		becomes the current buffer.
 
 :[N]bunload!
 :bunload! [N]
 		Unload buffer [N] (default: current buffer). The memory
 		allocated for this buffer will be freed. The buffer remains in
 		the buffer list. If the buffer was changed the changes are
-		lost. If buffer [N] is the current buffer, the next buffer
+		lost. Any windows for this buffer are closed. If buffer [N] is
+		the current buffer, the next buffer (displayed in a window)
 		becomes the current buffer.
 
 :N,Mbunload[!]	do :bunload[!] for all buffers in the range N to M (inclusive).

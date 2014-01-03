@@ -31,6 +31,8 @@ setmark(c)
 {
 	int 		i;
 
+	if (c >= 0x100)
+		return FAIL;
 	if (islower(c))
 	{
 		i = c - 'a';
@@ -190,7 +192,9 @@ getmark(c, changefile)
 	static	FPOS	pos_copy;
 
 	posp = NULL;
-	if (c == '\'' || c == '`')			/* previous context mark */
+	if (c >= 0x100)
+		;
+	else if (c == '\'' || c == '`')		/* previous context mark */
 	{
 		pos_copy = curwin->w_pcmark;	/* need to make a copy because b_pcmark */
 		posp = &pos_copy;				/*   may be changed soon */
@@ -275,14 +279,14 @@ domarks()
 	int			i;
 	char_u		*name;
 
-	gotocmdline(TRUE, NUL);
-	msg_outstr((char_u *)"\nmark line  file\n");
+	msg_outstr((char_u *)"\nmark line  col file");
 	for (i = 0; i < NMARKS; ++i)
 	{
 		if (curbuf->b_namedm[i].lnum != 0)
 		{
-			sprintf((char *)IObuff, " %c %5ld\n", i + 'a',
-												curbuf->b_namedm[i].lnum);
+			sprintf((char *)IObuff, "\n %c %5ld  %3d", i + 'a',
+												curbuf->b_namedm[i].lnum,
+												curbuf->b_namedm[i].col);
 			msg_outstr(IObuff);
 		}
 		flushbuf();
@@ -295,15 +299,15 @@ domarks()
 			if (name == NULL)		/* file name not available */
 				continue;
 
-			sprintf((char *)IObuff, " %c %5ld  %s\n",
+			sprintf((char *)IObuff, "\n %c %5ld  %3d %s",
 				i + 'A',
 				namedfm[i].mark.lnum,
+				namedfm[i].mark.col,
 				name);
 			msg_outstr(IObuff);
 		}
 		flushbuf();				/* show one line at a time */
 	}
-	msg_end();
 }
 
 /*
@@ -315,8 +319,7 @@ dojumps()
 	int			i;
 	char_u		*name;
 
-	gotocmdline(TRUE, NUL);
-	msg_outstr((char_u *)"\n jump line  file\n");
+	msg_outstr((char_u *)"\n jump line  file");
 	for (i = 0; i < curwin->w_jumplistlen; ++i)
 	{
 		if (curwin->w_jumplist[i].mark.lnum != 0)
@@ -325,7 +328,7 @@ dojumps()
 			if (name == NULL)		/* file name not available */
 				continue;
 
-			sprintf((char *)IObuff, "%c %2d %5ld  %s\n",
+			sprintf((char *)IObuff, "\n%c %2d %5ld  %s",
 				i == curwin->w_jumplistidx ? '>' : ' ',
 				i + 1,
 				curwin->w_jumplist[i].mark.lnum,
@@ -335,19 +338,18 @@ dojumps()
 		flushbuf();
 	}
 	if (curwin->w_jumplistidx == curwin->w_jumplistlen)
-		msg_outstr((char_u *)">\n");
-	msg_end();
+		msg_outstr((char_u *)"\n>");
 }
 
 /*
- * adjust marks between line1 and line2 (inclusive) to move 'inc' lines
- * If 'inc' is MAXLNUM the mark is made invalid.
+ * adjust marks between line1 and line2 (inclusive) to move 'amount' lines
+ * If 'amount' is MAXLNUM the mark is made invalid.
  */
 	void
-mark_adjust(line1, line2, inc)
+mark_adjust(line1, line2, amount)
 	linenr_t	line1;
 	linenr_t	line2;
-	long		inc;
+	long		amount;
 {
 	int			i;
 	int			fnum = curbuf->b_fnum;
@@ -360,20 +362,20 @@ mark_adjust(line1, line2, inc)
 		lp = &(curbuf->b_namedm[i].lnum);
 		if (*lp >= line1 && *lp <= line2)
 		{
-			if (inc == MAXLNUM)
+			if (amount == MAXLNUM)
 				*lp = 0;
 			else
-				*lp += inc;
+				*lp += amount;
 		}
 		if (namedfm[i].fnum == fnum)
 		{
 			lp = &(namedfm[i].mark.lnum);
 			if (*lp >= line1 && *lp <= line2)
 			{
-				if (inc == MAXLNUM)
+				if (amount == MAXLNUM)
 					*lp = 0;
 				else
-					*lp += inc;
+					*lp += amount;
 			}
 		}
 	}
@@ -382,24 +384,40 @@ mark_adjust(line1, line2, inc)
 	lp = &(curwin->w_pcmark.lnum);
 	if (*lp >= line1 && *lp <= line2)
 	{
-		if (inc == MAXLNUM)
+		if (amount == MAXLNUM)
 			*lp = 0;
 		else
-			*lp += inc;
+			*lp += amount;
 	}
 
 /* previous pcmark */
 	lp = &(curwin->w_prev_pcmark.lnum);
 	if (*lp >= line1 && *lp <= line2)
 	{
-		if (inc == MAXLNUM)
+		if (amount == MAXLNUM)
 			*lp = 0;
 		else
-			*lp += inc;
+			*lp += amount;
+	}
+
+/* marks in the tag stack */
+	for (i = 0; i < curwin->w_tagstacklen; i++)
+	{
+		if (curwin->w_tagstack[i].fmark.fnum == fnum)
+		{
+			lp = &(curwin->w_tagstack[i].fmark.mark.lnum);
+			if (*lp >= line1 && *lp <= line2)
+			{
+				if (amount == MAXLNUM)
+					*lp = line1;		/* don't delete it, just put at first deleted line */
+				else
+					*lp += amount;
+			}
+		}
 	}
 
 /* quickfix marks */
-	qf_mark_adjust(line1, line2, inc);
+	qf_mark_adjust(line1, line2, amount);
 
 /* jumplist marks */
 	for (win = firstwin; win != NULL; win = win->w_next)
@@ -410,10 +428,10 @@ mark_adjust(line1, line2, inc)
 				lp = &(win->w_jumplist[i].mark.lnum);
 				if (*lp >= line1 && *lp <= line2)
 				{
-					if (inc == MAXLNUM)
+					if (amount == MAXLNUM)
 						*lp = 0;
 					else
-						*lp += inc;
+						*lp += amount;
 				}
 			}
 		/*
@@ -424,20 +442,25 @@ mark_adjust(line1, line2, inc)
 		{
 			if (win->w_topline >= line1 && win->w_topline <= line2)
 			{
-				if (inc == MAXLNUM)		/* topline is deleted */
-					win->w_topline = line1;
+				if (amount == MAXLNUM)		/* topline is deleted */
+				{
+					if (line1 == 0)
+						win->w_topline = 1;
+					else
+						win->w_topline = line1;
+				}
 				else					/* keep topline on the same line */
-					win->w_topline += inc;
+					win->w_topline += amount;
 			}
 			if (win->w_cursor.lnum >= line1 && win->w_cursor.lnum <= line2)
 			{
-				if (inc == MAXLNUM)		/* line with cursor is deleted */
+				if (amount == MAXLNUM)		/* line with cursor is deleted */
 				{
 					win->w_cursor.lnum = line1;
 					win->w_cursor.col = 0;
 				}
 				else					/* keep cursor on the same line */
-					win->w_cursor.lnum += inc;
+					win->w_cursor.lnum += amount;
 			}
 		}
 	}

@@ -18,6 +18,7 @@
 ### DEF=DIGRAPHS		digraph support (at the cost of 1.6 Kbyte code)
 ### DEF=NO_ARP			do not use arp.library, DOS 2.0 required
 ### DEF=COMPATIBLE		start in vi-compatible mode
+### DEF=NOSTRTOL		strtol() function not available
 ### DEF=NOBACKUP		default is no backup file
 ### DEF=DEBUG			output a lot of debugging garbage
 ### DEF=TERMCAP			include termcap file support
@@ -27,11 +28,9 @@
 ###				(use only without -DNO_BUILTIN_TCAPS)
 ### DEF=ALL_BUILTIN_TCAPS	include all builtin termcap entries
 ###				(use only without -DNO_BUILTIN_TCAPS)
-### DEF=WEBB_COMPLETE		include Webb's code for command line completion
-### DEF=WEBB_KEYWORD_COMPL	include Webb's code for keyword completion
 ### DEF=NOTITLE			'title' option off by default
-DEFINES = DEF=DIGRAPHS DEF=SOME_BUILTIN_TCAPS \
-		DEF=WEBB_COMPLETE DEF=WEBB_KEYWORD_COMPL
+### DEF=VIMINFO			include reading/writing viminfo file
+DEFINES = DEF=DIGRAPHS DEF=SOME_BUILTIN_TCAPS
 
 #>>>>> if TERMCAP is defined obj/termlib.o has to be used
 #TERMLIB = obj/termlib.o
@@ -58,6 +57,13 @@ COPTS = SINT SCODE SDATA
 CFLAGS = NOLINK $(OPTIMIZE) $(COPTS) DEF=AMIGA DEF=SASC $(DBG) $(DEFINES) GST=$(GST)
 
 PROPT = DEF=PROTO GPROTO GPPARM
+
+SRC =	alloc.c amiga.c buffer.c charset.c cmdcmds.c cmdline.c \
+	csearch.c digraph.c edit.c fileio.c getchar.c help.c \
+	linefunc.c main.c mark.c memfile.c memline.c message.c misccmds.c \
+	normal.c ops.c param.c quickfix.c regexp.c \
+	regsub.c screen.c search.c \
+	tag.c term.c undo.c window.c version.c
 
 OBJ =	obj/alloc.o obj/amiga.o obj/buffer.o obj/charset.o obj/cmdcmds.o obj/cmdline.o \
 	obj/csearch.o obj/digraph.o obj/edit.o obj/fileio.o obj/getchar.o obj/help.o \
@@ -86,7 +92,7 @@ debug: $(OBJ) version.c
 proto: $(GST) $(PRO)
 
 ctags:
-	csh -c ctags *.c *.h
+	csh -c ctags $(SRC) *.h
 
 # can't use delete here, too many file names
 clean:

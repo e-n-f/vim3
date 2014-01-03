@@ -75,13 +75,17 @@ u_save_cursor()
 /*
  * Save the lines between "top" and "bot" for both the "u" and "U" command.
  * "top" may be 0 and bot may be curbuf->b_ml.ml_line_count + 1.
- * Returns FALSE when lines could not be saved.
+ * Returns FAIL when lines could not be saved, OK otherwise.
  */
 	int
 u_save(top, bot)
 	linenr_t top, bot;
 {
-	if (top > curbuf->b_ml.ml_line_count || top >= bot || bot > curbuf->b_ml.ml_line_count + 1)
+	if (undo_off)
+		return OK;
+
+	if (top > curbuf->b_ml.ml_line_count ||
+							top >= bot || bot > curbuf->b_ml.ml_line_count + 1)
 		return FALSE;	/* rely on caller to do error messages */
 
 	if (top + 2 == bot)
@@ -98,6 +102,9 @@ u_save(top, bot)
 u_savesub(lnum)
 	linenr_t	lnum;
 {
+	if (undo_off)
+		return OK;
+
 	return (u_savecommon(lnum - 1, lnum + 1, lnum + 1));
 }
 
@@ -109,19 +116,27 @@ u_savesub(lnum)
 u_inssub(lnum)
 	linenr_t	lnum;
 {
+	if (undo_off)
+		return OK;
+
 	return (u_savecommon(lnum - 1, lnum, lnum + 1));
 }
 
 /*
  * save the lines "lnum" - "lnum" + nlines (used by delete command)
- * The lines are deleted, so the new bottom line is lnum.
+ * The lines are deleted, so the new bottom line is lnum, unless the buffer
+ * becomes empty.
  */
 	int
 u_savedel(lnum, nlines)
 	linenr_t	lnum;
 	long		nlines;
 {
-	return (u_savecommon(lnum - 1, lnum + nlines, lnum));
+	if (undo_off)
+		return OK;
+
+	return (u_savecommon(lnum - 1, lnum + nlines,
+						nlines == curbuf->b_ml.ml_line_count ? 2 : lnum));
 }
 
 	static int 
@@ -154,7 +169,7 @@ u_savecommon(top, bot, newbot)
 			u_freelist(curbuf->b_u_oldhead);
 
 		if (p_ul < 0)			/* no undo at all */
-			return TRUE;
+			return OK;
 
 		/*
 		 * make a new header entry
@@ -202,13 +217,13 @@ u_savecommon(top, bot, newbot)
 	if (newbot)
 		uep->ue_bot = newbot;
 		/*
-		 * use 0 for ue_bot if bot is below last line or if the buffer is empty, in
-		 * which case the last line may be replaced (e.g. with 'O' command).
+		 * Use 0 for ue_bot if bot is below last line.
+		 * Otherwise we have to compute ue_bot later.
 		 */
-	else if (bot > curbuf->b_ml.ml_line_count || bufempty())
+	else if (bot > curbuf->b_ml.ml_line_count)
 		uep->ue_bot = 0;
 	else
-		uep->ue_lcount = curbuf->b_ml.ml_line_count;	/* we have to compute ue_bot later */
+		uep->ue_lcount = curbuf->b_ml.ml_line_count;
 
 	if (size)
 	{
@@ -229,12 +244,16 @@ u_savecommon(top, bot, newbot)
 	uep->ue_next = curbuf->b_u_newhead->uh_entry;
 	curbuf->b_u_newhead->uh_entry = uep;
 	curbuf->b_u_synced = FALSE;
-	return TRUE;
+	return OK;
 
 nomem:
-	if (ask_yesno((char_u *)"no undo possible; continue anyway") == 'y')
-		return TRUE;
-	return FALSE;
+	if (ask_yesno((char_u *)"No undo possible; continue anyway", TRUE) == 'y')
+	{
+		undo_off = TRUE;			/* will be reset when character typed */
+		return OK;
+	}
+	do_outofmem_msg();
+	return FAIL;
 }
 
 	void
@@ -266,7 +285,7 @@ u_undo(count)
 		if (curbuf->b_u_numhead == 0 || curbuf->b_u_curhead == NULL)	/* nothing to undo */
 		{
 			curbuf->b_u_curhead = curbuf->b_u_oldhead;					/* stick curbuf->b_u_curhead at end */
-			beep();
+			beep_flush();
 			break;
 		}
 
@@ -285,7 +304,7 @@ u_redo(count)
 	{
 		if (curbuf->b_u_curhead == NULL || p_ul <= 0)		/* nothing to redo */
 		{
-			beep();
+			beep_flush();
 			break;
 		}
 
@@ -316,11 +335,14 @@ u_undoredo()
 	struct u_entry *newlist = NULL;
 	int			changed = curbuf->b_changed;
 	FPOS		namedm[NMARKS];
+	int			empty_buffer = FALSE;		/* buffer became empty */
 
 	if (curbuf->b_u_curhead->uh_changed)
 		CHANGED;
 	else
 		UNCHANGED(curbuf);
+	setpcmark();
+
 	/*
 	 * save marks before undo/redo
 	 */
@@ -353,6 +375,7 @@ u_undoredo()
 		{
 			if ((newarray = (char_u **)u_alloc_line((unsigned)(sizeof(char_u *) * oldsize))) == NULL)
 			{
+				do_outofmem_msg();
 				/*
 				 * We have messed up the entry list, repair is impossible.
 				 * we have to free the rest of the list.
@@ -368,8 +391,14 @@ u_undoredo()
 			/* delete backwards, it goes faster in most cases */
 			for (lnum = bot - 1, i = oldsize; --i >= 0; --lnum)
 			{
-				newarray[i] = u_save_line(lnum);
-				ml_delete(lnum);
+					/* what can we do when we run out of memory? */
+				if ((newarray[i] = u_save_line(lnum)) == NULL)
+					do_outofmem_msg();
+					/* remember we deleted the last line in the buffer, and a
+					 * dummy empty line will be inserted */
+				if (curbuf->b_ml.ml_line_count == 1)
+					empty_buffer = TRUE;
+				ml_delete(lnum, FALSE);
 			}
 		}
 
@@ -378,7 +407,14 @@ u_undoredo()
 		{
 			for (lnum = top, i = 0; i < newsize; ++i, ++lnum)
 			{
-				ml_append(lnum, uep->ue_array[i], (colnr_t)0, FALSE);
+				/*
+				 * If the file is empty, there is an empty line 1 that we
+				 * should get rid of, by replacing it with the new line
+				 */
+				if (empty_buffer && lnum == 0)
+					ml_replace(1, uep->ue_array[i], TRUE);
+				else
+					ml_append(lnum, uep->ue_array[i], (colnr_t)0, FALSE);
 				u_free_line(uep->ue_array[i]);
 			}
 			u_free_line((char_u *)uep->ue_array);
@@ -420,6 +456,13 @@ u_undoredo()
 
 	if (curbuf->b_u_curhead->uh_cursor.lnum == curwin->w_cursor.lnum)
 		curwin->w_cursor.col = curbuf->b_u_curhead->uh_cursor.col;
+	else if (curwin->w_cursor.lnum <= curbuf->b_ml.ml_line_count)
+		beginline(MAYBE);
+	/* We still seem to need the case below because sometimes we get here with
+	 * the current cursor line being one past the end (eg after adding lines
+	 * at the end of the file, and then undoing it).  Is it fair enough that
+	 * this happens? -- webb
+	 */
 	else
 		curwin->w_cursor.col = 0;
 }
@@ -579,7 +622,8 @@ u_saveline(lnum)
 		curbuf->b_u_line_colnr = curwin->w_cursor.col;
 	else
 		curbuf->b_u_line_colnr = 0;
-	curbuf->b_u_line_ptr = u_save_line(lnum);	/* when out of mem alloc() will give a warning */
+	if ((curbuf->b_u_line_ptr = u_save_line(lnum)) == NULL)
+		do_outofmem_msg();
 }
 
 /*
@@ -608,16 +652,25 @@ u_undoline()
 	colnr_t t;
 	char_u	*old;
 
-	if (curbuf->b_u_line_ptr == NULL || curbuf->b_u_line_lnum > curbuf->b_ml.ml_line_count)
+	if (undo_off)
+		return;
+
+	if (curbuf->b_u_line_ptr == NULL ||
+						curbuf->b_u_line_lnum > curbuf->b_ml.ml_line_count)
 	{
-		beep();
+		beep_flush();
 		return;
 	}
 		/* first save the line for the 'u' command */
-	u_savecommon(curbuf->b_u_line_lnum - 1, curbuf->b_u_line_lnum + 1, (linenr_t)0);
+	if (u_savecommon(curbuf->b_u_line_lnum - 1,
+								curbuf->b_u_line_lnum + 1, (linenr_t)0) == FAIL)
+		return;
 	old = u_save_line(curbuf->b_u_line_lnum);
 	if (old == NULL)
+	{
+		do_outofmem_msg();
 		return;
+	}
 	ml_replace(curbuf->b_u_line_lnum, curbuf->b_u_line_ptr, TRUE);
 	u_free_line(curbuf->b_u_line_ptr);
 	curbuf->b_u_line_ptr = old;
@@ -708,7 +761,7 @@ u_blockalloc(size)
 	struct m_block *p;
 	struct m_block *mp, *next;
 
-	p = (struct m_block *)lalloc(size + sizeof(struct m_block), TRUE);
+	p = (struct m_block *)lalloc(size + sizeof(struct m_block), FALSE);
 	if (p != NULL)
 	{
 		 /* Insert the block into the allocated block list, keeping it

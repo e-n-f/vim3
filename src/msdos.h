@@ -35,6 +35,12 @@
 # define VIM_HLP		"$VIM\\vim.hlp"
 #endif
 
+#ifdef VIMINFO
+#ifndef VIMINFO_FILE
+# define VIMINFO_FILE	"$VIM\\viminfo"
+#endif
+#endif /* VIMINFO */
+
 #ifndef DEF_DIR
 # define DEF_DIR		"c:\\tmp"
 #endif
@@ -63,3 +69,9 @@
 
 /* use chdir() that also changes the default drive */
 #define chdir vim_chdir
+
+/* codes for msdos mouse event */
+#define MOUSE_MASK		0x07
+#define MOUSE_LEFT		0x01
+#define MOUSE_RIGHT		0x02
+#define MOUSE_MIDDLE	0x04

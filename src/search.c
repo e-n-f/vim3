@@ -20,6 +20,7 @@
 
 static int inmacro __ARGS((char_u *, char_u *));
 static int cls __ARGS((void));
+static void show_pat_in_path __ARGS((char_u *, int, int, int, FILE *, linenr_t *));
 
 static char_u *top_bot_msg = (char_u *)"search hit TOP, continuing at BOTTOM";
 static char_u *bot_top_msg = (char_u *)"search hit BOTTOM, continuing at TOP";
@@ -57,6 +58,18 @@ static char_u 	*subst_pattern = NULL;
 static char_u 	*last_pattern = NULL;
 
 static int		want_start;				/* looking for start of line? */
+static int		did_emsg;				/* myregcomp() called emsg() */
+
+/*
+ * Type used by find_pattern_in_path() to remember which included files have
+ * been searched already.
+ */
+typedef struct SearchedFile
+{
+	FILE		*fp;		/* File pointer */
+	char_u		*name;		/* Full name of file */
+	linenr_t	lnum;		/* Line we were up to in file */
+} SearchedFile;
 
 /*
  * translate search pattern for regcomp()
@@ -75,8 +88,7 @@ myregcomp(pat, sub_cmd, which_pat)
 	int		sub_cmd;
 	int		which_pat;
 {
-	regexp *retval;
-
+	did_emsg = FALSE;
 	if (pat == NULL || *pat == NUL)     /* use previous search pattern */
 	{
 		if (which_pat == 0)
@@ -84,6 +96,7 @@ myregcomp(pat, sub_cmd, which_pat)
 			if (search_pattern == NULL)
 			{
 				emsg(e_noprevre);
+				did_emsg = TRUE;
 				return (regexp *) NULL;
 			}
 			pat = search_pattern;
@@ -93,6 +106,7 @@ myregcomp(pat, sub_cmd, which_pat)
 			if (subst_pattern == NULL)
 			{
 				emsg(e_nopresub);
+				did_emsg = TRUE;
 				return (regexp *) NULL;
 			}
 			pat = subst_pattern;
@@ -102,6 +116,7 @@ myregcomp(pat, sub_cmd, which_pat)
 			if (last_pattern == NULL)
 			{
 				emsg(e_noprevre);
+				did_emsg = TRUE;
 				return (regexp *) NULL;
 			}
 			pat = last_pattern;
@@ -138,8 +153,7 @@ myregcomp(pat, sub_cmd, which_pat)
 
 	want_start = (*pat == '^');		/* looking for start of line? */
 	reg_ic = p_ic;					/* tell the regexec routine how to search */
-	retval = regcomp(pat);
-	return retval;
+	return regcomp(pat);
 }
 
 /*
@@ -149,13 +163,14 @@ myregcomp(pat, sub_cmd, which_pat)
  * Return OK for success, FAIL for failure.
  */
 	int
-searchit(pos, dir, str, count, end, message)
+searchit(pos, dir, str, count, end, message, which_pat)
 	FPOS	*pos;
 	int 	dir;
 	char_u	*str;
 	long	count;
 	int		end;
 	int		message;
+	int		which_pat;
 {
 	int 				found;
 	linenr_t			lnum = 0;			/* init to shut up gcc */
@@ -164,12 +179,12 @@ searchit(pos, dir, str, count, end, message)
 	register char_u		*s;
 	char_u				*ptr;
 	register int		i;
-	register char_u		*match, *matchend;
+	register char_u		*match = NULL, *matchend = NULL;	/* init for GCC */
 	int 				loop;
 
-	if ((prog = myregcomp(str, 0, 2)) == NULL)
+	if ((prog = myregcomp(str, 0, which_pat)) == NULL)
 	{
-		if (message)
+		if (message && !did_emsg)
 			emsg(e_invstring);
 		return FAIL;
 	}
@@ -237,10 +252,11 @@ searchit(pos, dir, str, count, end, message)
 				if (got_int)
 					break;
 
-				if (loop && lnum == startlnum)  /* if second loop stop where started */
-					break;
+				if (loop && lnum == startlnum)
+					break;  		/* if second loop stop where started */
 			}
-	/* stop the search if wrapscan isn't set, after an interrupt and after a match */
+	/* stop the search if wrapscan isn't set, after an interrupt and after a
+	 * match */
 			if (!p_ws || got_int || found)
 				break;
 
@@ -256,8 +272,10 @@ searchit(pos, dir, str, count, end, message)
 				lnum = curbuf->b_ml.ml_line_count;
 				if (!p_terse && message)
 				{
-					msg(top_bot_msg);
-					keep_msg = top_bot_msg;
+					if (msg(top_bot_msg) && !msg_scroll)
+						keep_msg = top_bot_msg;
+					msg_didout = FALSE;		/* overwrite this message */
+					msg_col = 0;
 				}
 			}
 			else
@@ -265,8 +283,10 @@ searchit(pos, dir, str, count, end, message)
 				lnum = 1;
 				if (!p_terse && message)
 				{
-					msg(bot_top_msg);
-					keep_msg = bot_top_msg;
+					if (msg(bot_top_msg) && !msg_scroll)
+						keep_msg = bot_top_msg;
+					msg_didout = FALSE;		/* overwrite this message */
+					msg_col = 0;
 				}
 			}
 		}
@@ -285,12 +305,13 @@ searchit(pos, dir, str, count, end, message)
 			if (p_ws)
 				emsg(e_patnotf);
 			else if (lnum == 0)
-				EMSG("search hit TOP without match");
+				EMSG(e_top_search);
 			else
-				EMSG("search hit BOTTOM without match");
+				EMSG(e_bot_search);
 		}
 		return FAIL;
 	}
+	search_match_len = matchend - match;
 
 	return OK;
 }
@@ -429,16 +450,17 @@ dosearch(dirc, str, reverse, count, echo, message)
 				msg_outnum((long)lastoff);
 			}
 		}
-		msg_ceol();
+		msg_clr_eos();
 		(void)msg_check();
 
-		gotocmdline(FALSE, NUL);
+		gotocmdline(FALSE);
 		flushbuf();
 	}
 
 	pos = curwin->w_cursor;
 
-	c = searchit(&pos, dirc == '/' ? FORWARD : BACKWARD, searchstr, count, lastend, message);
+	c = searchit(&pos, dirc == '/' ? FORWARD : BACKWARD,
+								searchstr, count, lastend, message, 2);
 	if (dircp)
 		*dircp = dirc;			/* put second '/' or '?' back for normal() */
 	if (c == FAIL)
@@ -502,6 +524,84 @@ end_dosearch:
 	return ret;
 }
 
+/*
+ * search_for_exact_line(pos, dir, pat)
+ *
+ * Search for a line starting with the given pattern (ignoring leading
+ * white-space), starting from pos and going in direction dir.  pos will
+ * contain the position of the match found.  Return OK for success, or FAIL
+ * if no line found.  Blank lines will never match.
+ */
+	int
+search_for_exact_line(pos, dir, pat)
+	FPOS		*pos;
+	int			dir;
+	char_u		*pat;
+{
+	linenr_t	start = 0;
+	char_u		*ptr;
+	char_u		*p;
+	char_u		*m = e_patnotf;
+
+	if (curbuf->b_ml.ml_line_count == 0)
+		return FAIL;
+	for (;;)
+	{
+		pos->lnum += dir;
+		if (pos->lnum < 1)
+		{
+			if (p_ws)
+			{
+				pos->lnum = curbuf->b_ml.ml_line_count;
+				if (msg(top_bot_msg) && !msg_scroll)
+					keep_msg = top_bot_msg;
+			}
+			else
+			{
+				pos->lnum = 1;
+				m = (char_u *)"search hit TOP without match";
+				break;
+			}
+		}
+		else if (pos->lnum > curbuf->b_ml.ml_line_count)
+		{
+			if (p_ws)
+			{
+				pos->lnum = 1;
+				if (msg(bot_top_msg) && !msg_scroll)
+					keep_msg = bot_top_msg;
+			}
+			else
+			{
+				pos->lnum = 1;
+				m = (char_u *)"search hit BOTTOM without match";
+				break;
+			}
+		}
+		if (pos->lnum == start)
+			break;
+		if (start == 0)
+			start = pos->lnum;
+		ptr = p = ml_get(pos->lnum);
+		skipwhite(&p);
+		pos->col = p - ptr;
+		if (*p != NUL && STRNCMP(p, pat, STRLEN(pat)) == 0)
+			return OK;
+		else if (*p != NUL && p_ic)
+		{
+			ptr = pat;
+			while (*p && TO_LOWER(*p) == TO_LOWER(*ptr))
+			{
+				++p;
+				++ptr;
+			}
+			if (*ptr == NUL)
+				return OK;
+		}
+	}
+	emsg(m);
+	return FAIL;
+}
 
 /*
  * Character Searches
@@ -577,12 +677,12 @@ searchc(c, dir, type, count)
  */
 
 /*
- * showmatch - move the cursor to the matching paren or brace
+ * findmatch - find the matching paren or brace
  *
  * Improvement over vi: Braces inside quotes are ignored.
  */
 	FPOS		   *
-showmatch(initc)
+findmatch(initc)
 	int		initc;
 {
 	static FPOS		pos;				/* current search position */
@@ -591,12 +691,15 @@ showmatch(initc)
 	int 			count = 0;			/* cumulative number of braces */
 	int 			idx = 0;			/* init for gcc */
 	static char_u 	table[6] = {'(', ')', '[', ']', '{', '}'};
-	int 			inquote = 0;		/* non-zero when inside quotes */
+	int 			inquote = FALSE;	/* TRUE when inside quotes */
 	register char_u	*linep;				/* pointer to current line */
 	register char_u	*ptr;
 	int				do_quotes;			/* check for quotes in current line */
+	int				at_start;			/* do_quotes value at start position */
 	int				hash_dir = 0;		/* Direction searched for # things */
 	int				comment_dir = 0;	/* Direction searched for comments */
+	FPOS			match_pos;			/* Where last slash-star was found */
+	int				start_in_quotes;	/* start position is in quotes */
 
 	pos = curwin->w_cursor;
 	linep = ml_get(pos.lnum); 
@@ -621,7 +724,15 @@ showmatch(initc)
 	else
 	{
 		if (linep[0] == '#' && pos.col == 0)
-			hash_dir = 1;
+		{
+			/* If it's not #if, #else etc, we should look for a brace instead */
+			for (c = 1; iswhite(linep[c]); c++)
+				;
+			if (STRNCMP(linep + c, "if", (size_t)2) == 0 ||
+				STRNCMP(linep + c, "endif", (size_t)5) == 0 ||
+				STRNCMP(linep + c, "el", (size_t)2) == 0)
+					hash_dir = 1;
+		}
 
 		/*
 		 * Are we on a comment?
@@ -632,14 +743,16 @@ showmatch(initc)
 			{
 				comment_dir = 1;
 				idx = 0;
+				pos.col++;
 			}
 			else if (pos.col > 0 && linep[pos.col - 1] == '*')
 			{
 				comment_dir = -1;
 				idx = 1;
+				pos.col--;
 			}
 		}
-		if (linep[pos.col] == '*')
+		else if (linep[pos.col] == '*')
 		{
 			if (linep[pos.col + 1] == '/')
 			{
@@ -663,6 +776,7 @@ showmatch(initc)
 			 * find the brace under or after the cursor
 			 */
 			linep = ml_get(pos.lnum); 
+			idx = 6;					/* error if this line is empty */
 			for (;;)
 			{
 				initc = linep[pos.col];
@@ -754,6 +868,7 @@ showmatch(initc)
 	idx &= 1;
 
 	do_quotes = -1;
+	start_in_quotes = MAYBE;
 	while (!got_int)
 	{
 		/*
@@ -798,22 +913,62 @@ showmatch(initc)
 		if (comment_dir)
 		{
 			/* Note: comments do not nest, and we ignore quotes in them */
-			if (linep[pos.col] != '/' ||
-							(comment_dir == 1 && pos.col == 0) ||
-							linep[pos.col - comment_dir] != '*')
-				continue;
-			return &pos;
+			if (comment_dir == 1)
+			{
+				if (linep[pos.col] == '*' && linep[pos.col + 1] == '/')
+				{
+					pos.col++;
+					return &pos;
+				}
+			}
+			else	/* Searching backwards */
+			{
+				/*
+				 * A comment may contain slash-star, it may also start or end
+				 * with slash-star-slash.  I'm not using real examples though
+				 * because "gcc -Wall" would complain -- webb
+				 */
+				if (pos.col == 0)
+					continue;
+				else if (linep[pos.col - 1] == '/' && linep[pos.col] == '*')
+				{
+					count++;
+					match_pos = pos;
+					match_pos.col--;
+				}
+				else if (linep[pos.col - 1] == '*' && linep[pos.col] == '/')
+				{
+					if (count > 0)
+						pos = match_pos;
+					else if (pos.col > 1 && linep[pos.col - 2] == '/')
+						pos.col -= 2;
+					else
+						return NULL;
+					return &pos;
+				}
+			}
+			continue;
 		}
-
-		if (do_quotes == -1)		/* count number of quotes in this line */
+		/*
+		 * If 'smartmatch' is set, braces inside of quotes are ignored,
+		 * but only if there is an even number of quotes in the line.
+		 */
+		if (!p_sma)
+			do_quotes = 0;
+		else if (do_quotes == -1)
 		{
 			/*
 			 * count the number of quotes in the line, skipping \" and '"'
 			 */
+			at_start = do_quotes;
 			for (ptr = linep; *ptr; ++ptr)
+			{
+				if (ptr == linep + curwin->w_cursor.col)
+					at_start = (do_quotes & 1);
 				if (*ptr == '"' && (ptr == linep || ptr[-1] != '\\') &&
 							(ptr == linep || ptr[-1] != '\'' || ptr[1] != '\''))
 					++do_quotes;
+			}
 			do_quotes &= 1;			/* result is 1 with even number of quotes */
 
 			/*
@@ -826,7 +981,13 @@ showmatch(initc)
 				if (ptr[-1] == '\\')
 				{
 					do_quotes = 1;
-					if (idx)					/* backward search */
+					if (start_in_quotes == MAYBE)
+					{
+						inquote = !at_start;
+						if (inquote)
+							start_in_quotes = TRUE;
+					}
+					else if (idx)				/* backward search */
 						inquote = TRUE;
 				}
 				if (pos.lnum > 1)
@@ -835,64 +996,87 @@ showmatch(initc)
 					if (*ptr && *(ptr + STRLEN(ptr) - 1) == '\\')
 					{
 						do_quotes = 1;
-						if (!idx)				/* forward search */
+						if (start_in_quotes == MAYBE)
+						{
+							inquote = at_start;
+							if (inquote)
+								start_in_quotes = TRUE;
+						}
+						else if (!idx)				/* forward search */
 							inquote = TRUE;
 					}
 				}
 			}
 		}
+		if (start_in_quotes == MAYBE)
+			start_in_quotes = FALSE;
 
 		/*
-		 * Things inside quotes are ignored by setting 'inquote'.
-		 * If we find a quote without a preceding '\' invert 'inquote'.
-		 * At the end of a line not ending in '\' we reset 'inquote'.
+		 * If 'smartmatch' is set:
+		 *   Things inside quotes are ignored by setting 'inquote'.  If we
+		 *   find a quote without a preceding '\' invert 'inquote'.  At the
+		 *   end of a line not ending in '\' we reset 'inquote'.
 		 *
-		 * In lines with an uneven number of quotes (without preceding '\')
-		 * we do not know which part to ignore. Therefore we only set
-		 * inquote if the number of quotes in a line is even,
-		 * unless this line or the previous one ends in a '\'.
-		 * Complicated, isn't it?
+		 *   In lines with an uneven number of quotes (without preceding '\')
+		 *   we do not know which part to ignore. Therefore we only set
+		 *   inquote if the number of quotes in a line is even, unless this
+		 *   line or the previous one ends in a '\'.  Complicated, isn't it?
 		 */
 		switch (c = linep[pos.col])
 		{
 		case NUL:
-			inquote = FALSE;
+				/* at end of line without trailing backslash, reset inquote */
+			if (pos.col == 0 || linep[pos.col - 1] != '\\')
+			{
+				inquote = FALSE;
+				start_in_quotes = FALSE;
+			}
 			break;
 
 		case '"':
 				/* a quote that is preceded with a backslash is ignored */
 			if (do_quotes && (pos.col == 0 || linep[pos.col - 1] != '\\'))
+			{
 				inquote = !inquote;
+				start_in_quotes = FALSE;
+			}
 			break;
 
 		/*
-		 * Skip things in single quotes: 'x' or '\x'.
-		 * Be careful for single single quotes, eg jon's.
-		 * Things like '\233' or '\x3f' are not skipped, there is never a
-		 * brace in them.
+		 * If 'smartmatch' is set:
+		 *   Skip things in single quotes: 'x' or '\x'.  Be careful for single
+		 *   single quotes, eg jon's.  Things like '\233' or '\x3f' are not
+		 *   skipped, there is never a brace in them.
 		 */
 		case '\'':
-			if (idx)						/* backward search */
+			if (p_sma)
 			{
-				if (pos.col > 1)
+				if (idx)						/* backward search */
 				{
-					if (linep[pos.col - 2] == '\'')
-						pos.col -= 2;
-					else if (linep[pos.col - 2] == '\\' && pos.col > 2 && linep[pos.col - 3] == '\'')
-						pos.col -= 3;
+					if (pos.col > 1)
+					{
+						if (linep[pos.col - 2] == '\'')
+							pos.col -= 2;
+						else if (linep[pos.col - 2] == '\\' &&
+									pos.col > 2 && linep[pos.col - 3] == '\'')
+							pos.col -= 3;
+					}
 				}
-			}
-			else if (linep[pos.col + 1])	/* forward search */
-			{
-				if (linep[pos.col + 1] == '\\' && linep[pos.col + 2] && linep[pos.col + 3] == '\'')
-					pos.col += 3;
-				else if (linep[pos.col + 2] == '\'')
-					pos.col += 2;
+				else if (linep[pos.col + 1])	/* forward search */
+				{
+					if (linep[pos.col + 1] == '\\' &&
+							linep[pos.col + 2] && linep[pos.col + 3] == '\'')
+						pos.col += 3;
+					else if (linep[pos.col + 2] == '\'')
+						pos.col += 2;
+				}
 			}
 			break;
 
 		default:
-			if (!inquote)      /* only check for match outside of quotes */
+					/* Check for match outside of quotes, and inside of
+					 * quotes when the start is also inside of quotes */
+			if (!inquote || start_in_quotes == TRUE)
 			{
 				if (c == initc)
 					count++;
@@ -905,7 +1089,39 @@ showmatch(initc)
 			}
 		}
 	}
+
+	if (comment_dir == -1 && count > 0)
+	{
+		pos = match_pos;
+		return &pos;
+	}
 	return (FPOS *) NULL;       /* never found it */
+}
+
+/*
+ * move cursor briefly to character matching the one under the cursor
+ */
+	void
+showmatch()
+{
+	FPOS		   *lpos, csave;
+
+	if ((lpos = findmatch(NUL)) == NULL)		/* no match, so beep */
+		beep_flush();
+	else if (lpos->lnum >= curwin->w_topline)
+	{
+		updateScreen(VALID_TO_CURSCHAR); /* show the new char first */
+		csave = curwin->w_cursor;
+		curwin->w_cursor = *lpos; 	/* move to matching char */
+		cursupdate();
+		showruler(0);
+		setcursor();
+		cursor_on();		/* make sure that the cursor is shown */
+		flushbuf();
+		vim_delay();		/* brief pause */
+		curwin->w_cursor = csave; 	/* restore cursor position */
+		cursupdate();
+	}
 }
 
 /*
@@ -1373,3 +1589,468 @@ skip_chars(class, dir)
 				return TRUE;
 		return FALSE;
 }
+
+	void
+find_pattern_in_path(ptr, len, whole, type, count, action, start_lnum, end_lnum)
+	char_u	*ptr;	/* pointer to search pattern */
+	int		len;	/* length of search pattern */
+	int		whole;	/* match whole words only */
+	int		type;	/* Type of search; are we looking for a type?  a macro? */
+	int		count;
+	int		action;			/* What to do when we find it */
+	linenr_t	start_lnum;	/* first line to start searching */
+	linenr_t	end_lnum;	/* last line for searching */
+{
+	SearchedFile *files;				/* Stack of included files */
+	SearchedFile *bigger;				/* When we need more space */
+	int			max_path_depth = 50;
+
+	char_u		*pat;
+	char_u		*new_fname;
+	char_u		*curr_fname = curbuf->b_xfilename;
+	char_u		*prev_fname = NULL;
+	linenr_t	lnum;
+	int			depth;
+	int			depth_displayed;		/* For type==CHECK_PATH */
+	int			old_files;
+	char_u		file_line[LSIZE];
+	char_u		*line;
+	char_u		*p;
+	char_u		save_char;
+	struct regexp *prog = NULL;
+	struct regexp *include_prog = NULL;
+	struct regexp *define_prog = NULL;
+	int			matched = FALSE;
+	int			did_show = FALSE;
+	int			found = FALSE;
+	int			break_count = 0;
+	int			i;
+
+	reg_ic = p_ic;
+	reg_magic = p_magic;
+	if (type != CHECK_PATH)
+	{
+		pat = alloc(len + 5);
+		if (pat == NULL)
+			return;
+		sprintf((char *)pat, whole ? "\\<%.*s\\>" : "%.*s", len, ptr);
+		prog = regcomp(pat);
+		free(pat);
+		if (prog == NULL)
+			return;
+	}
+	if (p_inc != NULL && *p_inc != NUL)
+	{
+		include_prog = regcomp(p_inc);
+		if (include_prog == NULL)
+		{
+			free(prog);
+			return;
+		}
+	}
+	if (type == FIND_DEFINE && p_def != NULL && *p_def != NUL)
+	{
+		define_prog = regcomp(p_def);
+		if (define_prog == NULL)
+		{
+			free(prog);
+			free(include_prog);
+			return;
+		}
+	}
+	files = (SearchedFile *)lalloc(max_path_depth * sizeof(SearchedFile), TRUE);
+	if (files == NULL)
+	{
+		free(prog);
+		free(include_prog);
+		free(define_prog);
+		return;
+	}
+	for (i = 0; i < max_path_depth; i++)
+	{
+		files[i].fp = NULL;
+		files[i].name = NULL;
+		files[i].lnum = 0;
+	}
+	old_files = max_path_depth;
+	depth = depth_displayed = -1;
+
+	lnum = start_lnum;
+	if (end_lnum > curbuf->b_ml.ml_line_count)
+		end_lnum = curbuf->b_ml.ml_line_count;
+	if (lnum > end_lnum)				/* do at least one line */
+		lnum = end_lnum;
+	line = ml_get(lnum);
+
+	for (;;)
+	{
+		if (include_prog != NULL && regexec(include_prog, line, TRUE))
+		{
+			new_fname = get_file_name_in_path(include_prog->endp[0] + 1,
+																0, FALSE);
+			if (new_fname == NULL)
+			{
+				if (type == CHECK_PATH)
+				{
+					if (did_show)
+						msg_outchar('\n');		/* cursor below last one */
+					else
+					{
+						gotocmdline(TRUE);		/* cursor at status line */
+						set_highlight('t');		/* Same as for directories */
+						start_highlight();
+						msg_outstr((char_u *)"--- Included files not found in path ---\n");
+						stop_highlight();
+					}
+					did_show = TRUE;
+					while (depth_displayed < depth && !got_int)
+					{
+						++depth_displayed;
+						for (i = 0; i < depth_displayed; i++)
+							msg_outstr((char_u *)"  ");
+						msg_outstr(files[depth_displayed].name);
+						msg_outstr((char_u *)" -->\n");
+					}
+					if (!got_int)				/* don't display if 'q' typed
+													for "--more--" message */
+					{
+						for (i = 0; i <= depth_displayed; i++)
+							msg_outstr((char_u *)"  ");
+						set_highlight('d');			/* Same as for directories */
+						start_highlight();
+						for (p = include_prog->endp[0] + 1; !isfilechar(*p); p++)
+							;
+						for (i = 0; isfilechar(p[i]); i++)
+							;
+						save_char = p[i];
+						p[i] = NUL;
+						msg_outstr(p);
+						p[i] = save_char;
+						stop_highlight();
+					}
+				}
+			}
+			else
+			{
+				/* Check whether we have already searched in this file */
+				for (i = 0;; i++)
+				{
+					if (i == depth + 1)
+						i = old_files;
+					if (i == max_path_depth)
+						break;
+					if (STRCMP(new_fname, files[i].name) == 0)
+					{
+						free(new_fname);
+						new_fname = NULL;
+						break;
+					}
+				}
+			}
+			if (new_fname != NULL)
+			{
+				/* Push the new file onto the file stack */
+				if (depth + 1 == old_files)
+				{
+					bigger = (SearchedFile *)lalloc(max_path_depth * 2
+												* sizeof(SearchedFile), TRUE);
+					if (bigger != NULL)
+					{
+						for (i = 0; i <= depth; i++)
+							bigger[i] = files[i];
+						for (i = depth + 1; i < old_files + max_path_depth; i++)
+						{
+							bigger[i].fp = NULL;
+							bigger[i].name = NULL;
+							bigger[i].lnum = 0;
+						}
+						for (i = old_files; i < max_path_depth; i++)
+							bigger[i + max_path_depth] = files[i];
+						old_files += max_path_depth;
+						max_path_depth *= 2;
+						free(files);
+						files = bigger;
+					}
+				}
+				if ((files[depth + 1].fp = fopen((char *)new_fname, "r"))
+																	== NULL)
+					free(new_fname);
+				else
+				{
+					if (++depth == old_files)
+					{
+						/*
+						 * lalloc() for 'bigger' must have failed above.  We
+						 * will forget one of our already visited files now.
+						 */
+						free(files[old_files].name);
+						++old_files;
+					}
+					files[depth].name = curr_fname = new_fname;
+					files[depth].lnum = 0;
+				}
+			}
+		}
+		else if (prog != NULL && regexec(prog, line, TRUE))
+		{
+			matched = TRUE;
+			/*
+			 * Check if the line is a define
+			 */
+			if (type == FIND_DEFINE && define_prog != NULL)
+			{
+				if (!regexec(define_prog, line, TRUE))
+					matched = FALSE;
+				else
+				{
+					/* Pattern must be first identifier after 'define' */
+					p = define_prog->endp[0] + 1;
+					while (p < prog->startp[0])
+						if (isidchar(*p++))
+						{
+							matched = FALSE;
+							break;
+						}
+				}
+			}
+			/*
+			 * Check if the line is not a comment line
+			 */
+			else if (action == ACTION_SHOW || action == ACTION_GOTO ||
+											action == ACTION_SPLIT)
+			{
+				fo_do_comments = TRUE;
+				if (get_leader_len(line))
+					matched = FALSE;
+				fo_do_comments = FALSE;
+			}
+		}
+		if (matched)
+		{
+			if (action == ACTION_EXPAND)
+			{
+				if (depth == -1 && lnum == curwin->w_cursor.lnum)
+					break;
+				found = TRUE;
+				p = prog->startp[0];
+				while (isidchar(*p))
+					++p;
+				if (add_completion_and_infercase(prog->startp[0],
+						p - prog->startp[0], FORWARD) == RET_ERROR)
+					break;
+			}
+			else if (action == ACTION_SHOW_ALL)
+			{
+				found = TRUE;
+				if (!did_show)
+					gotocmdline(TRUE);			/* cursor at status line */
+				if (curr_fname != prev_fname)
+				{
+					if (did_show)
+						msg_outchar('\n');		/* cursor below last one */
+					if (!got_int)				/* don't display if 'q' typed
+													at "--more--" mesage */
+					{
+						set_highlight('d');		/* Same as for directories */
+						start_highlight();
+						msg_outstr(curr_fname);
+						stop_highlight();
+					}
+					prev_fname = curr_fname;
+				}
+				did_show = TRUE;
+				if (!got_int)
+					show_pat_in_path(line, type, did_show, action,
+							(depth == -1) ? NULL : files[depth].fp,
+							(depth == -1) ? &lnum : &files[depth].lnum);
+			}
+			else if (--count <= 0)
+			{
+				found = TRUE;
+				if (depth == -1 && lnum == curwin->w_cursor.lnum)
+					EMSG("Match is on current line");
+				else if (action == ACTION_SHOW)
+				{
+					show_pat_in_path(line, type, did_show, action,
+						(depth == -1) ? NULL : files[depth].fp,
+						(depth == -1) ? &lnum : &files[depth].lnum);
+					did_show = TRUE;
+				}
+				else
+				{
+					if (action == ACTION_SPLIT)
+					{
+						if (win_split(0L, FALSE) == FAIL)
+							break;
+					}
+					if (depth == -1)
+					{
+						setpcmark();
+						curwin->w_cursor.lnum = lnum;
+					}
+					else
+						if (getfile(0, files[depth].name, NULL, TRUE,
+														files[depth].lnum) > 0)
+							break;		/* failed to jump to file */
+				}
+				if (action != ACTION_SHOW)
+					curwin->w_cursor.col = prog->startp[0] - line;
+				break;
+			}
+			matched = FALSE;
+		}
+		if ((++break_count & 15) == 0)
+			breakcheck();
+		if (got_int)
+			break;
+		while (depth >= 0 && vim_fgets(line = file_line, LSIZE,
+							files[depth].fp, &files[depth].lnum) == VIM_EOF)
+		{
+			fclose(files[depth].fp);
+			files[--old_files].name = files[depth--].name;
+			curr_fname = (depth == -1) ? curbuf->b_xfilename
+									   : files[depth].name;
+			if (depth < depth_displayed)
+				depth_displayed = depth;
+		}
+		if (depth < 0)
+		{
+			if (++lnum > end_lnum)
+				break;
+			line = ml_get(lnum);
+		}
+	}
+	for (i = 0; i <= depth; i++)
+	{
+		fclose(files[i].fp);
+		free(files[i].name);
+	}
+	for (i = old_files; i < max_path_depth; i++)
+		free(files[i].name);
+	free(files);
+	free(prog);
+	free(include_prog);
+	free(define_prog);
+	if (type == CHECK_PATH)
+	{
+		if (!did_show)
+			MSG("All included files were found");
+	}
+	else if (!found && action != ACTION_EXPAND)
+	{
+		if (got_int)
+			emsg(e_interr);
+		else if (type == FIND_DEFINE)
+			EMSG("Couldn't find definition");
+		else
+			EMSG("Couldn't find pattern");
+	}
+	if (action == ACTION_SHOW || action == ACTION_SHOW_ALL)
+		msg_end();
+}
+
+	static void
+show_pat_in_path(line, type, did_show, action, fp, lnum)
+	char_u	*line;
+	int		type;
+	int		did_show;
+	int		action;
+	FILE	*fp;
+	linenr_t *lnum;
+{
+	char_u	*p;
+
+	if (did_show)
+		msg_outchar('\n');		/* cursor below last one */
+	else
+		gotocmdline(TRUE);		/* cursor at status line */
+	if (got_int)				/* 'q' typed at "--more--" message */
+		return;
+	for (;;)
+	{
+		p = line + STRLEN(line) - 1;
+		if (fp != NULL)
+		{
+			/* We used fgets(), so get rid of newline at end */
+			if (p >= line && *p == '\n')
+				--p;
+			*(p + 1) = NUL;
+		}
+		if (action == ACTION_SHOW_ALL)
+		{
+			set_highlight('n');			/* Highlight line numbers */
+			start_highlight();
+			sprintf((char *)IObuff, "%7ld ", *lnum);
+			msg_outstr(IObuff);
+			stop_highlight();
+		}
+		msg_prt_line(line);
+		flushbuf();						/* show one line at a time */
+
+		/* Definition continues until line that doesn't end with '\' */
+		if (got_int || type != FIND_DEFINE || p < line || *p != '\\')
+			break;
+		
+		if (fp != NULL)
+		{
+			if (vim_fgets(line, LSIZE, fp, lnum) == VIM_EOF)
+				break;
+		}
+		else
+		{
+			if (++*lnum > curbuf->b_ml.ml_line_count)
+				break;
+			line = ml_get(*lnum);
+		}
+		msg_outchar('\n');
+	}
+}
+
+#ifdef VIMINFO
+	int
+read_viminfo_search_pattern(line, lnum, fp, force)
+	char_u	*line;
+	linenr_t *lnum;
+	FILE	*fp;
+	int		force;
+{
+	char_u	*lp;
+	char_u	**pattern;
+
+	lp = line;
+	if (lp[0] == '~')
+		lp++;
+	if (lp[0] == '/')
+		pattern = &search_pattern;
+	else
+		pattern = &subst_pattern;
+	if (*pattern != NULL && force)
+		free(*pattern);
+	if (force || *pattern == NULL)
+	{
+		viminfo_readstring(lp);
+		*pattern = strsave(lp + 1);
+		if (line[0] == '~')
+			last_pattern = *pattern;
+	}
+	return vim_fgets(line, LSIZE, fp, lnum);
+}
+
+	void
+write_viminfo_search_pattern(fp)
+	FILE	*fp;
+{
+	if (search_pattern != NULL)
+	{
+		fprintf(fp, "\n# Last Search Pattern:\n");
+		fprintf(fp, "%s/", (last_pattern == search_pattern) ? "~" : "");
+		viminfo_writestring(fp, search_pattern);
+	}
+	if (subst_pattern != NULL)
+	{
+		fprintf(fp, "\n# Last Substitute Search Pattern:\n");
+		fprintf(fp, "%s&", (last_pattern == subst_pattern) ? "~" : "");
+		viminfo_writestring(fp, subst_pattern);
+	}
+}
+#endif /* VIMINFO */

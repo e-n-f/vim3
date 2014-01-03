@@ -247,7 +247,7 @@ struct memline
 
 	MEMFILE		*ml_mfp;		/* pointer to associated memfile */
 
-#define ML_EMPTY		1		/* empty buffer (one empty line */
+#define ML_EMPTY		1		/* empty buffer */
 #define ML_LINE_DIRTY	2		/* cached line was changed and allocated */
 #define ML_LOCKED_DIRTY	4		/* ml_locked was changed */
 #define ML_LOCKED_POS	8		/* ml_locked needs positive block number */
@@ -323,6 +323,10 @@ struct buffer
 	 */
 	FPOS			 b_startop;
 	FPOS			 b_endop;
+	
+#ifdef VIMINFO
+	int				 b_marks_read;		/* Have we read viminfo marks yet? */
+#endif /* VIMINFO */
 
 	/*
 	 * The following only used in undo.c.
@@ -357,6 +361,7 @@ struct buffer
 	int				 b_p_ai, b_p_si, b_p_ro;
 	int				 b_p_bin, b_p_eol, b_p_et, b_p_ml, b_p_sn, b_p_tx;
 	long			 b_p_sw, b_p_ts, b_p_tw, b_p_wm;
+	char_u			*b_p_fo, *b_p_com, *b_p_ncom, *b_p_id;
 	int				 b_p_ai_save, b_p_si_save;
 	long			 b_p_tw_save, b_p_wm_save;
 
@@ -404,6 +409,13 @@ struct window
 	int			w_set_curswant;		/* If set, then update w_curswant */
 									/* the next time through cursupdate() */
 									/* to the current virtual column */
+
+	/*
+	 * the next three are used to update the visual part
+	 */
+	FPOS		w_old_cursor;		/* last known end of visual part */
+	linenr_t	w_old_visual_lnum;	/* last known start of visual part */
+	int			w_old_curswant;		/* last known value of Curswant */
 
 	linenr_t	w_topline;			/* number of the line at the top of
 									 * the screen */

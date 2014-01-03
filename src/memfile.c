@@ -47,7 +47,7 @@
 /* 
  * Some systems have the page size in statfs, some in stat
  */
-#if defined(SCO) || defined(_SEQUENT_) || defined(__sgi) || defined(MIPS) || defined(MIPSEB) || defined(m88k)
+#if defined(SCO) || defined(_SEQUENT_) || defined(__sgi) || defined(MIPS) || defined(MIPSEB) || defined(m88k) || defined(__COHERENT__)
 # include <sys/types.h>
 # include <sys/statfs.h>
 # define STATFS statfs
@@ -64,17 +64,17 @@ int  fstatfs __ARGS((int, struct statfs *, int, int));
  */
 #ifdef AMIGA
 # ifndef NO_ARP
-extern int dos2;					/* this is in amiga.c */
+extern int dos2;						/* this is in amiga.c */
 # endif
 # ifdef SASC
 #  include <proto/dos.h>
-#  include <ios1.h>					/* for chkufb() */
+#  include <ios1.h>						/* for chkufb() */
 # endif
 #endif
 
-#define MEMFILE_PAGE_SIZE 4096		/* default page size */
+#define MEMFILE_PAGE_SIZE 4096			/* default page size */
 
-static long total_mem_used = 0;	/* total memory used for memfiles */
+static long total_mem_used = 0;			/* total memory used for memfiles */
 
 static void mf_ins_hash __ARGS((MEMFILE *, BHDR *));
 static void mf_rem_hash __ARGS((MEMFILE *, BHDR *));
@@ -469,7 +469,7 @@ mf_sync(mfp, all, check_char)
 {
 	int		status;
 	BHDR	*hp;
-#if defined(MSDOS) || defined(SCO)
+#if defined(MSDOS) || defined(SCO) || defined(__COHERENT__)
 	int		fd;
 #endif
 
@@ -508,8 +508,9 @@ mf_sync(mfp, all, check_char)
 	if (hp == NULL || status == FAIL)
 		mfp->mf_dirty = FALSE;
 
-#if defined(UNIX) && !defined(SCO)
-# if !defined(SVR4) && (defined(MIPS) || defined(MIPSEB) || defined(m88k))         
+#if defined(UNIX) && !defined(SCO) && !defined(__COHERENT__)
+	/* SGI has fsync() -- webb */
+# if !defined(SVR4) && !defined(__sgi) && (defined(MIPS) || defined(MIPSEB) || defined(m88k))
      sync();         /* Do we really need to sync()?? (jw) */   
 # else
 	/*
@@ -519,7 +520,7 @@ mf_sync(mfp, all, check_char)
 		status = FAIL;
 # endif
 #endif
-#if defined(MSDOS) || defined(SCO)
+#if defined(MSDOS) || defined(SCO) || defined(__COHERENT__)
 	/*
 	 * MSdos is a bit more work: Duplicate the file handle and close it.
 	 * This should flush the file to disk.
@@ -890,9 +891,18 @@ mf_write(mfp, hp)
 		if (write(mfp->mf_fd, (hp2 == NULL ? hp : hp2)->bh_data,
 													(size_t)size) != size)
 		{
-			EMSG("Write error in swap file");
+			/*
+			 * Avoid repeating the error message, this mostly happens when the
+			 * disk is full. We give the message again only after a succesful
+			 * write or when hitting a key. We keep on trying, in case some
+			 * space becomes available.
+			 */
+			if (!did_swapwrite_msg)
+				EMSG("Write error in swap file");
+			did_swapwrite_msg = TRUE;
 			return FAIL;
 		}
+		did_swapwrite_msg = FALSE;
 		if (hp2 != NULL)					/* written a non-dummy block */
 			hp2->bh_flags &= ~BH_DIRTY;
 

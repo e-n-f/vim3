@@ -101,7 +101,7 @@ vim_delay()
 	void
 mch_suspend()
 {
-	outstr("new shell started\n");
+	msg_outstr("new shell started\n");
 	call_shell(NULL, 0, 1);
 }
 
@@ -427,12 +427,12 @@ call_shell(cmd, dummy, cooked)
 	if (x == 127)
 	{
 		emsg("Cannot execute shell sh");
-		outchar('\n');
+		msg_outchar('\n');
 	}
 	else if (x)
 	{
 		smsg("%d returned", x);
-		outchar('\n');
+		msg_outchar('\n');
 	}
 
 	if (cooked)

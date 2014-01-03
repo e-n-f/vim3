@@ -258,6 +258,10 @@ qf_jump(dir, errornr)
 	int		dir;
 	int		errornr;
 {
+	struct qf_line	*old_qf_ptr;
+	int				old_qf_index;
+	static char_u	*e_no_more_errors = (char_u *)"No more errors";
+	char_u			*err = e_no_more_errors;
 	linenr_t		i;
 
 	if (qf_count == 0)
@@ -266,30 +270,58 @@ qf_jump(dir, errornr)
 		return;
 	}
 
+	old_qf_ptr = qf_ptr;
+	old_qf_index = qf_index;
 	if (dir == FORWARD)		/* next valid entry */
 	{
 		while (errornr--)
 		{
+			old_qf_ptr = qf_ptr;
+			old_qf_index = qf_index;
 			do
 			{
 				if (qf_index == qf_count || qf_ptr->qf_next == NULL)
+				{
+					qf_ptr = old_qf_ptr;
+					qf_index = old_qf_index;
+					if (err != NULL)
+					{
+						emsg(err);
+						return;
+					}
+					errornr = 0;
 					break;
+				}
 				++qf_index;
 				qf_ptr = qf_ptr->qf_next;
 			} while (!qf_nonevalid && !qf_ptr->qf_valid);
+			err = NULL;
 		}
 	}
 	else if (dir == BACKWARD)		/* previous valid entry */
 	{
 		while (errornr--)
 		{
+			old_qf_ptr = qf_ptr;
+			old_qf_index = qf_index;
 			do
 			{
 				if (qf_index == 1 || qf_ptr->qf_prev == NULL)
+				{
+					qf_ptr = old_qf_ptr;
+					qf_index = old_qf_index;
+					if (err != NULL)
+					{
+						emsg(err);
+						return;
+					}
+					errornr = 0;
 					break;
+				}
 				--qf_index;
 				qf_ptr = qf_ptr->qf_prev;
 			} while (!qf_nonevalid && !qf_ptr->qf_valid);
+			err = NULL;
 		}
 	}
 	else if (errornr != 0)		/* go to specified number */
@@ -322,46 +354,86 @@ qf_jump(dir, errornr)
 				i = curbuf->b_ml.ml_line_count;
 			curwin->w_cursor.lnum = i;
 		}
-		curwin->w_cursor.col = qf_ptr->qf_col;
-		adjust_cursor();
+		if (qf_ptr->qf_col > 0)
+		{
+			curwin->w_cursor.col = qf_ptr->qf_col;
+			adjust_cursor();
+		}
+		else
+			beginline(TRUE);
 		cursupdate();
-		smsg((char_u *)"(%d of %d) %s%s: %s", qf_index, qf_count, 
-					qf_ptr->qf_cleared ? (char_u *)"(line deleted) " : (char_u *)"",
+		smsg((char_u *)"(%d of %d)%s%s: %s", qf_index, qf_count, 
+					qf_ptr->qf_cleared ? (char_u *)" (line deleted)" : (char_u *)"",
 					qf_types(qf_ptr->qf_type, qf_ptr->qf_nr), qf_ptr->qf_text);
+		/*
+		 * if the message is short, redisplay after redrawing the screen
+		 */
+		if (linetabsize(IObuff) < sc_col)
+			keep_msg = IObuff;
 	}
+	else if (qf_ptr->qf_fnum != 0)
+	{
+		/*
+		 * Couldn't open file, so put index back where it was.  This could
+		 * happen if the file was readonly and we changed something - webb
+		 */
+		qf_ptr = old_qf_ptr;
+		qf_index = old_qf_index;
+  	}
 }
 
 /*
  * list all errors
  */
 	void
-qf_list()
+qf_list(all)
+	int all;		/* If not :cl!, only show recognised errors */
 {
-	struct qf_line *qfp;
-	int i;
+	BUF				*buf;
+	char_u			*fname;
+	struct qf_line	*qfp;
+	int				i;
 
 	if (qf_count == 0)
 	{
 		emsg(e_quickfix);
 		return;
 	}
+
+	if (qf_nonevalid)
+		all = TRUE;
 	qfp = qf_start;
-	gotocmdline(TRUE, NUL);
+	set_highlight('d');		/* Same as for directories */
 	for (i = 1; !got_int && i <= qf_count; ++i)
 	{
-		sprintf((char *)IObuff, "%2d line %3ld col %2d %s: %s",
-			i,
-			(long)qfp->qf_lnum,
-			qfp->qf_col,
-			qf_types(qfp->qf_type, qfp->qf_nr),
-			qfp->qf_text);
-		msg_outstr(IObuff);
-		msg_outchar('\n');
+		if (qfp->qf_valid || all)
+		{
+			msg_outchar('\n');
+			start_highlight();
+			fname = NULL;
+			if (qfp->qf_fnum != 0 && (buf = buflist_findnr(qfp->qf_fnum)) != NULL)
+				fname = buf->b_xfilename;
+			if (fname == NULL)
+				sprintf((char *)IObuff, "%2d", i);
+			else
+				sprintf((char *)IObuff, "%2d %s", i, fname);
+			msg_outstr(IObuff);
+			stop_highlight();
+			if (qfp->qf_lnum == 0)
+				IObuff[0] = NUL;
+			else if (qfp->qf_col == 0)
+				sprintf((char *)IObuff, ":%d", qfp->qf_lnum);
+			else
+				sprintf((char *)IObuff, ":%d, col %d", qfp->qf_lnum, qfp->qf_col);
+			sprintf((char *)IObuff + STRLEN(IObuff), "%s: ",
+										qf_types(qfp->qf_type, qfp->qf_nr));
+			msg_outstr(IObuff);
+			msg_prt_line(qfp->qf_text);
+			flushbuf();					/* show one line at a time */
+		}
 		qfp = qfp->qf_next;
-		flushbuf();					/* show one line at a time */
 		breakcheck();
 	}
-	wait_return(FALSE);
 }
 
 /*
@@ -386,10 +458,10 @@ qf_free()
  * qf_mark_adjust: adjust marks
  */
    void
-qf_mark_adjust(line1, line2, inc)
+qf_mark_adjust(line1, line2, amount)
 	linenr_t	line1;
 	linenr_t	line2;
-	long		inc;
+	long		amount;
 {
 	register int i;
 	struct qf_line *qfp;
@@ -399,10 +471,10 @@ qf_mark_adjust(line1, line2, inc)
 			if (qfp->qf_fnum == curbuf->b_fnum &&
 							qfp->qf_lnum >= line1 && qfp->qf_lnum <= line2)
 			{
-				if (inc == MAXLNUM)
+				if (amount == MAXLNUM)
 					qfp->qf_cleared = TRUE;
 				else
-					qfp->qf_lnum += inc;
+					qfp->qf_lnum += amount;
 			}
 }
 
@@ -411,7 +483,7 @@ qf_mark_adjust(line1, line2, inc)
  *	char	number		message
  *  e or E    0			"  Error"
  *  w or W    0			"Warning"
- *  other     0			 ""
+ *  other     0			""
  *  w or W    n			"Warning n"
  *  other     n			"  Error n"
  */

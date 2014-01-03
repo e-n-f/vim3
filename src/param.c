@@ -28,7 +28,6 @@ struct param
 
 /*
  * Flags
- * Note: Don't use P_STRING and P_IND at the same time
  */
 #define P_BOOL			0x01	/* the parameter is boolean */
 #define P_NUM			0x02	/* the parameter is numeric */
@@ -50,10 +49,13 @@ struct param
 #define PV_WRAP		7
 
 #define PV_AI		11
-#define PV_BIN		13
+#define PV_BIN		12
+#define PV_COM		13
 #define PV_EOL		14
 #define PV_ET		15
+#define PV_FO		16
 #define PV_ML		17
+#define PV_NCOM		18
 #define PV_RO		19
 #define PV_SI		21
 #define PV_SN		23
@@ -62,6 +64,7 @@ struct param
 #define PV_TW		29
 #define PV_TX		31
 #define PV_WM		33
+#define PV_ID		35
 
 /*
  * The param structure is initialized here.
@@ -79,6 +82,7 @@ static struct param params[] =
 #ifdef UNIX
  		{"backupdir",	"bdir",	P_STRING|P_EXPAND,	(char_u *)&p_bdir},
 #endif
+ 		{"backupext",	"bex",	P_STRING,			(char_u *)&p_bex},
 		{"beautify",	"bf",	P_BOOL,				(char_u *)NULL},
 		{"binary",		"bin",	P_BOOL|P_IND,		(char_u *)PV_BIN},
 #ifdef MSDOS
@@ -86,7 +90,10 @@ static struct param params[] =
 #endif
 		{"cmdheight",	"ch",	P_NUM,				(char_u *)&p_ch},
 		{"columns",		"co",	P_NUM,				(char_u *)&Columns},
+		{"comments",	"com",	P_STRING|P_IND,		(char_u *)PV_COM},
 		{"compatible",	"cp",	P_BOOL,				(char_u *)&p_cp},
+		{"define",		"def",	P_STRING,			(char_u *)&p_def},
+		{"dictionary",	"dict",	P_STRING|P_EXPAND,	(char_u *)&p_dict},
 #ifdef DIGRAPHS
 		{"digraph",		"dg",	P_BOOL,				(char_u *)&p_dg},
 #endif /* DIGRAPHS */
@@ -101,6 +108,8 @@ static struct param params[] =
 		{"esckeys",		"ek",	P_BOOL,				(char_u *)&p_ek},
 		{"expandtab",	"et",	P_BOOL|P_IND,		(char_u *)PV_ET},
 		{"exrc",		NULL,	P_BOOL,				(char_u *)&p_exrc},
+		{"flash",		"fl",	P_BOOL,				(char_u *)NULL},
+		{"formatoptions","fo",	P_STRING|P_IND,		(char_u *)PV_FO},
 		{"formatprg",	"fp",  	P_STRING|P_EXPAND,	(char_u *)&p_fp},
 		{"gdefault",	"gd",	P_BOOL,				(char_u *)&p_gd},
 		{"graphic",		"gr",	P_BOOL,				(char_u *)&p_gr},
@@ -110,8 +119,12 @@ static struct param params[] =
 		{"highlight",	"hl",	P_STRING,			(char_u *)&p_hl},
 		{"history", 	"hi", 	P_NUM,				(char_u *)&p_hi},
 		{"icon",	 	NULL,	P_BOOL,				(char_u *)&p_icon},
+		{"identchars",	"id",	P_STRING|P_IND,		(char_u *)PV_ID},
 		{"ignorecase",	"ic",	P_BOOL,				(char_u *)&p_ic},
+		{"incsearch",	"is",	P_BOOL,				(char_u *)&p_is},
+		{"infercase",	"inf",	P_BOOL,				(char_u *)&p_inf},
 		{"insertmode",	"im",	P_BOOL,				(char_u *)&p_im},
+		{"include",		"inc",	P_STRING,			(char_u *)&p_inc},
 		{"joinspaces", 	"js",	P_BOOL,				(char_u *)&p_js},
 		{"keywordprg",	"kp",  	P_STRING|P_EXPAND,	(char_u *)&p_kp},
 		{"laststatus",	"ls", 	P_NUM,				(char_u *)&p_ls},
@@ -125,8 +138,11 @@ static struct param params[] =
 		{"mesg",		NULL,	P_BOOL,				(char_u *)NULL},
 		{"modeline",	"ml",	P_BOOL|P_IND,		(char_u *)PV_ML},
 		{"modelines",	"mls",	P_NUM,				(char_u *)&p_mls},
+		{"mouse",		NULL,	P_BOOL,				(char_u *)&p_mouse},
 		{"more",		NULL,	P_BOOL,				(char_u *)&p_more},
+		{"nestedcomments","ncom", P_STRING|P_IND,	(char_u *)PV_NCOM},
 		{"nobuf",		"nb",	P_BOOL,				(char_u *)&p_nb},
+		{"novice",		NULL,	P_BOOL,				(char_u *)NULL},
 		{"number",		"nu",	P_BOOL|P_IND,		(char_u *)PV_NU},
 		{"open",		NULL,	P_BOOL,				(char_u *)NULL},
 		{"optimize",	"opt",	P_BOOL,				(char_u *)NULL},
@@ -147,9 +163,11 @@ static struct param params[] =
 		{"secure",		NULL,	P_BOOL,				(char_u *)&p_secure},
 		{"shell",		"sh",	P_STRING|P_EXPAND,	(char_u *)&p_sh},
 		{"shellpipe",	"sp",	P_STRING,			(char_u *)&p_sp},
+		{"shellredir",	"srr",	P_STRING,			(char_u *)&p_srr},
 		{"shelltype",	"st",	P_NUM,				(char_u *)&p_st},
 		{"shiftround",	"sr",	P_BOOL,				(char_u *)&p_sr},
 		{"shiftwidth",	"sw",	P_NUM|P_IND,		(char_u *)PV_SW},
+		{"shortmess",	"shm",	P_NUM,				(char_u *)&p_shm},
 #ifndef MSDOS
 		{"shortname",	"sn",	P_BOOL|P_IND,		(char_u *)PV_SN},
 #endif
@@ -159,9 +177,11 @@ static struct param params[] =
 		{"sidescroll",	"ss",	P_NUM,				(char_u *)&p_ss},
 		{"slowopen",	"slow",	P_BOOL,				(char_u *)NULL},
 		{"smartindent", "si",	P_BOOL|P_IND,		(char_u *)PV_SI},
+		{"smartmatch",	"sma",	P_BOOL,				(char_u *)&p_sma},
 		{"smarttab",	"sta",	P_BOOL,				(char_u *)&p_sta},
 		{"sourceany",	NULL,	P_BOOL,				(char_u *)NULL},
 		{"splitbelow",	"sb",	P_BOOL,				(char_u *)&p_sb},
+		{"startofline",	"sol",	P_BOOL,				(char_u *)&p_sol},
 		{"suffixes",	"su",	P_STRING,			(char_u *)&p_su},
 		{"tabstop", 	"ts",	P_NUM|P_IND,		(char_u *)PV_TS},
 		{"taglength",	"tl",	P_NUM,				(char_u *)&p_tl},
@@ -182,6 +202,9 @@ static struct param params[] =
 		{"undolevels",	"ul",	P_NUM,				(char_u *)&p_ul},
 		{"updatecount",	"uc",	P_NUM,				(char_u *)&p_uc},
 		{"updatetime",	"ut",	P_NUM,				(char_u *)&p_ut},
+#ifdef VIMINFO
+		{"viminfo",		"vi",	P_NUM,				(char_u *)&p_viminfo},
+#endif /* VIMINFO */
 		{"visualbell",	"vb",	P_BOOL,				(char_u *)&p_vb},
 		{"w300",		NULL, 	P_NUM,				(char_u *)NULL},
 		{"w1200",		NULL, 	P_NUM,				(char_u *)NULL},
@@ -197,7 +220,6 @@ static struct param params[] =
 		{"wrapscan",	"ws",	P_BOOL,				(char_u *)&p_ws},
 		{"writeany",	"wa",	P_BOOL,				(char_u *)&p_wa},
 		{"writebackup",	"wb",	P_BOOL,				(char_u *)&p_wb},
-		{"yankendofline", "ye",	P_BOOL,				(char_u *)&p_ye},
 
 /* terminal output codes */
 		{"t_cdl",		NULL,	P_STRING,	(char_u *)&term_strings.t_cdl},
@@ -220,6 +242,8 @@ static struct param params[] =
 		{"t_ti",		NULL,	P_STRING,	(char_u *)&term_strings.t_ti},
 		{"t_tb",		NULL,	P_STRING,	(char_u *)&term_strings.t_tb},
 		{"t_tp",		NULL,	P_STRING,	(char_u *)&term_strings.t_tp},
+		{"t_ue",		NULL,	P_STRING,	(char_u *)&term_strings.t_ue},
+		{"t_us",		NULL,	P_STRING,	(char_u *)&term_strings.t_us},
 		{"t_sr",		NULL,	P_STRING,	(char_u *)&term_strings.t_sr},
 		{"t_te",		NULL,	P_STRING,	(char_u *)&term_strings.t_te},
 		{"t_ts",		NULL,	P_STRING,	(char_u *)&term_strings.t_ts},
@@ -256,7 +280,14 @@ static struct param params[] =
 		{"t_sf10",		NULL,	P_STRING,	(char_u *)&term_strings.t_sf10},
 		{"t_help",		NULL,	P_STRING,	(char_u *)&term_strings.t_help},
 		{"t_undo",		NULL,	P_STRING,	(char_u *)&term_strings.t_undo},
+		{"t_ins",		NULL,	P_STRING,	(char_u *)&term_strings.t_ins},
+		{"t_del",		NULL,	P_STRING,	(char_u *)&term_strings.t_del},
+		{"t_home",		NULL,	P_STRING,	(char_u *)&term_strings.t_home},
+		{"t_end",		NULL,	P_STRING,	(char_u *)&term_strings.t_end},
+		{"t_pu",		NULL,	P_STRING,	(char_u *)&term_strings.t_pu},
+		{"t_pd",		NULL,	P_STRING,	(char_u *)&term_strings.t_pd},
 		{"t_csc",		NULL,	P_STRING,	(char_u *)&term_strings.t_csc},
+		{"t_mouse",		NULL,	P_STRING,	(char_u *)&term_strings.t_mouse},
 		{NULL, NULL, 0, NULL}			/* end marker */
 };
 
@@ -291,18 +322,24 @@ set_init()
 
 #ifdef UNIX
 	/*
-	 * Default for p_sp is "| tee".
+	 * Default for p_sp is "| tee", for p_srr is ">".
 	 * For known shells it is changed here to include stderr.
 	 */
 	p = gettail(p_sh);
 	if (	 STRCMP(p, "csh") == 0 ||
 			 STRCMP(p, "tcsh") == 0 ||
 			 STRCMP(p, "zsh") == 0)
+	{
 		p_sp = (char_u *)"|& tee";
+		p_srr = (char_u *)">&";
+	}
 	else if (STRCMP(p, "sh") == 0 ||
 			 STRCMP(p, "ksh") == 0 ||
 			 STRCMP(p, "bash") == 0)
+	{
 		p_sp = (char_u *)"2>&1| tee";
+		p_srr = (char_u *)"2>&1 1>";
+	}
 #endif
 
 	curwin->w_p_scroll = (Rows >> 1);
@@ -318,6 +355,11 @@ set_init()
 #ifdef MSDOS
 	curbuf->b_p_tx = TRUE;		/* texmode is default for MSDOS */
 #endif
+		/* the string options are always in allocated memory */
+	curbuf->b_p_fo = strsave((char_u *)FO_DFLT);
+	curbuf->b_p_id = strsave((char_u *)"_");
+	curbuf->b_p_com	= strsave((char_u *)"/* ,* ,//,*/,# ,%,XCOMM");
+	curbuf->b_p_ncom = strsave((char_u *)">");
 
 	/*
 	 * expand environment variables in some string options
@@ -350,6 +392,7 @@ doset(arg)
 	register int i;
 	char_u		*s;
 	char_u		*errmsg;
+	char_u		errbuf[80];
 	char_u		*startarg;
 	int			prefix;	/* 0: nothing, 1: "no", 2: "inv" in front of name */
 	int 		nextchar;
@@ -358,6 +401,7 @@ doset(arg)
 	char_u		*varp;				/* pointer to variable for current option */
 	int			errcnt = 0;			/* number of errornous entries */
 	long		oldRows = Rows;		/* remember old Rows */
+	long		oldColumns = Columns;	/* remember old Columns */
 	int			oldpaste = p_paste;	/* remember old paste option */
 	long		oldch = p_ch;		/* remember old command line height */
 	int			oldea = p_ea;		/* remember old 'equalalways' */
@@ -431,7 +475,7 @@ doset(arg)
 				msg_outchar('\n');		/* cursor below last one */
 			else
 			{
-				gotocmdline(TRUE, NUL);	/* cursor at status line */
+				gotocmdline(TRUE);		/* cursor at status line */
 				did_show = TRUE;		/* remember that we did a line */
 			}
 			showonep(&params[i]);
@@ -468,6 +512,12 @@ doset(arg)
 					p_bs = 0;		/* normal backspace */
 					p_ww = 0;		/* backspace and space do not wrap */
 					p_bk = 0;		/* no backup file */
+					free(curbuf->b_p_fo);
+					curbuf->b_p_fo = strsave((char_u *)"t");
+									/* Use textwidth for formatting, don't
+									 * format comments */
+					free(curbuf->b_p_id);
+					curbuf->b_p_id = strsave((char_u *)"_");
 #ifdef DIGRAPHS
 					p_dg = 0;		/* no digraphs */
 #endif /* DIGRAPHS */
@@ -484,9 +534,12 @@ doset(arg)
 					p_sj = 1;		/* no scrolljump */
 					p_sr = 0;		/* do not round indent to shiftwidth */
 					p_sc = 0;		/* no showcommand */
+					p_shm = 0;		/* no short message */
+					p_sma = 0;		/* no smart matching */
 					p_smd = 0;		/* no showmode */
 					curbuf->b_p_si = 0;		/* no smartindent */
 					p_sta = 0;		/* no smarttab */
+					p_sol = TRUE;	/* Move cursor to start-of-line */
 					p_ta = 0;		/* no automatic textmode detection */
 					curbuf->b_p_tw = 0;		/* no automatic line wrap */
 					p_to = 0;		/* no tilde operator */
@@ -497,7 +550,6 @@ doset(arg)
 					p_wb = 0;		/* no backup file */
 					if (p_wc == TAB)
 						p_wc = Ctrl('E');	/* normal use for TAB */
-					p_ye = 0;		/* no yank to end of line */
 				}
 				if ((int *)varp == &curbuf->b_p_bin && curbuf->b_p_bin)	/* handle bin */
 				{
@@ -540,6 +592,7 @@ doset(arg)
 						for (buf = firstbuf; buf != NULL; buf = buf->b_next)
 						{
 							buf->b_p_tw = buf->b_p_tw_save;
+							buf->b_p_wm = buf->b_p_wm_save;
 							buf->b_p_ai = buf->b_p_ai_save;
 							buf->b_p_si = buf->b_p_si_save;
 						}
@@ -567,7 +620,11 @@ doset(arg)
 				}
 				if (flags & P_NUM)				/* numeric */
 				{
+#ifdef NOSTRTOL
 					*(long *)(varp) = atol((char *)arg + len + 1);
+#else
+					*(long *)(varp) = strtol((char *)arg + len + 1, NULL, 0);
+#endif
 
 					if ((long *)varp == &p_wh)
 					{
@@ -592,7 +649,11 @@ doset(arg)
 					s = alloc((unsigned)(STRLEN(arg) + 1)); /* get a bit too much */
 					if (s == NULL)
 						break;
-					if (flags & P_CHANGED)
+						/*
+						 * String options that have been changed or are
+						 * indirect are in allocated memory, free them first.
+						 */
+					if ((flags & P_CHANGED) || (flags & P_IND))
 						free(*(char **)(varp));
 					*(char_u **)(varp) = s;
 								/* copy the string */
@@ -628,18 +689,25 @@ skip:
 		/*
 		 * Check the bounds for numeric parameters here
 		 */
-		if (Rows < 2)
+		if (Rows < min_rows())
 		{
-			Rows = 2;
-			errmsg = (char_u *)"Need at least 2 lines";
+			sprintf((char *)errbuf, "Need at least %ld lines", min_rows());
+			errmsg = errbuf;
+			Rows = min_rows();
+		}
+		if (Columns < MIN_COLUMNS)
+		{
+			sprintf((char *)errbuf, "Need at least %ld columns", MIN_COLUMNS);
+			errmsg = errbuf;
+			Columns = MIN_COLUMNS;
 		}
 		/*
 		 * If the screenheight has been changed, assume it is the physical
 		 * screenheight.
 		 */
-		if (oldRows != Rows)
+		if (oldRows != Rows || oldColumns != Columns)
 		{
-			screen_new_rows();
+			check_winsize();				/* in case 'columns' changed */
 #ifdef MSDOS
 			set_window();		/* active window may have changed */
 #endif
@@ -668,8 +736,13 @@ skip:
 		}
 		if (p_sj < 0 || p_sj >= Rows)
 		{
-			errmsg = e_scroll;
-			p_sj = 1;
+			if (Rows != oldRows)		/* Rows changed, just adjust p_sj */
+				p_sj = Rows / 2;
+			else
+			{
+				errmsg = e_scroll;
+				p_sj = 1;
+			}
 		}
 		if (p_uc < 0)
 		{
@@ -691,6 +764,18 @@ skip:
 			errmsg = e_positive;
 			p_ss = 0;
 		}
+		if (p_shm < 0 || p_shm > 2)
+		{
+			errmsg = (char_u *)"Must be between 0 and 2";
+			p_shm = (p_shm < 0) ? 0 : 2;
+		}
+#ifdef VIMINFO
+		if (p_viminfo < 0)
+		{
+			errmsg = e_positive;
+			p_viminfo = 0;
+		}
+#endif /* VIMINFO */
 		if (errmsg)
 		{
 			STRCPY(IObuff, errmsg);
@@ -706,8 +791,8 @@ skip:
 			arg = startarg;		/* skip to next argument */
 			++errcnt;			/* count number of errors */
 		}
-		skiptospace(&arg);				/* skip to next white space */
-		skipspace(&arg);				/* skip spaces */
+		skiptowhite(&arg);				/* skip to next white space */
+		skipwhite(&arg);				/* skip spaces */
 	}
 
 	/*
@@ -716,53 +801,65 @@ skip:
 	if (p_uc && !olduc)
 		ml_open_files();
 
-	if (p_ch != oldch)					/* p_ch changed value */
+	if (p_ch != oldch)				/* p_ch changed value */
 		command_height();
-	comp_col();
+#ifdef UNIX
+	if (is_xterm(term_strings.t_name))
+		setmouse(p_mouse);				/* in case 'mouse' changed */
+#endif
+#ifdef MSDOS
+	setmouse(p_mouse);
+#endif
+	comp_col();						/* in case 'ruler' or 'showcmd' changed */
+	curwin->w_set_curswant = TRUE;	/* in case 'list' changed */
 
 	/*
 	 * Update the screen in case we changed something like "tabstop" or
 	 * "lines" or "list" that will change its appearance.
-	 * If we messed up the screen by showing more than one line of param
-	 * values or an error message, call wait_return(), which will also
-	 * update the screen.
+	 * Also update the cursor position, in case 'wrap' is changed.
 	 */
 	for (wp = firstwin; wp; wp = wp->w_next)
 		wp->w_redr_status = TRUE;		/* mark all status lines dirty */
 	if (p_ea && !oldea)
 		win_equal(curwin, FALSE);
-	if (did_show && msg_check())
-	{
-		msg_outchar('\n');
-		wait_return(TRUE);
-	}
-	else
-		updateScreen(NOT_VALID);
+	updateScreen(CURSUPD);
 	return (errcnt == 0 ? OK : FAIL);
 }
 
 /*
- * expand environment variable at the start of some string options
+ * expand environment variables for some string options
  */
 	static void
 param_expand(i, dofree)
 	int		i;
 	int		dofree;
 {
-	char_u *p;
+	char_u		*p;
+	int			offset = 0;
 
-	if ((params[i].flags & P_EXPAND) &&
-				(p = *(char_u **)(params[i].var)) != NULL &&
-				(*p == '$' || *p == '~'))
+	if (!(params[i].flags & P_EXPAND) ||
+				(p = *(char_u **)(params[i].var)) == NULL)
+		return;
+
+	if ((
+#ifdef UNIX
+			params[i].var == (char_u *)&p_bdir ||
+#endif
+			params[i].var == (char_u *)&p_dir) && *p == '>')
+		offset = 1;
+
+	/*
+	 * Expanding this with NameBuff, expand_env() must not be passed IObuff.
+	 */
+	expand_env(p + offset, NameBuff, MAXPATHL);
+	p = alloc(offset + STRLEN(NameBuff) + 1);
+	if (p)
 	{
-		expand_env(*(char_u **)(params[i].var), IObuff, IOSIZE);
-		p = strsave(IObuff);
-		if (p)
-		{
-			if (dofree)
-				free(*(char_u **)(params[i].var));
-			*(char_u **)(params[i].var) = p;
-		}
+		p[0] = '>';		/* Will be overwritten if offset is 0 */
+		STRCPY(p + offset, NameBuff);
+		if (dofree)
+			free(*(char_u **)(params[i].var));
+		*(char_u **)(params[i].var) = p;
 	}
 }
 
@@ -834,8 +931,10 @@ showparams(all)
 
 #define INC	19
 
-	gotocmdline(TRUE, NUL);
-	msg_outstr((char_u *)"--- Parameters ---\n");
+	set_highlight('t');		/* Highlight title */
+	start_highlight();
+	msg_outstr((char_u *)"\n--- Parameters ---");
+	stop_highlight();
 
 	/*
 	 * do the loop two times:
@@ -880,6 +979,7 @@ showparams(all)
 			rows = item_count;
 		for (row = 0; row < rows && !got_int; ++row)
 		{
+			msg_outchar('\n');						/* go to next line */
 			col = 0;
 			for (i = row; i < item_count; i += rows)
 			{
@@ -887,13 +987,10 @@ showparams(all)
 				showonep(items[i]);
 				col += INC;
 			}
-			msg_outchar('\n');				/* scroll screen one line up */
 			flushbuf();
 			breakcheck();
 		}
 	}
-
-	wait_return(FALSE);
 }
 
 /*
@@ -906,6 +1003,7 @@ showonep(p)
 {
 	char_u			buf[64];
 	char_u			*varp;
+	char_u			*var;
 
 	varp = get_varp(p);
 
@@ -926,7 +1024,13 @@ showonep(p)
 		{
 			if (p->flags & P_EXPAND)
 			{
-				home_replace(*(char_u **)(varp), NameBuff, MAXPATHL);
+				var = *(char_u **)(varp);
+				if (*var == '>')	/* So home_replace() works for dir/bdir */
+				{
+					msg_outchar('>');
+					++var;
+				}
+				home_replace(var, NameBuff, MAXPATHL);
 				msg_outtrans(NameBuff, -1);
 			}
 			else
@@ -1021,7 +1125,7 @@ istermparam(p)
 	void
 comp_col()
 {
-	int last_status = (p_ls == 2 || (p_ls == 1 && firstwin != lastwin));
+	int last_has_status = (p_ls == 2 || (p_ls == 1 && firstwin != lastwin));
 
 	sc_col = 0;
 	ru_col = 0;
@@ -1029,13 +1133,13 @@ comp_col()
 	{
 		ru_col = COL_RULER + 1;
 							/* no last status line, adjust sc_col */
-		if (!last_status)
+		if (!last_has_status)
 			sc_col = ru_col;
 	}
 	if (p_sc)
 	{
 		sc_col += COL_SHOWCMD;
-		if (!p_ru || last_status)		/* no need for separating space */
+		if (!p_ru || last_has_status)		/* no need for separating space */
 			++sc_col;
 	}
 	sc_col = Columns - sc_col;
@@ -1062,9 +1166,13 @@ get_varp(p)
 
 		case PV_AI:		return (char_u *)&(curbuf->b_p_ai);
 		case PV_BIN:	return (char_u *)&(curbuf->b_p_bin);
+		case PV_COM:	return (char_u *)&(curbuf->b_p_com);
 		case PV_EOL:	return (char_u *)&(curbuf->b_p_eol);
 		case PV_ET:		return (char_u *)&(curbuf->b_p_et);
+		case PV_FO:		return (char_u *)&(curbuf->b_p_fo);
+		case PV_ID:		return (char_u *)&(curbuf->b_p_id);
 		case PV_ML:		return (char_u *)&(curbuf->b_p_ml);
+		case PV_NCOM:	return (char_u *)&(curbuf->b_p_ncom);
 		case PV_RO:		return (char_u *)&(curbuf->b_p_ro);
 		case PV_SI:		return (char_u *)&(curbuf->b_p_si);
 		case PV_SN:		return (char_u *)&(curbuf->b_p_sn);
@@ -1105,7 +1213,7 @@ buf_copy_options(bp_from, bp_to)
 {
 	bp_to->b_p_ai = bp_from->b_p_ai;
 	bp_to->b_p_si = bp_from->b_p_si;
-	bp_to->b_p_ro = bp_from->b_p_ro;
+	bp_to->b_p_ro = FALSE;				/* don't copy readonly */
 	bp_to->b_p_sw = bp_from->b_p_sw;
 	bp_to->b_p_ts = bp_from->b_p_ts;
 	bp_to->b_p_tw = bp_from->b_p_tw;
@@ -1115,9 +1223,18 @@ buf_copy_options(bp_from, bp_to)
 	bp_to->b_p_ml = bp_from->b_p_ml;
 	bp_to->b_p_sn = bp_from->b_p_sn;
 	bp_to->b_p_tx = bp_from->b_p_tx;
+	if (bp_from->b_p_com != NULL)
+		bp_to->b_p_com = strsave(bp_from->b_p_com);
+	if (bp_from->b_p_ncom != NULL)
+		bp_to->b_p_ncom = strsave(bp_from->b_p_ncom);
+	if (bp_from->b_p_fo != NULL)
+		bp_to->b_p_fo = strsave(bp_from->b_p_fo);
+	if (bp_from->b_p_id != NULL)
+		bp_to->b_p_id = strsave(bp_from->b_p_id);
 }
 
-#ifdef WEBB_COMPLETE
+static expand_param = -1;
+
 	void
 set_context_in_set_cmd(arg)
 	char_u *arg;
@@ -1184,6 +1301,13 @@ set_context_in_set_cmd(arg)
 		expand_context = EXPAND_UNSUCCESSFUL;
 		return;
 	}
+	if (expand_context != EXPAND_BOOL_SETTINGS && p[1] == NUL)
+	{
+		expand_context = EXPAND_OLD_SETTING;
+		expand_param = i;
+		expand_pattern = p + 1;
+		return;
+	}
 	expand_context = EXPAND_NOTHING;
 	if (flags & P_NUM)
 		return;
@@ -1202,6 +1326,12 @@ set_context_in_set_cmd(arg)
 			expand_context = EXPAND_DIRECTORIES;
 		else
 			expand_context = EXPAND_FILES;
+		if ((
+#ifdef UNIX
+				p == (char_u *)&p_bdir ||
+#endif
+				p == (char_u *)&p_dir) && *expand_pattern == '>')
+			++expand_pattern;
 	}
 	return;
 }
@@ -1289,4 +1419,449 @@ ExpandSettings(prog, num_file, file)
 	}
 	return OK;
 }
-#endif /* WEBB_COMPLETE */
+
+	int
+ExpandOldSetting(num_file, file)
+	int		*num_file;
+	char_u	***file;
+{
+	int		extra = 0;
+	char_u	*varp;
+	char_u	*var;
+	char_u	*p;
+	char_u	*p2;
+	char_u	string[20];
+	char_u	*old_val;
+
+	varp = get_varp(&params[expand_param]);
+	if (params[expand_param].flags & P_NUM)
+	{
+		sprintf((char *)string, "%ld", *(long *)varp);
+		old_val = strsave(string);
+	}
+	else
+	{
+		var = *(char_u **)varp;
+		if (var == NULL)
+			var = (char_u *)"";
+		p = var;
+		for (; *p; p++)
+			if (*p == ' ')
+				extra++;
+		p = var;
+		p2 = old_val = alloc(STRLEN(p) + 1 + extra);
+		if (old_val != NULL)
+		{
+			for (; *p; p++, p2++)
+			{
+				if (*p == ' ')
+					*p2++ = '\\';
+				*p2 = *p;
+			}
+			*p2 = NUL;
+		}
+	}
+	*file = (char_u **) alloc(sizeof(char_u *));
+	if (old_val == NULL || *file == NULL)
+		return FAIL;
+	*file[0] = old_val;
+	*num_file = 1;
+	return OK;
+}
+
+/*
+ * structures and functions for automatic commands
+ */
+
+typedef struct AutoCmd
+{
+	char_u			*cmd;
+	struct AutoCmd	*next;
+} AutoCmd;
+
+typedef struct AutoPat
+{
+	char_u			*pat;
+	char_u			*reg_pat;
+	AutoCmd			*cmds;
+	struct AutoPat	*next;
+} AutoPat;
+
+static AutoPat *first_autopat = NULL;
+
+	char_u *
+file_pat_to_reg_pat(pat)
+	char_u	*pat;
+{
+	int		size;
+	char_u	*endp;
+	char_u	*reg_pat;
+	char_u	*p;
+	int		i;
+	int		nested = 0;
+	int		add_dollar = TRUE;
+
+	size = 2;				/* '^' at start, '$' at end */
+	for (p = pat; *p; p++)
+	{
+		switch (*p)
+		{
+			case '*':
+			case '.':
+			case ',':
+			case '{':
+			case '}':
+				size += 2;
+				break;
+			default:
+				size++;
+				break;
+		}
+	}
+	reg_pat = alloc(size + 1);
+	if (reg_pat == NULL)
+		return NULL;
+	i = 0;
+	if (pat[0] == '*')
+		while (pat[0] == '*' && pat[1] != NUL)
+			pat++;
+	else
+		reg_pat[i++] = '^';
+	endp = pat + STRLEN(pat) - 1;
+	if (*endp == '*')
+	{
+		while (endp - pat > 0 && *endp == '*')
+			endp--;
+		add_dollar = FALSE;
+	}
+	for (p = pat; *p && nested >= 0 && p <= endp; p++)
+	{
+		switch (*p)
+		{
+			case '*':
+				reg_pat[i++] = '.';
+				reg_pat[i++] = '*';
+				break;
+			case '.':
+				reg_pat[i++] = '\\';
+				reg_pat[i++] = '.';
+				break;
+			case '?':
+				reg_pat[i++] = '.';
+				break;
+			case '\\':
+				if (p[1] == NUL)
+					break;
+				if (*++p == '?')
+					reg_pat[i++] = '?';
+				else if (*p == ',')
+					reg_pat[i++] = ',';
+				else
+				{
+					reg_pat[i++] = '\\';
+					reg_pat[i++] = *p;
+				}
+				break;
+			case '{':
+				reg_pat[i++] = '\\';
+				reg_pat[i++] = '(';
+				nested++;
+				break;
+			case '}':
+				reg_pat[i++] = '\\';
+				reg_pat[i++] = ')';
+				--nested;
+				break;
+			case ',':
+				if (nested)
+				{
+					reg_pat[i++] = '\\';
+					reg_pat[i++] = '|';
+				}
+				else
+					reg_pat[i++] = ',';
+				break;
+			default:
+				reg_pat[i++] = *p;
+				break;
+		}
+	}
+	if (add_dollar)
+		reg_pat[i++] = '$';
+	reg_pat[i] = NUL;
+	if (nested != 0)
+	{
+		if (nested < 0)
+			EMSG("Missing {.");
+		else
+			EMSG("Missing }.");
+		free(reg_pat);
+		reg_pat = NULL;
+	}
+	return reg_pat;
+}
+
+	static void
+show_autocmd(ap, did_show)
+	AutoPat	*ap;
+	int		did_show;
+{
+	AutoCmd *ac;
+
+	if (did_show)
+		msg_outstr((char_u *)"\n");
+	msg_outstr(ap->pat);
+	for (ac = ap->cmds; ac != NULL; ac = ac->next)
+	{
+		msg_outstr((char_u *)"\n    ");
+		msg_outstr(ac->cmd);
+		did_show = TRUE;
+	}
+}
+
+/*
+ * do_autocmd() -- implements the :autocmd command.  Can be used in the
+ *	following ways:
+ *
+ *	  :autocmd <pat> <cmd>	Add <cmd> to the list of commands that will be
+ *							automatically executed when editing a file
+ *							matching <pat>.
+ *	  :autocmd <pat>		Show the auto-commands associated with <pat>.
+ *	  :autocmd				Show all auto-commands.
+ *	  :autocmd! <pat> <cmd>	Remove all auto-commands associated with <pat>,
+ *							and add the command <cmd>.
+ *	  :autocmd! <pat>		Remove all auto-commands associated with <pat>.
+ *	  :autocmd!				Remove ALL auto-commands.
+ *	<pat> may be "default" for commands that should be used when no
+ *	other pattern matches.  Multiple patterns may be given separated by
+ *	commas.  Here are some examples:
+ *	  :autocmd *.c,*.h	set tw=0 smartindent noic
+ *	  :autocmd default	set tw=79 nosmartindent ic infercase
+ */
+	void
+do_autocmd(arg, force)
+	char_u	*arg;
+	int		force;
+{
+	char_u	*cmd;
+	char_u	*p;
+	AutoPat	*ap;
+	AutoPat	*ap2;
+	AutoCmd	*ac;
+	int		did_show = FALSE;
+	int		show_all = TRUE;
+	int		nested;
+
+	cmd = arg;
+	while (*cmd && (!iswhite(*cmd) || cmd[-1] == '\\'))
+		cmd++;
+	if (*cmd)
+		*cmd++ = NUL;
+	skipwhite(&cmd);
+	p = arg;
+	if (!force)
+	{
+		/*
+		 * When listing all autocommands: keep the command line, there will be
+		 * scrolling anyway.
+		 * When listing one autocommand: overwrite the command line to avoid
+		 * scrolling.
+		 */
+		if (*arg == NUL)
+		{
+			set_highlight('t');		/* Highlight title */
+			start_highlight();
+			msg_outstr((char_u *)"\n--- Auto-Commands ---");
+			stop_highlight();
+			did_show = TRUE;
+		}
+		else if (*cmd == NUL)
+			gotocmdline(TRUE);
+	}
+	for(;;)
+	{
+		arg = p;
+		if (*arg == NUL)
+			break;
+		show_all = FALSE;
+		nested = 0;
+		while (*p && (*p != ',' || nested || p[-1] == '\\'))
+		{
+			if (*p == '{')
+				nested++;
+			else if (*p == '}')
+				nested--;
+			p++;
+		}
+		if (*p == ',')
+			*p++ = NUL;
+		ap = first_autopat;
+		while (ap != NULL && STRCMP(arg, ap->pat) != 0)
+			ap = ap->next;
+		if (ap == NULL)
+		{
+			/* It's a new pattern */
+			if (*cmd == NUL)
+			{
+				if (!force)
+				{
+					if (did_show)
+						msg_outchar('\n');
+					sprintf((char *)IObuff, "No autocmd for '%s'", arg);
+					msg_outstr(IObuff);
+					did_show = TRUE;
+					continue;
+				}
+			}
+			else
+			{
+				ap = (AutoPat *) alloc(sizeof(AutoPat));
+				if (ap == NULL)
+					return;
+				ap->next = first_autopat;
+				ap->pat = strsave(arg);
+				ap->reg_pat = file_pat_to_reg_pat(ap->pat);
+				ap->cmds = NULL;
+				if (ap->reg_pat == NULL)
+					return;
+				first_autopat = ap;
+			}
+		}
+		else if (force)
+		{
+			/* Remove old autocmd's first */
+			while (ap->cmds != NULL)
+			{
+				ac = ap->cmds;
+				ap->cmds = ac->next;
+				free(ac->cmd);
+				free(ac);
+			}
+			if (*cmd == NUL)
+			{
+				/*
+				 * We are not adding any new autocmd's for this pattern,
+				 * so delete the pattern from the autopat list
+				 */
+				free(ap->pat);
+				free(ap->reg_pat);
+				if (ap == first_autopat)
+					first_autopat = ap->next;
+				else
+				{
+					for (ap2 = first_autopat; ap2->next != ap; ap2 = ap2->next)
+						;
+					ap2->next = ap->next;
+				}
+				free(ap);
+			}
+		}
+		if (*cmd == NUL && !force)
+		{
+			/* Show autocmd's for this autopat */
+			if (did_show)
+				msg_outchar('\n');
+			show_autocmd(ap, did_show);
+			did_show = TRUE;
+		}
+		else if (*cmd != NUL)
+		{
+			/* Add the autocmd if it's not already there */
+			ac = ap->cmds;
+			while (ac != NULL && STRCMP(cmd, ac->cmd) != 0)
+				ac = ac->next;
+			if (ac == NULL)
+			{
+				ac = (AutoCmd *) alloc(sizeof(AutoCmd));
+				if (ac == NULL)
+					return;
+				ac->next = ap->cmds;
+				ac->cmd = strsave(cmd);
+				if (ac->cmd == NULL)
+					return;
+				ap->cmds = ac;
+			}
+		}
+	}
+	if (show_all)
+	{
+		if (force)
+		{
+			/* ":autocmd!": delete all autocmd's */
+			while (first_autopat != NULL)
+			{
+				ap = first_autopat;
+				first_autopat = ap->next;
+				free(ap->pat);
+				free(ap->reg_pat);
+				while (ap->cmds != NULL)
+				{
+					ac = ap->cmds;
+					ap->cmds = ac->next;
+					free(ac->cmd);
+					free(ac);
+				}
+				free(ap);
+			}
+		}
+		else
+		{
+			if (first_autopat == NULL)
+				msg_outstr((char_u *)"There are no autocmd's");
+			else
+			{
+				for (ap = first_autopat; ap != NULL; ap = ap->next)
+				{
+					if (did_show)
+						msg_outchar('\n');
+					show_autocmd(ap, did_show);
+					did_show = TRUE;
+				}
+			}
+		}
+	}
+}
+
+	void
+apply_autocmds(fname)
+	char_u			*fname;		/* NULL means use actual file name */
+{
+	struct regexp	*prog;
+	AutoPat			*ap;
+	AutoPat			*def_ap = NULL;
+	AutoCmd			*ac;
+	int				matched = FALSE;
+	int				temp;
+
+		/* Don't redraw while doing auto commands. */
+	temp = RedrawingDisabled;
+	RedrawingDisabled = TRUE;
+
+	if (fname == NULL || *fname == NUL)
+		fname = curbuf->b_filename;
+	if (fname != NULL)
+		fname = gettail(fname);
+	for (ap = first_autopat; ap != NULL; ap = ap->next)
+	{
+		if (STRCMP(ap->pat, "default") == 0)
+		{
+			def_ap = ap;
+			continue;
+		}
+		reg_ic = FALSE;		/* Don't ever ignore case */
+		reg_magic = TRUE;	/* Always use magic */
+		prog = regcomp(ap->reg_pat);
+		if (prog != NULL && fname != NULL && regexec(prog, fname, TRUE))
+		{
+			for (ac = ap->cmds; ac != NULL; ac = ac->next)
+				docmdline(ac->cmd, TRUE, TRUE);
+			matched = TRUE;
+		}
+		free(prog);
+	}
+	if (!matched && def_ap != NULL)
+		for (ac = def_ap->cmds; ac != NULL; ac = ac->next)
+			docmdline(ac->cmd, TRUE, TRUE);
+
+	RedrawingDisabled = temp;
+}

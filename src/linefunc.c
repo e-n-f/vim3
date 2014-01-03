@@ -25,18 +25,18 @@
 coladvance(wcol)
 	colnr_t 		wcol;
 {
-	int 				index;
+	int 				idx;
 	register char_u		*ptr;
 	register colnr_t	col;
 
 	ptr = ml_get(curwin->w_cursor.lnum);
 
 	/* try to advance to the specified column */
-	index = -1;
+	idx = -1;
 	col = 0;
 	while (col <= wcol && *ptr)
 	{
-		++index;
+		++idx;
 		/* Count a tab for what it's worth (if list mode not on) */
 		col += chartabsize(*ptr, (long)col);
 		++ptr;
@@ -45,11 +45,11 @@ coladvance(wcol)
 	 * in insert mode it is allowed to be one char beyond the end of the line
 	 */
 	if ((State & INSERT) && col <= wcol)
-		++index;
-	if (index < 0)
+		++idx;
+	if (idx < 0)
 		curwin->w_cursor.col = 0;
 	else
-		curwin->w_cursor.col = index;
+		curwin->w_cursor.col = idx;
 }
 
 /*

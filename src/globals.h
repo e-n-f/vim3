@@ -42,14 +42,12 @@ EXTERN int		cmdline_row;
 EXTERN int		redraw_cmdline INIT(= FALSE);	/* cmdline must be redrawn */
 EXTERN int		clear_cmdline INIT(= FALSE);	/* cmdline must be cleared */
 
-#ifdef WEBB_COMPLETE
 /*
  * used for completion on the command line
  */
 EXTERN int		expand_context INIT(= CONTEXT_UNKNOWN);
 EXTERN char_u	*expand_pattern INIT(= NULL);
 EXTERN int		expand_interactively INIT(= FALSE);
-#endif /* WEBB_COMPLETE */
 
 /*
  * Functions for putting characters in the command line,
@@ -59,10 +57,27 @@ EXTERN int		msg_col;
 EXTERN int		msg_row;
 EXTERN int		msg_scrolled; 
 EXTERN char_u	*keep_msg;					/* message to be shown after redraw */
+EXTERN int		need_sleep INIT(= FALSE);	/* call sleep() before redraw */
+EXTERN int		need_fileinfo INIT(= FALSE);/* do fileinfo() after redraw */
+EXTERN int		msg_scroll INIT(= FALSE);	/* msg_start() will scroll */
+EXTERN int		msg_didout INIT(= FALSE);	/* msg_outstr() was used in line */
+EXTERN int		msg_didany INIT(= FALSE);	/* msg_outstr() was used at all */
+EXTERN int		emsg_off INIT(= FALSE);		/* don't display errors for now */
+EXTERN char_u	*sourcing_name INIT( = NULL);/* name of error message source */
+
 EXTERN int		msg_highlight INIT(= FALSE);/* message should be highlighted */
 EXTERN char_u	*highlight INIT(= NULL);	/* string for start of highlighting */
 EXTERN char_u	*unhighlight INIT(= NULL);	/* string for end of highlighting */
 EXTERN int		scroll_region INIT(= FALSE);/* terminal supports scroll region */
+EXTERN int		highlight_match INIT(= FALSE);	/* show search match pos */
+EXTERN int		search_match_len;			/* length of matched string */
+
+/*
+ * Mouse coordinates, set by check_termcode()
+ */
+EXTERN int		mouse_code;
+EXTERN int		mouse_row;
+EXTERN int		mouse_col;
 
 /*
  * All windows are linked in a list. firstwin points to the first entry, lastwin
@@ -87,6 +102,7 @@ EXTERN BUF		*curbuf INIT(= NULL);	/* currently active buffer */
 EXTERN char_u	**arg_files;	/* list of files */
 EXTERN int		arg_count;	 	/* number of files */
 EXTERN int		arg_exp;		/* when TRUE arg_files must be freed */
+EXTERN int		arg_had_last INIT(= FALSE);	/* accessed last file in arglist */
 
 EXTERN int		ru_col;			/* column for ruler */
 EXTERN int		sc_col;			/* column for shown command */
@@ -99,16 +115,24 @@ EXTERN int		starting INIT(= TRUE);
 								/* set to FALSE when starting up finished */
 EXTERN int		exiting INIT(= FALSE);
 								/* set to TRUE when abandoning Vim */
+EXTERN int		not_full_screen INIT(= FALSE);
+								/* set to TRUE when not doing full-screen */
 
 EXTERN int		secure INIT(= FALSE);
 								/* set to TRUE when only "safe" commands are 
 								 * allowed, e.g. when sourcing .exrc or .vimrc
 								 * in current directory */
 
-EXTERN FPOS 	VIsual; 		/* start position of Visual
-								 * (VIsual.lnum == 0 when not active) */
-EXTERN int		Visual_block INIT(= FALSE);
-								/* Visual is blockwise */
+EXTERN FPOS 	VIsual; 		/* start position of Visual (if VIsual.lnum ==
+								 * 0, visual is not active) */
+
+EXTERN int		Visual_mode INIT(= 'v');
+								/* type of Visual mode */
+EXTERN int		block_mode INIT(= FALSE);
+								/* current operator in Visual block mode */
+EXTERN int redo_Visual_busy INIT(= FALSE);
+								/* TRUE when redo-ing a visual */
+
 
 EXTERN FPOS 	Insstart;		/* This is where the latest insert/append
 								 * mode started. */
@@ -135,24 +159,32 @@ EXTERN int				can_si INIT(= FALSE);
 
 EXTERN int				old_indent INIT(= 0); /* for ^^D command in insert mode */
 
-/*
- * This flag is set after doing a reverse replace in column 0.
- * An extra space has been inserted in column 0.
- */
-EXTERN int				extraspace INIT(= FALSE);
-
 EXTERN int		State INIT(= NORMAL);	/* This is the current state of the command
 										 * interpreter. */
 
-EXTERN int		Recording INIT(= FALSE);/* TRUE when recording into a register */
+EXTERN int		restart_edit INIT(= 0);	/* call edit when next command finished
+										 */
+EXTERN int		arrow_used;				/* Normally FALSE, set to TRUE after
+										 * hitting cursor key in insert mode.
+										 * Used by vgetorpeek() to decide when
+										 * to call u_sync() */
+EXTERN char_u	*edit_submode INIT(= NULL);		/* Name of edit submode */
+
+EXTERN int		Recording INIT(= FALSE);/* TRUE when recording into a register
+										 */
 EXTERN int		Exec_reg INIT(= FALSE);	/* TRUE when executing a register */
 
 EXTERN int		did_cd INIT(= FALSE);	/* TRUE when :cd dir used */
 EXTERN int		no_abbr INIT(= TRUE);	/* TRUE when no abbreviations loaded */
+EXTERN int		fo_do_comments INIT(= FALSE);
+										/* TRUE when comments are to be
+										 * formatted */
 
 
 EXTERN char_u 	*IObuff;				/* sprintf's are done in this buffer */
-EXTERN char_u	*NameBuff;				/* file names are expanded in this buffer */
+EXTERN char_u	*NameBuff;				/* file names are expanded in this
+										 * buffer */
+EXTERN char_u	msg_buf[MSG_BUF_LEN];	/* small buffer for messages */
 
 EXTERN int		RedrawingDisabled INIT(= FALSE);
 										/* Set to TRUE if doing :g */
@@ -160,6 +192,7 @@ EXTERN int		RedrawingDisabled INIT(= FALSE);
 EXTERN int		readonlymode INIT(= FALSE); /* Set to TRUE for "view" */
 EXTERN int		recoverymode INIT(= FALSE); /* Set to TRUE for "-r" option */
 
+EXTERN char_u	*typestr INIT(= NULL);		/* buffer for typed characters */
 EXTERN int		KeyTyped;					/* TRUE if user typed the character */
 EXTERN int		must_redraw INIT(= 0);		/* type of redraw necessary */
 EXTERN int		skip_redraw INIT(= FALSE);	/* skip redraw once */
@@ -177,18 +210,26 @@ EXTERN int		bangredo INIT(= FALSE);		/* set to TRUE whith ! command */
 EXTERN int		searchcmdlen;				/* length of previous search command */
 EXTERN int 		reg_ic INIT(= 0); 			/* p_ic passed to to regexec() */
 
-EXTERN int		did_outofmem_msg INIT(= FALSE);	/* set after out of memory msg */
+EXTERN int		did_outofmem_msg INIT(= FALSE);
+											/* set after out of memory msg */
+EXTERN int		did_swapwrite_msg INIT(= FALSE);
+											/* set after swap write error msg */
+EXTERN int		undo_off INIT(= FALSE);		/* undo switched off for now */
 EXTERN int		tag_busy INIT(= FALSE);		/* doing a search for tag command */
 EXTERN int		global_busy INIT(= 0);		/* set when :global is executing */
 EXTERN int		dont_sleep INIT(= FALSE);	/* set when sleep() in emsg() not wanted */
-EXTERN int		did_msg;					/* set in msg_start, used for :global */
 EXTERN int		no_wait_return INIT(= 0);	/* don't wait for return now */
 EXTERN int		need_wait_return INIT(= 0);	/* need to wait for return later */
+EXTERN int		dont_wait_return INIT(= 0);	/* no need to wait for return */
 EXTERN char_u	*last_cmdline INIT(= NULL);	/* last command line (for ':' register) */
 EXTERN char_u	*new_last_cmdline INIT(= NULL);	/* new value for last_cmdline */
 
 EXTERN int		postponed_split INIT(= FALSE);	/* for CTRL-W CTRL-] command */
 EXTERN int		keep_old_search_pattern INIT(= FALSE);	/* for myregcomp() */
+EXTERN int		need_autocmd INIT(= FALSE);	/* Need to apply autocmd's? */
+EXTERN int		replace_offset INIT(= 0);	/* offset for replace_push() */
+EXTERN int		second_indent INIT(= -1);   /* Indent of 2nd line for Q */
+EXTERN char_u	*second_leader INIT(= NULL); /* Comment leader from 2nd line */
 
 #ifdef DEBUG
 EXTERN FILE *debugfp INIT(=NULL);
@@ -206,6 +247,7 @@ EXTERN char_u e_abort[]		INIT(="Command aborted");
 EXTERN char_u e_ambmap[]	INIT(="Ambiguous mapping");
 EXTERN char_u e_argreq[]	INIT(="Argument required");
 EXTERN char_u e_backslash[]	INIT(="\\ should be followed by /, ? or &");
+EXTERN char_u e_bot_search[] INIT(="search hit BOTTOM without match");
 EXTERN char_u e_curdir[]	INIT(="Command not allowed from from .exrc/.vimrc in current dir");
 EXTERN char_u e_errorf[]	INIT(="No errorfile name");
 EXTERN char_u e_exists[]	INIT(="File exists (use ! to override)");
@@ -219,14 +261,15 @@ EXTERN char_u e_invcmd[]	INIT(="Invalid command");
 EXTERN char_u e_invstring[]	INIT(="Invalid search string");
 EXTERN char_u e_nesting[]	INIT(="Scripts nested too deep");
 EXTERN char_u e_noalt[]		INIT(="No alternate file");
+EXTERN char_u e_nobang[] 	INIT(="No ! allowed");
 EXTERN char_u e_nolastcmd[]	INIT(="No previous command line");
 EXTERN char_u e_nomap[]		INIT(="No such mapping");
 EXTERN char_u e_nomatch[]	INIT(="No match");
 EXTERN char_u e_nomore[]	INIT(="No more files to edit");
 EXTERN char_u e_noname[]	INIT(="No file name");
-EXTERN char_u e_nopresub[]	INIT(="No previous substitute");
+EXTERN char_u e_nopresub[]	INIT(="No previous substitute regular expression");
 EXTERN char_u e_noprev[]	INIT(="No previous command");
-EXTERN char_u e_noprevre[]	INIT(="No previous regexp");
+EXTERN char_u e_noprevre[]	INIT(="No previous regular expression");
 EXTERN char_u e_norange[] 	INIT(="No range allowed");
 EXTERN char_u e_noroom[] 	INIT(="Not enough room");
 EXTERN char_u e_notcreate[]	INIT(="Can't create file %s");
@@ -240,7 +283,7 @@ EXTERN char_u e_openerrf[]	INIT(="Can't open errorfile %s");
 EXTERN char_u e_outofmem[]	INIT(="Out of memory!");
 EXTERN char_u e_patnotf[]	INIT(="Pattern not found");
 EXTERN char_u e_positive[]	INIT(="Argument must be positive");
-EXTERN char_u e_quickfix[]	INIT(="No errorfile; use :cf");
+EXTERN char_u e_quickfix[]	INIT(="Errorfile not found");
 EXTERN char_u e_re_damg[]	INIT(="Damaged match string");
 EXTERN char_u e_re_corr[]	INIT(="Corrupted regexp program");
 EXTERN char_u e_readonly[]	INIT(="File is readonly");
@@ -252,8 +295,10 @@ EXTERN char_u e_toomket[]	INIT(="Too many )");
 EXTERN char_u e_toomsbra[]	INIT(="Too many [");
 EXTERN char_u e_toolong[]	INIT(="Command too long");
 EXTERN char_u e_toomany[]	INIT(="Too many file names");
+EXTERN char_u e_top_search[] INIT(="search hit TOP without match");
 EXTERN char_u e_trailing[]	INIT(="Trailing characters");
 EXTERN char_u e_umark[]		INIT(="Unknown mark");
 EXTERN char_u e_unknown[]	INIT(="Unknown");
 EXTERN char_u e_write[]		INIT(="Error while writing");
 EXTERN char_u e_zerocount[]	INIT(="Zero count");
+

@@ -16,26 +16,35 @@
 transchar(c)
 	int	 c;
 {
-	static char_u buf[3];
+	static char_u	buf[5];
+	int				i;
 
+	i = 0;
+	if (c >= 0x100)		/* special key code, display as ~@ char */
+	{
+		buf[0] = '~';
+		buf[1] = '@';
+		i = 2;
+		c = K_SECOND(c);
+	}
 	if (c < ' ' || c == DEL)
 	{
 		if (c == NL)
 			c = NUL;			/* we use newline in place of a NUL */
-		buf[0] = '^';
-		buf[1] = c ^ 0x40;		/* DEL displayed as ^? */
-		buf[2] = NUL;
+		buf[i] = '^';
+		buf[i + 1] = c ^ 0x40;		/* DEL displayed as ^? */
+		buf[i + 2] = NUL;
 	}
 	else if (c <= '~' || c > 0xa0 || p_gr)
 	{
-		buf[0] = c;
-		buf[1] = NUL;
+		buf[i] = c;
+		buf[i + 1] = NUL;
 	}
 	else
 	{
-		buf[0] = '~';
-		buf[1] = c - 0x80 + '@';
-		buf[2] = NUL;
+		buf[i] = '~';
+		buf[i + 1] = c - 0x80 + '@';
+		buf[i + 2] = NUL;
 	}
 	return buf;
 }
@@ -47,7 +56,15 @@ transchar(c)
 charsize(c)
 	int c;
 {
-	return ((c >= ' ' && (p_gr || c <= '~')) || c > 0xa0 ? 1 : 2);
+	int		len = 0;
+
+	if (c >= 0x100)
+	{
+		len = 2;
+		c = K_SECOND(c);
+	}
+	len += ((c >= ' ' && (p_gr || c <= '~')) || c > 0xa0 ? 1 : 2);
+	return len;
 }
 
 /*
@@ -82,21 +99,38 @@ chartabsize(c, col)
 }
 
 /*
+ * return the number of characters the string 's' will take on the screen,
+ * taking into account the size of a tab
+ */
+	int
+linetabsize(s)
+	char_u		*s;
+{
+	int		col = 0;
+
+	while (*s != NUL)
+		col += chartabsize(*s++, col);
+	return col;
+}
+
+/*
  * return TRUE if 'c' is an identifier character
  */
 	int
 isidchar(c)
 	int c;
 {
+		if (c > 0x100 || c == NUL)
+			return FALSE;
 		return (
 #ifdef __STDC__
 				isalnum(c)
 #else
 				isalpha(c) || isdigit(c)
 #endif
-				|| c == '_'
+				|| (curbuf->b_p_id != NULL && STRCHR(curbuf->b_p_id, c) != NULL)
 	/*
-	 * we also accept alhpa's with accents
+	 * we also accept alpha's with accents
 	 */
 #ifdef MSDOS
 				|| (c >= 0x80 && c <= 0xa7) || (c >= 0xe0 && c <= 0xeb)

@@ -184,7 +184,7 @@ vim_delay()
 void
 mch_suspend()
 {
-	OUTSTR("new shell started\n");
+	msg_outstr("new shell started\n");
 	(void)call_shell(NULL, 0, TRUE);
 }
 
@@ -687,7 +687,7 @@ mch_windexit(r)
 
 	mch_restore_title(3);			/* restore window title */
 
-	ml_close_all(); 				/* remove all memfiles */
+	ml_close_all(TRUE);				/* remove all memfiles */
 
 #ifndef NO_ARP
 	if (ArpBase)
@@ -832,113 +832,6 @@ mch_set_winsize()
 	}
 }
 
-#ifdef SETKEYMAP
-/*
- * load and activate a new keymap for our CLI - DOES NOT WORK -
- * The problem is that after the setting of the keymap the input blocks
- * But the new keymap works allright in another window.
- * Tried but no improvement:
- * - remembering the length, data and command fields in request->io_xxx
- * - settmode(0) first, settmode(1) afterwards
- * - putting the keymap directly in conunit structure
- */
-
-#include <devices/keymap.h>
-
-	void
-set_keymap(name)
-	char_u *name;
-{
- 	char					id_a[sizeof(struct InfoData) + 3];
-	struct InfoData			*id;
-	static struct KeyMap	*old;
-	static BPTR				segment = (BPTR)NULL;
-	struct IOStdReq			*request;
-	int						c;
-
-	if (!term_console)
-		return;
-
-	/* insure longword alignment */
- 	id = (struct InfoData *)(((long)id_a + 3L) & ~3L);
-
-	if (dos_packet(MP(raw_out), (long)ACTION_DISK_INFO, ((ULONG) id) >> 2) == 0)
-	{
-		EMSG("dos_packet failed");
-		return;
-	}
-	if (id->id_InUse == (BPTR)NULL)
-	{
-		EMSG("not a console??");
-		return;
-	}
-	request = (struct IOStdReq *) id->id_InUse;
-
-	if (segment != (BPTR)NULL)	/* restore old keymap */
-	{
-		request->io_Command = CD_SETKEYMAP;
-		request->io_Length = sizeof(struct KeyMap);
-		request->io_Data = (APTR)old;
-		DoIO((struct IORequest *)request);
-		if (request->io_Error)
-			EMSG("Cannot reset keymap");
-		else				/* no error, free the allocated memory */
-		{
-			UnLoadSeg(segment);
-			FreeMem(old, sizeof(struct KeyMap));
-			segment = (BPTR)NULL;
-		}
-	}
-	if (name != NULL)
-	{
-		segment = LoadSeg(name);
-		if (segment == (BPTR)NULL)
-		{
-			EMSG("Cannot open keymap file");
-			return;
-		}
-		old = (struct KeyMap *)AllocMem(sizeof(struct KeyMap), MEMF_PUBLIC);
-		if (old == NULL)
-		{
-			EMSG(e_outofmem);
-			UnLoadSeg(segment);
-			segment = (BPTR)NULL;
-		}
-		else
-		{
-			request->io_Command = CD_ASKKEYMAP;
-			request->io_Length = sizeof(struct KeyMap);
-			request->io_Data = (APTR)old;
-			DoIO((struct IORequest *)request);
-			if (request->io_Error)
-			{
-				EMSG("Cannot get old keymap");
-				UnLoadSeg(segment);
-				segment = (BPTR)NULL;
-				FreeMem(old, sizeof(struct KeyMap));
-			}
-			else
-			{
-				request->io_Command = CD_SETKEYMAP;
-				request->io_Length = sizeof(struct KeyMap);
-				request->io_Data = (APTR)((segment << 2) + 18);
-				DoIO((struct IORequest *)request);
-				if (request->io_Error)
-					EMSG("Cannot set keymap");
-
-				/* test for blocking */
-				request->io_Command = CMD_READ;
-				request->io_Length = 1;
-				request->io_Data = (APTR)&c;
-				DoIO((struct IORequest *)request);	/* BLOCK HERE! */
-				if (request->io_Error)
-					EMSG("Cannot set keymap");
-			}
-		}
-	}
-}
-#endif
-
 #ifndef AZTEC_C
 /*
  * Sendpacket.c
@@ -1071,15 +964,15 @@ call_shell(cmd, filter, cooked)
 	if ((dos2 && x < 0) || (!dos2 && !x))
 # endif
 	{
-		outstr((char_u *)"Cannot execute ");
+		msg_outstr((char_u *)"Cannot execute ");
 		if (cmd == NULL)
 		{
-			outstr((char_u *)"shell ");
-			outstr(p_sh);
+			msg_outstr((char_u *)"shell ");
+			msg_outstr(p_sh);
 		}
 		else
-			outstr(cmd);
-		outchar('\n');
+			msg_outstr(cmd);
+		msg_outchar('\n');
 		retval = FAIL;
 	}
 # ifdef NO_ARP
@@ -1090,13 +983,11 @@ call_shell(cmd, filter, cooked)
 	{
 		if (x = IoErr())
 		{
-#ifdef WEBB_COMPLETE
 			if (!expand_interactively)
-#endif
 			{
-				outchar('\n');
-				outnum(x);
-				outstr((char_u *)" returned\n");
+				msg_outchar('\n');
+				msg_outnum(x);
+				msg_outstr((char_u *)" returned\n");
 			}
 			retval = FAIL;
 		}
@@ -1117,11 +1008,11 @@ call_shell(cmd, filter, cooked)
 		else
 		{
 			shellarg = shellcmd;
-			skiptospace(&shellarg);	/* find start of arguments */
+			skiptowhite(&shellarg);	/* find start of arguments */
 			if (*shellarg != NUL)
 			{
 				*shellarg++ = NUL;
-				skipspace(&shellarg);
+				skipwhite(&shellarg);
 			}
 		}
 	}
@@ -1162,20 +1053,20 @@ call_shell(cmd, filter, cooked)
 	if ((dos2 && x < 0) || (!dos2 && x))
 # endif
 	{
-		outstr((char_u *)"Cannot execute ");
+		msg_outstr((char_u *)"Cannot execute ");
 		if (use_execute)
 		{
 			if (cmd == NULL)
-				outstr(p_sh);
+				msg_outstr(p_sh);
 			else
-				outstr(cmd);
+				msg_outstr(cmd);
 		}
 		else
 		{
-			outstr((char_u *)"shell ");
-			outstr(shellcmd);
+			msg_outstr((char_u *)"shell ");
+			msg_outstr(shellcmd);
 		}
-		outchar('\n');
+		msg_outchar('\n');
 		retval = FAIL;
 	}
 	else
@@ -1193,13 +1084,11 @@ call_shell(cmd, filter, cooked)
 			x = wait();
 		if (x)
 		{
-#ifdef WEBB_COMPLETE
 			if (!expand_interactively)
-#endif
 			{
-				outchar('\n');
-				outnum((long)x);
-				outstrn((char_u *)" returned\n");
+				msg_outchar('\n');
+				msg_outnum((long)x);
+				msg_outstr((char_u *)" returned\n");
 			}
 			retval = FAIL;
 		}
@@ -1295,7 +1184,8 @@ insfile(name, isdir)
 {
 	struct onefile *new;
 
-	new = (struct onefile *)alloc((unsigned)(sizeof(struct onefile) + STRLEN(name) + isdir));
+	new = (struct onefile *)alloc((unsigned)(sizeof(struct onefile) +
+													STRLEN(name) + isdir));
 	if (new == NULL)
 		return FAIL;
 	STRCPY(&(new->name[0]), name);
@@ -1368,7 +1258,7 @@ ExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
 		{
 #endif
 				/* hack to replace '*' by '#?' */
-			starbuf = alloc((unsigned)(2 * STRLEN(pat[i]) + 1));	/* maximum required */
+			starbuf = alloc((unsigned)(2 * STRLEN(pat[i]) + 1));
 			if (starbuf == NULL)
 				goto OUT_OF_MEMORY;
 			for (sp = pat[i], dp = starbuf; *sp; ++sp)

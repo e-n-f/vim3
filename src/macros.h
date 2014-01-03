@@ -32,9 +32,9 @@
 #define lineempty(p) (*ml_get(p) == NUL)
 
 /*
- * bufempty() - return TRUE if the file buffer is empty
+ * bufempty() - return TRUE if the current buffer is empty
  */
-#define bufempty() (curbuf->b_ml.ml_flags & ML_EMPTY)
+#define bufempty() (curbuf->b_ml.ml_line_count == 1 && *ml_get((linenr_t)1) == NUL)
 
 /*
  * On some systems toupper()/tolower() only work on lower/uppercase characters

@@ -36,6 +36,7 @@ dotag(tag, type, count)
 	struct taggy	*tagstack = curwin->w_tagstack;
 	int				tagstackidx = curwin->w_tagstackidx;
 	int				tagstacklen = curwin->w_tagstacklen;
+	int				oldtagstackidx = tagstackidx;
 
 	if (*tag != NUL)						/* new pattern, add to the stack */
 	{
@@ -54,6 +55,7 @@ dotag(tag, type, count)
 			for (i = 1; i < tagstacklen; ++i)
 				tagstack[i - 1] = tagstack[i];
 			--tagstackidx;
+			--oldtagstackidx;
 		}
 	/*
 	 * put the tag name in the tag stack
@@ -87,11 +89,16 @@ dotag(tag, type, count)
 			emsg(topmsg);
 			goto end_dotag;
 		}
-		if (tagstack[tagstackidx].fmark.fnum != curbuf->b_fnum)	/* jump to other file */
+		if (tagstack[tagstackidx].fmark.fnum != curbuf->b_fnum)
 		{
-			if (buflist_getfile(tagstack[tagstackidx].fmark.fnum, tagstack[tagstackidx].fmark.mark.lnum, TRUE) == FAIL)
+			/*
+			 * Jump to other file. If this fails (e.g. because the file was
+			 * changed) keep original position in tag stack.
+			 */
+			if (buflist_getfile(tagstack[tagstackidx].fmark.fnum,
+						tagstack[tagstackidx].fmark.mark.lnum, TRUE) == FAIL)
 			{
-				/* emsg(e_notopen); */
+				tagstackidx = oldtagstackidx;	/* back to old position */
 				goto end_dotag;
 			}
 		}
@@ -105,6 +112,10 @@ dotag(tag, type, count)
 	{
 		if ((tagstackidx += count - 1) >= tagstacklen)
 		{
+			/*
+			 * beyond the last one, just give an error message and go to the
+			 * last one
+			 */
 			tagstackidx = tagstacklen - 1;
 			emsg(topmsg);
 		}
@@ -123,6 +134,9 @@ dotag(tag, type, count)
 		tagstack[tagstackidx].fmark.mark = curwin->w_cursor;
 		tagstack[tagstackidx].fmark.fnum = curbuf->b_fnum;
 	}
+	/* curwin will change in the call to findtag() if ^W^] was used -- webb */
+	curwin->w_tagstackidx = tagstackidx;
+	curwin->w_tagstacklen = tagstacklen;
 	if (findtag(tagstack[tagstackidx].tagname) > 0)
 		++tagstackidx;
 
@@ -143,8 +157,7 @@ dotags()
 	int				tagstackidx = curwin->w_tagstackidx;
 	int				tagstacklen = curwin->w_tagstacklen;
 
-	gotocmdline(TRUE, NUL);
-	msg_outstr((char_u *)"\n  # TO tag      FROM line in file\n");
+	msg_outstr((char_u *)"\n  # TO tag      FROM line in file");
 	for (i = 0; i < tagstacklen; ++i)
 	{
 		if (tagstack[i].tagname != NULL)
@@ -153,7 +166,7 @@ dotags()
 			if (name == NULL)		/* file name not available */
 				continue;
 
-			sprintf((char *)IObuff, "%c%2d %-15s %4ld  %s\n",
+			sprintf((char *)IObuff, "\n%c%2d %-15s %4ld  %s",
 				i == tagstackidx ? '>' : ' ',
 				i + 1,
 				tagstack[i].tagname,
@@ -164,8 +177,7 @@ dotags()
 		flushbuf();					/* show one line at a time */
 	}
 	if (tagstackidx == tagstacklen)		/* idx at top of stack */
-		msg_outstr((char_u *)">\n");
-	wait_return(FALSE);
+		msg_outstr((char_u *)"\n>");
 }
 
 /*
@@ -180,6 +192,8 @@ findtag(tag)
 	char_u		lbuf[LSIZE];
 	char_u		pbuf[LSIZE];			/* search pattern buffer */
 	char_u	   *fname, *str;
+	char_u	   *tagname;
+	char_u	   *tail;
 	int			cmplen;
 	char_u		*m = (char_u *)"No tags file";
 	char_u		*marg = NULL;
@@ -190,26 +204,52 @@ findtag(tag)
 	int			i;
 	int			save_secure;
 	int			save_p_ws;
+	int			tried_local = FALSE;	/* tried tags file local to file */
 
 	if (tag == NULL)		/* out of memory condition */
 		return 0;
+
+	tail = (curbuf->b_filename == NULL) ? NULL : gettail(curbuf->b_filename);
 
 	if ((cmplen = p_tl) == 0)
 		cmplen = 999;
 
 	/* get stack of tag file names from tags option */
-	for (np = p_tags; *np; )
+	for (np = p_tags; tried_local == FALSE; )
 	{
-		for (i = 0; i < CMDBUFFSIZE && *np; ++i)	/* copy next file name into lbuf */
+		/*
+		 * after trying all the names in the 'tags' option, try the 'tags' file
+		 * in the same directory as the current file (unless it is the same as "./tags").
+		 */
+		if (*np == NUL)
 		{
-			if (*np == ' ')
-			{
-				++np;
+			if (curbuf->b_filename == NULL)				/* no file name */
 				break;
-			}
-			sbuf[i] = *np++;
+			np = gettail(curbuf->b_filename);
+			i = np - curbuf->b_filename;
+			if (i + 5 >= CMDBUFFSIZE)
+				break;
+			STRNCPY(sbuf, curbuf->b_filename, i);
+
+			STRCPY(sbuf + i, "tags");
+			if (FullName((char_u *)"tags", lbuf, LSIZE) == OK &&
+												STRCMP(sbuf, lbuf) == 0)
+				break;									/* same as ./tags */
+			tried_local = TRUE;
 		}
-		sbuf[i] = 0;
+		else
+		{
+			for (i = 0; i < CMDBUFFSIZE && *np; ++i)	/* copy next file name into sbuf */
+			{
+				if (*np == ' ')
+				{
+					++np;
+					break;
+				}
+				sbuf[i] = *np++;
+			}
+			sbuf[i] = 0;
+		}
 		if ((tp = fopen((char *)sbuf, "r")) == NULL)
 			continue;
 		reg_ic = p_ic;										/* for cstrncmp() */
@@ -218,25 +258,45 @@ findtag(tag)
 			m = (char_u *)"Format error in tags file %s";	/* default error message */
 			marg = sbuf;
 
-		/* find start of file name, after first white space */
-			fname = lbuf;
-			skiptospace(&fname);	/* skip tag */
+			/* Find start of file name, after first white space */
+			fname = tagname = lbuf;
+			while (*fname != ' ' && *fname != '\t' && *fname != NUL)
+			{
+				/*
+				 * Static tags produced by elvis's ctags program have the
+				 * format: 'file:tag  file  /pattern$'. jw.
+				 */
+				if (*fname == ':')
+				{
+					/*
+					 * Static tag must be in current file
+					 * If it is not, set tagname to NULL
+					 */
+					*fname = '\0';
+					if (tail != NULL && STRCMP(tail, gettail(lbuf)) == 0)
+						tagname = fname + 1;
+					else
+						tagname = NULL;
+				}
+				++fname;
+			}
 			if (*fname == NUL)
 				goto erret;
 			*fname++ = '\0';
 
-			if (cstrncmp(lbuf, tag, cmplen) == 0)	/* Tag found */
+			if (tagname != NULL && cstrncmp(tagname, tag, cmplen) == 0)
+											/* Tag found */
 			{
 				fclose(tp);
-				skipspace(&fname);
+				skipwhite(&fname);
 
 			/* find start of search command, after second white space */
 				str = fname;
-				skiptospace(&str);
+				skiptowhite(&str);
 				if (*str == NUL)
 					goto erret;
 				*str++ = '\0';
-				skipspace(&str);
+				skipwhite(&str);
 
 				/*
 				 * If the command is a string like "/^function fname"
@@ -318,13 +378,13 @@ findtag(tag)
 					goto erret;
 				}
 
-				RedrawingDisabled = TRUE;
+				++RedrawingDisabled;
 				/*
 				 * if it was a CTRL-W CTRL-] command split window now
 				 */
 				if (postponed_split)
 					win_split(0L, FALSE);
-				i = getfile(fname, NULL, TRUE, (linenr_t)0);
+				i = getfile(0, fname, NULL, TRUE, (linenr_t)0);
 				if (p)
 					free(p);
 				if (i <= 0)
@@ -332,10 +392,10 @@ findtag(tag)
 					curwin->w_set_curswant = TRUE;
 					postponed_split = FALSE;
 
-					RedrawingDisabled = FALSE;
+					--RedrawingDisabled;
 					save_secure = secure;
 					secure = 1;
-					tag_busy = TRUE;			/* don't set marks for this search */
+					tag_busy = TRUE;	/* don't set marks for this search */
 					keep_old_search_pattern = TRUE;
 
 					/*
@@ -349,20 +409,24 @@ findtag(tag)
 					if (pbuf[0] == '/' || pbuf[0] == '?')
 					{
 						save_p_ws = p_ws;
-						p_ws = TRUE;		/* Switch wrap-scan on temporarily */
-						if (!dosearch(pbuf[0], pbuf + 1, FALSE, (long)1, FALSE, FALSE))
+						p_ws = TRUE;	/* Switch wrap-scan on temporarily */
+						if (!dosearch(pbuf[0], pbuf + 1,
+												FALSE, (long)1, FALSE, FALSE))
 						{
 							register int notfound = FALSE;
 
 							/*
 							 * Failed to find pattern, take a guess:
 							 */
-							sprintf((char *)pbuf, "^%s(", lbuf);
-							if (!dosearch('/', pbuf, FALSE, (long)1, FALSE, FALSE))
+							sprintf((char *)pbuf, "^%s(", tagname);
+							if (!dosearch('/', pbuf, FALSE,
+												(long)1, FALSE, FALSE))
 							{
 								/* Guess again: */
-								sprintf((char *)pbuf, "^[#a-zA-Z_].*%s(", lbuf);
-								if (!dosearch('/', pbuf, FALSE, (long)1, FALSE, FALSE))
+								sprintf((char *)pbuf,
+												"^[#a-zA-Z_].*%s(", tagname);
+								if (!dosearch('/', pbuf,
+												FALSE, (long)1, FALSE, FALSE))
 									notfound = TRUE;
 							}
 							if (notfound)
@@ -376,28 +440,28 @@ findtag(tag)
 						p_ws = save_p_ws;
 					}
 					else
-					{
-						curwin->w_cursor.lnum = 1;	/* start command in line 1 */
-						docmdline(pbuf);
+					{							/* start command in line 1 */
+						curwin->w_cursor.lnum = 1;
+						docmdline(pbuf, TRUE, TRUE);
 					}
 
 					tag_busy = FALSE;
 					keep_old_search_pattern = FALSE;
-					if (secure == 2)			/* done something that is not allowed */
+									/* done something that is not allowed */
+					if (secure == 2)
 						wait_return(TRUE);
 					secure = save_secure;
 
-						/* print the file message after redraw */
-					if (p_im && i == -1)
-						stuffReadbuff((char_u *)"\033\007i");	/* ESC CTRL-G i */
-					else
-						stuffcharReadbuff('\007');		/* CTRL-G */
+						/* print the file message after redraw if jumped to
+						 * another file */
+					if (i == -1)
+						need_fileinfo = TRUE;
 					return 1;
 				}
-				RedrawingDisabled = FALSE;
+				--RedrawingDisabled;
 				if (postponed_split)			/* close the window */
 				{
-					close_window(FALSE);
+					close_window(curwin, FALSE);
 					postponed_split = FALSE;
 				}
 				return 0;
@@ -417,7 +481,6 @@ erret:
 	return 0;
 }
 
-#ifdef WEBB_COMPLETE
 	int
 ExpandTags(prog, num_file, file)
 	regexp *prog;
@@ -427,35 +490,55 @@ ExpandTags(prog, num_file, file)
 	char_u	**matches, **new_matches;
 	char_u	tag_file[CMDBUFFSIZE + 1];
 	char_u	line[LSIZE];
+	char_u	*tagname;
+	char_u	*tail;			/* Tail of current file name */
 	char_u	*np;
 	char_u	*p;
 	int		limit = 100;
-	int		index;
+	int		idx;
 	int		i;
-	int		lnum;
+	linenr_t lnum;
 	FILE	*fp;
 
 	matches = (char_u **) alloc((unsigned)(limit * sizeof(char_u *)));
 	if (matches == NULL)
 		return FAIL;
-	index = 0;
+	tail = (curbuf->b_filename == NULL) ? NULL : gettail(curbuf->b_filename);
+	idx = 0;
 	for (np = p_tags; *np; )
 	{
 		for (i = 0; i < CMDBUFFSIZE && *np && *np != ' '; i++)
 			tag_file[i] = *np++;
 		tag_file[i] = NUL;
-		skipspace(&np);
+		skipwhite(&np);
 		if ((fp = fopen((char *)tag_file, "r")) == NULL)
 			continue;
 		lnum = 0;
 		while (!vim_fgets(line, LSIZE, fp, &lnum))
 		{
-			if (regexec(prog, line, TRUE))
+			p = tagname = line;
+			while (*p != ' ' && *p != '\t' && *p != NUL)
 			{
-				p = line;
-				skiptospace(&p);
-				*p = NUL;
-				if (index == limit)
+				/*
+				 * Static tags produced by elvis's ctags program have the
+				 * format: 'file:tag  file  /pattern$'. jw.
+				 */
+				if (*p == ':')
+				{
+					/* Static tags must be in current file */
+					*p = NUL;
+					if (tail != NULL && STRCMP(tail, gettail(line)) == 0)
+						tagname = p + 1;
+					else
+						tagname = NULL;
+				}
+				++p;
+			}
+			*p = NUL;
+
+			if (tagname != NULL && regexec(prog, tagname, TRUE))
+			{
+				if (idx == limit)
 				{
 					limit *= 2;
 					new_matches = (char_u **) alloc((unsigned)(limit * sizeof(char_u *)));
@@ -463,32 +546,31 @@ ExpandTags(prog, num_file, file)
 					{
 						/* We'll miss some matches, oh well */
 						*file = matches;
-						*num_file = index;
+						*num_file = idx;
 						return OK;
 					}
-					for (i = 0; i < index; i++)
+					for (i = 0; i < idx; i++)
 						new_matches[i] = matches[i];
 					free(matches);
 					matches = new_matches;
 				}
-				matches[index++] = strsave(line);
+				matches[idx++] = strsave(tagname);
 			}
 		}
 	}
-	if (index > 0)
+	if (idx > 0)
 	{
-		new_matches = *file = (char_u **) alloc((unsigned)(index * sizeof(char_u *)));
+		new_matches = *file = (char_u **) alloc((unsigned)(idx * sizeof(char_u *)));
 		if (new_matches == NULL)
 		{
 			*file = matches;
-			*num_file = index;
+			*num_file = idx;
 			return OK;
 		}
-		for (i = 0; i < index; i++)
+		for (i = 0; i < idx; i++)
 			new_matches[i] = matches[i];
 	}
 	free(matches);
-	*num_file = index;
+	*num_file = idx;
 	return OK;
 }
-#endif /* WEBB_COMPLETE */
