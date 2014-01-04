@@ -25,7 +25,7 @@
 #  if 0		/* only required for old versions, it's now in termcap.h */
     typedef int (*outfuntype) (int);
 #  endif
-#  define TPUTSFUNCAST (outfuntype)
+#  define TPUTSFUNCAST
 # else
 #  define TPUTSFUNCAST
 #  ifdef AMIGA

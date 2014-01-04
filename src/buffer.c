@@ -230,7 +230,7 @@ do_buffer(action, start, dir, count, forceit)
 		if (start == 1)
 		{
 			if (action != 2 && action != 3)		/* don't warn when deleting */
-				EMSG2("Cannot go to buffer %ld", (char_u *)count);
+				EMSG2("Cannot go to buffer %ld", (long)count);
 		}
 		else if (dir == FORWARD)
 			EMSG("Cannot go beyond last buffer");
@@ -246,7 +246,7 @@ do_buffer(action, start, dir, count, forceit)
 		if (!forceit && buf->b_changed)
 		{
 			EMSG2("No write since last change for buffer %ld (use ! to override)",
-						(char_u *)buf->b_fnum);
+						(long)buf->b_fnum);
 			return FAIL;
 		}
 		/*

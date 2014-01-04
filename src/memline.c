@@ -2710,7 +2710,7 @@ findswapname(buf, second_try)
 					f1 = open((char *)fname, O_RDONLY);
 					if (f1 < 0)
 					{
-						f1 = open((char *)fname, O_RDWR|O_CREAT|O_EXCL);
+						f1 = open((char *)fname, O_RDWR|O_CREAT|O_EXCL, 0777);
 						created1 = TRUE;
 					}
 					if (f1 >= 0)
@@ -2718,7 +2718,7 @@ findswapname(buf, second_try)
 						f2 = open((char *)fname2, O_RDONLY);
 						if (f2 < 0)
 						{
-							f2 = open((char *)fname, O_RDWR|O_CREAT|O_EXCL);
+							f2 = open((char *)fname, O_RDWR|O_CREAT|O_EXCL, 0777);
 							created2 = TRUE;
 						}
 						if (f2 >= 0)

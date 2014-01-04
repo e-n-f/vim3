@@ -27,6 +27,7 @@
 # include <sys/types.h>
 #endif
 #include <signal.h>
+#include <errno.h>
 
 /*
  * On an alpha where "uname -v" gives "358", USE_SYSTEM must be defined.  If it
@@ -887,19 +888,12 @@ vim_dirname(buf, len)
 	char_u *buf;
 	int len;
 {
-#if defined(SYSV_UNIX) || defined(USL) || defined(hpux) || defined(linux)
-	extern int		errno;
-	extern char		*sys_errlist[];
-
 	if (getcwd((char *)buf, len) == NULL)
 	{
-	    STRCPY(buf, sys_errlist[errno]);
+	    STRCPY(buf, strerror(errno));
 	    return FAIL;
 	}
     return OK;
-#else
-	return (getwd((char *)buf) != NULL ? OK : FAIL);
-#endif
 }
 
 /*
@@ -1508,17 +1502,13 @@ RealWaitForChar(msec)
 #endif
 }
 
-#if !defined(__FreeBSD__) && !defined(__alpha) && !defined(mips) && !defined(SCO) && !defined(remove) && !defined(CONVEX)
 	int 
 remove(buf)
-# if defined(linux) || defined(__STDC__) || defined(__NeXT__) || defined(M_UNIX)
 	const
-# endif
 			char *buf;
 {
 	return unlink(buf);
 }
-#endif
 
 /*
  * ExpandWildCard() - this code does wild-card pattern matching using the shell

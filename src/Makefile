@@ -152,7 +152,7 @@ PROTO_FLAGS = -m -M__PARMS -d -E"/usr/bin/cc -E"
 #CC=cc -O
 #LIBS = -ltermlib -L$(X11LIBDIR) -lX11
 
-MACHINE = -DBSD_UNIX -DUSE_LOCALE -Dconst=
+MACHINE = -DBSD_UNIX -DUSE_LOCALE
 CC=cc -O
 LIBS = -lcurses
 
