@@ -63,7 +63,7 @@ usage(n)
 # include <locale.h>
 #endif
 
-	void
+	int
 main(argc, argv)
 	int				argc;
 	char		  **argv;
