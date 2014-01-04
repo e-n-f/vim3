@@ -8,7 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sgtty.h>
+#include <termios.h>
 
 #include "vim.h"
 #include "unix.h"
@@ -231,9 +231,28 @@ newscreensize (int rows, int cols)
    if not, use ioctl.  if ioctl fails, just act like it's 9600.
 */
 
-static int speeds[] = {
-	0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400,
-	4800, 9600, 19200, 38400
+struct ttyspeed {
+	int code;
+	int speed;
+} speeds[] = {
+	{ B0, 0 },
+	{ B50, 50 },
+	{ B75, 75 },
+	{ B134, 134 },
+	{ B150, 150 },
+	{ B200, 200 },
+	{ B300, 300 },
+	{ B600, 600 },
+	{ B1200, 1200 },
+	{ B1800, 1800 },
+	{ B2400, 2400 },
+	{ B4800, 4800 },
+	{ B9600, 9600 },
+	{ B19200, 19200 },
+	{ B38400, 38400 },
+	{ B57600, 57600 },
+	{ B115200, 115200 },
+	{ B230400, 230400 },
 };
 
 int
@@ -241,15 +260,22 @@ getttyspeed()
 {
 	char *BPS;
 	int speed;
-	struct sgttyb get;
 
 	if ((BPS = getenv ("BPS"))) {
 		speed = atoi (BPS);
 		if (BPS) return speed;
 	}
 
-	if (ioctl (0, TIOCGETP, &get) != -1) {
-		return speeds[(int) get.sg_ospeed];
+	struct termios t;
+	if (tcgetattr(1, &t) == 0) {
+		speed_t s = cfgetospeed(&t);
+		int i;
+
+		for (i = 0; i < sizeof(speeds) / sizeof(speeds[0]); i++) {
+			if (speeds[i].code == s) {
+				return speeds[i].speed;
+			}
+		}
 	}
 
 	return 9600;
