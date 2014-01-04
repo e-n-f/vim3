@@ -717,6 +717,7 @@ change_warning()
 	{
 		curbuf->b_did_warn = TRUE;
 		MSG("Warning: Changing a readonly file");
+		fixscreen();
 		sleep(1);			/* give him some time to think about it */
 	}
 }

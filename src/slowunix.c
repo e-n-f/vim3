@@ -2,6 +2,7 @@
 
    stuff to make using vim on a slow terminal less painful.
    revised version, works on loads more terminals.
+   even more revised, now has open mode.
 
    Eric Fischer, etaoin@uchicago.edu
 */
@@ -25,11 +26,11 @@
 #undef tputs
 #undef tgetstr
 
-char *tgetstr (char *what, char **buf);
-char *tgetent (char *buf, char *name);
-char *tgoto (char *cm, int col, int row);
-void tputs (char *cp, int count, int (*func)(char foo));
-void setphysscroll (int, int);
+char *tgetstr ();
+char *tgetent ();
+char *tgoto ();
+void tputs ();
+void setphysscroll();
 
 /* arrays to hold real and virtual screens */
 
@@ -73,16 +74,15 @@ char *upcmd = 0;
 char *downcmd = 0;
 char *leftcmd = 0;
 
+char *initterm = 0;
+char *exitterm = 0;
+
 /* scroll regions */
 
 int virtscrolltop = 0;
 int virtscrollbot = 0;
 int physscrolltop = 0;
 int physscrollbot = 0;
-
-/* the tty's speed */
-
-int outspeed = 0;
 
 /* tty size */
 
@@ -91,9 +91,28 @@ extern int Columns;
 
 /* flow control */
 
-int charsleft = 0;
 int stillpending = 0;
 
+/* do we have a really ridiculous terminal? */
+
+int openmode = 0;
+int inval = 0;     /* do we need to retype this line? */
+int deleted = -1;  /* last line that was deleted */
+
+/* cursor keys */
+
+char *upkey = 0;
+char *downkey = 0;
+char *leftkey = 0;
+char *rightkey = 0;
+
+/* screen size from termcap */
+
+int termcols = 0;
+int termrows = 0;
+
+
+int screendirty = 1;
 
 extern int scroll_region;
 
@@ -106,7 +125,9 @@ extern int scroll_region;
 */
 
 static int
-loc (int y, int x)
+loc (y, x)
+	int y;
+	int x;
 {
 	if (y < 0 || y >= scrrows || x < 0 || x >= scrcols) {
 		/* fprintf (stderr, "out of bounds: %d %d", y, x); */
@@ -116,15 +137,20 @@ loc (int y, int x)
 	return y * scrcols + x;
 }
 
+#if 0
+#define loc(y,x) ((y) * scrcols + (x))
+#endif
+
+
 /* used by termcap routines to actually do output.  no idea what
    tputs() wants it to return, but i don't think it really cares.
 */
 
 static int
-putfunc (char what)
+putfunc (what)
+	int what;
 {
 	printf ("%c", what);
-	charsleft--;
 
 	return what;  /* is this right? */
 }
@@ -135,7 +161,8 @@ putfunc (char what)
 */
 
 static int
-putfunkyfunc (char what)
+putfunkyfunc (what)
+	int what;
 {
 	if (islower (what)) what -= 32;
 	if (what == ' ') what = '_';
@@ -147,6 +174,12 @@ putfunkyfunc (char what)
 void
 reallyclearscreen()
 {
+	if (openmode) {
+		inval = 1;
+		physx = physy = 0;
+		return;
+	}
+
 	tputs (clearscreencmd, 1, putfunc);
 	physx = 0;
 	physy = 0;
@@ -155,7 +188,9 @@ reallyclearscreen()
 /* fill an array with spaces */
 
 static void
-blank (char *where, int len)
+blank (where, len)
+	char *where;
+	int len;
 {
 	while (len) {
 		*where = ' ';
@@ -166,7 +201,9 @@ blank (char *where, int len)
 /* zero an array of the specified len */
 
 static void
-zero (char *where, int len)
+zero (where, len)
+	char *where;
+	int len;
 {
 	while (len) {
 		*where = 0;
@@ -180,7 +217,9 @@ zero (char *where, int len)
 */
 
 void
-newscreensize (int rows, int cols)
+newscreensize (rows, cols)
+	int rows;
+	int cols;
 {
 	scrrows = rows;
 	scrcols = cols;
@@ -205,6 +244,7 @@ newscreensize (int rows, int cols)
 	zero (wantattr, rows * cols);
 	zero (onattr, rows * cols);
 
+/*
 	if (clearscreencmd) {
 		reallyclearscreen();
 	} else {
@@ -216,6 +256,7 @@ newscreensize (int rows, int cols)
 		zero (onscreen, rows * cols);
 		blank (onattr, rows * cols);
 	}
+*/
 
 	physscrolltop = -1;
 	physscrollbot = -1;
@@ -227,70 +268,47 @@ newscreensize (int rows, int cols)
 	virtscrollbot = Rows - 1;
 }
 
-/* return the speed of our terminal.  if BPS is set, use that;
-   if not, use ioctl.  if ioctl fails, just act like it's 9600.
-*/
-
-static int speeds[] = {
-	0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400,
-	4800, 9600, 19200, 38400
-};
-
-int
-getttyspeed()
-{
-	char *BPS;
-	int speed;
-	struct sgttyb get;
-
-	if ((BPS = getenv ("BPS"))) {
-		speed = atoi (BPS);
-		if (BPS) return speed;
-	}
-
-	if (ioctl (0, TIOCGETP, &get) != -1) {
-		return speeds[(int) get.sg_ospeed];
-	}
-
-	return 9600;
-}
-
-void
-slowerr (char *why)
-{
-	fprintf (stderr, "vim: Your terminal can't %s.  Sorry\n", why);
-	exit (1);
-}
-
 /* get all the termcap commands we need.
 
    complain if we can't move the cursor, because that's just *too* dumb
    a terminal to deal with...
 */
 
+static char buf1 [2048], buf2[2048], *here = buf2;
+
+/* mini version just to get the terminal size before we do the
+   real setup, in case we're on console..
+*/
+
 void
-reallyinittcap()
+gettermsize()
 {
 	char *TERM = getenv ("TERM");
-	static char buf1 [2048], buf2[2048], *here = buf2;
-
+	
 	if (TERM == 0) {
-		fprintf (stderr, "vim: TERM must be set to terminal type\n");
-		exit (1);
+		fprintf (stderr, "vim: TERM isn't set; assuming ``dumb''\n");
+		TERM = "dumb";
 	}
 
 	tgetent (buf1, TERM);
 
-	clearscreencmd = tgetstr ("cl", &here); 
-	movecurscmd = tgetstr ("cm", &here); 
-	setscrollcmd = tgetstr ("cs", &here); 
-	scrolldowncmd = tgetstr ("sr", &here); 
-	standoutcmd = tgetstr ("so", &here);
-	standendcmd = tgetstr ("se", &here);
-	cleareolcmd = tgetstr ("ce", &here);
-	insertcmd = tgetstr ("al", &here);
-	deletecmd = tgetstr ("dl", &here);
+	termcols = tgetnum ("co");
+	termrows = tgetnum ("li");
+}
 
+void
+reallyinittcap()
+{
+	char *TERM = getenv ("TERM");
+	
+	if (TERM == 0) {
+		fprintf (stderr, "vim: TERM isn't set; assuming ``dumb''\n");
+		TERM = "dumb";
+	}
+
+	tgetent (buf1, TERM);
+
+	movecurscmd = tgetstr ("cm", &here); 
 	upcmd = tgetstr ("up", &here);
 	downcmd = tgetstr ("do", &here);
 	leftcmd = tgetstr ("le", &here);
@@ -298,9 +316,38 @@ reallyinittcap()
 
 	if (movecurscmd == 0
 	&& (homecmd == 0 || leftcmd == 0 /* || rightcmd == 0 */
-	||  downcmd == 0 || upcmd == 0)) slowerr ("move the cursor");
+	||  downcmd == 0 || upcmd == 0))  {
+		fprintf (stderr, "vim: Your terminal can't move the cursor; using open mode\n");
+		openmode = 1;
+	} else {
+		clearscreencmd = tgetstr ("cl", &here); 
+		setscrollcmd = tgetstr ("cs", &here); 
+		scrolldowncmd = tgetstr ("sr", &here); 
+		standoutcmd = tgetstr ("so", &here);
+		standendcmd = tgetstr ("se", &here);
+		cleareolcmd = tgetstr ("ce", &here);
+		insertcmd = tgetstr ("al", &here);
+		deletecmd = tgetstr ("dl", &here);
 
-	outspeed = getttyspeed();
+		initterm = tgetstr ("ti", &here);
+		exitterm = tgetstr ("te", &here);
+
+		if (tgetnum ("sg") != -1) {
+			standoutcmd = 0;
+			standendcmd = 0;
+		}
+	}
+
+	upkey = tgetstr ("ku", &here);
+	downkey = tgetstr ("kd", &here);
+	leftkey = tgetstr ("kl", &here);
+	rightkey = tgetstr ("kr", &here);
+
+	termcols = tgetnum ("co");
+	termrows = tgetnum ("li");
+
+	if (termcols == -1) termcols = 0;
+	if (termrows == -1) termrows = 0;
 
 	newscreensize (Rows, Columns);
 }
@@ -308,7 +355,9 @@ reallyinittcap()
 /* called from term.c.  move the virtual cursor somewhere. */
 
 void
-windgoto (int row, int col)
+windgoto (row, col)
+	int row;
+	int col;
 {
 	flushbuf();
 	if (row >= 0 && row < scrrows && col >=0 && col < scrcols) {
@@ -322,7 +371,8 @@ windgoto (int row, int col)
 */
 
 void
-attrto (int what)
+attrto (what)
+	int what;
 {
 	if (physattr == what) return;
 
@@ -339,7 +389,9 @@ attrto (int what)
 */
 
 void
-spewone (int x, int y)
+spewone (x, y)
+	int x;
+	int y;
 {
 	int lyx = loc (y, x);
 
@@ -363,13 +415,21 @@ spewone (int x, int y)
 */
 
 void
-cursto (int row, int col)
+cursto (row, col)
+	int row;
+	int col;
 {
+	if (openmode) return;
+
 	if (row != physy || col != physx) {
 		char *go;
 
 		if (row == physy) {
-			if (col == physx - 1) {
+			if (col == 0) {
+				putfunc ('\r');
+				physx = 0;
+				return;
+			} else if (col == physx - 1) {
 				putfunc ('\b');
 				physx = col;
 				return;
@@ -420,8 +480,6 @@ cursto (int row, int col)
 				physx++;
 			}
 		}
-
-		fflush (stdout);
 	}
 
 	physy = row;
@@ -435,7 +493,9 @@ cursto (int row, int col)
 */
 
 void
-setscroll (int bot, int top)
+setscroll (bot, top)
+	int bot;
+	int top;
 {
 	flushbuf();
 
@@ -451,7 +511,10 @@ setscroll (int bot, int top)
 */
 
 char *
-our_tgoto (char *how, int col, int row)
+our_tgoto (how, col, row)
+	char *how;
+	int col;
+	int row;
 {
 	flushbuf();
 
@@ -470,6 +533,10 @@ our_tgoto (char *how, int col, int row)
 void
 getlinecol()
 {
+	if (!termcols) gettermsize();
+
+	if (Columns == 0) Columns = termcols;
+	if (Rows == 0) Rows = termrows;
 }
 
 /* set physical scroll region.  if it's already what we want,
@@ -477,7 +544,9 @@ getlinecol()
 */
 
 void
-setphysscroll (int bot, int top)
+setphysscroll (bot, top)
+	int bot;
+	int top;
 {
 	char *s;
 
@@ -504,8 +573,8 @@ setphysscroll (int bot, int top)
 	   I guess.
 	*/
 
-/*	cursto (virty, virtx); */
-	fflush (stdout);
+	physx = -1; physy = -1;
+/*	cursto (virty, virtx);  */
 }
 
 /* clear to end of the line.  if it's supported in hardware, do that;
@@ -520,11 +589,13 @@ docleareol()
 	/* if we have hardware cleareol, use it; otherwise, fake it */
 
 	if (cleareolcmd) {
+		int vloc = loc (virty, 0);
+
 		cursto (virty, virtx);
 		tputs (cleareolcmd, 1, putfunc);
 
 		for (x = virtx; x < scrcols; x++) {
-			int lyx = loc (virty, x);
+			int lyx = vloc + x;
 
 			onscreen[lyx] = ' ';
 			wantscreen[lyx] = ' ';
@@ -533,8 +604,10 @@ docleareol()
 			wantattr[lyx] = 0;
 		}
 	} else {
+		int vloc = loc (virty, 0);
+
 		for (x = virtx; x < scrcols; x++) {
-			int lyx = loc (virty, x);
+			int lyx = vloc + x;
 
 			wantscreen[lyx] = ' ';
 			wantattr[lyx] = 0;
@@ -542,8 +615,6 @@ docleareol()
 
 		stillpending = 1;
 	}
-
-	fflush (stdout);
 }
 
 /* use scroll regions to insert a blank line before 'virty',
@@ -565,6 +636,8 @@ doinsertln()
 	   Just checked, and NCSA Telnet can't either. 
 	*/
 
+	inval = 1;
+
 	if (virtscrollbot == virty) {
 		int oldvirtx;
 
@@ -582,9 +655,12 @@ doinsertln()
 		tputs (scrolldowncmd, 1, putfunc);
 
 		for (y = virtscrollbot - 1; y >= virty; y--) {
+			int line1 = loc (y+1, 0);
+			int line2 = loc (y, 0);
+
 			for (x = 0; x < scrcols; x++) {
-				int ly1x = loc (y+1, x);
-				int lyx = loc (y, x);
+				int ly1x = line1 + x;
+				int lyx = line2 + x;
 
 				wantscreen[ly1x] = wantscreen[lyx];
 				onscreen[ly1x] = onscreen[lyx];
@@ -601,15 +677,18 @@ doinsertln()
 		}
 
 	} else if (insertcmd && deletecmd) {
-		cursto (virtscrollbot, 0);
+		cursto (virtscrollbot, virtx);
 		tputs (deletecmd, 1, putfunc);
-		cursto (virty, 0);
+		cursto (virty, virtx);
 		tputs (insertcmd, 1, putfunc);
 
 		for (y = virtscrollbot - 1; y >= virty; y--) {
+			int theloc = loc (y, 0);
+			int theloc1 = loc (y+1, 0);
+
 			for (x = 0; x < scrcols; x++) {
-				int ly1x = loc (y+1, x);
-				int lyx = loc (y, x);
+				int ly1x = theloc1 + x;
+				int lyx = theloc + x;
 
 				wantscreen[ly1x] = wantscreen[lyx];
 				onscreen[ly1x] = onscreen[lyx];
@@ -626,9 +705,12 @@ doinsertln()
 		}
 	} else {
 		for (y = virtscrollbot - 1; y >= virty; y--) {
+			int theloc = loc (y, 0);
+			int theloc1 = loc (y+1, 0);
+
 			for (x = 0; x < scrcols; x++) {
-				int ly1x = loc (y+1, x);
-				int lyx = loc (y, x);
+				int ly1x = theloc1 + x;
+				int lyx = theloc + x;
 
 				wantscreen[ly1x] = wantscreen[lyx];
 				wantscreen[lyx] = ' ';
@@ -639,7 +721,6 @@ doinsertln()
 	}
 
 	oldvirty++;
-	fflush (stdout);
 }
 
 /* set the scroll regions up to delete line 'virty',
@@ -650,6 +731,9 @@ void
 dodeleteln()
 {
 	int x, y;
+
+	inval = 1;
+	deleted = virty;
 
 	/* deleting the bottom line is similarly annoying.
 	   odd that in this degenerate case, inserting and
@@ -667,60 +751,82 @@ dodeleteln()
 	}
 
 	if (setscrollcmd) {
+		int yloc = 0;
+
 		setphysscroll (virtscrollbot, virty);
+
+		physx = -1, physy = -1;
 
 		cursto (virtscrollbot, virtx);
 		putfunc ('\n');
 
 		for (y = virty + 1; y <= virtscrollbot; y++) {
+			int yloc1 = loc (y - 1, 0);
+			yloc = loc (y, 0);
+
 			for (x = 0; x < scrcols; x++) {
-				int lyx = loc (y, x);
-				int ly1x = loc (y-1, x);
+				int lyx = yloc + x;
+				int ly1x = yloc1 + x;
 
 				wantscreen[ly1x] = wantscreen[lyx];
 				onscreen[ly1x] = onscreen[lyx];
 
-				wantscreen[lyx] = ' ';
-				onscreen[lyx] = ' ';
-
 				wantattr[ly1x] = wantattr[lyx];
 				onattr[ly1x] = onattr[lyx];
-
-				wantattr[lyx] = 0;
-				onattr[lyx] = 0;
 			}
 		}
 
+		for (x = 0; x < scrcols; x++) {
+			int lyx = yloc + x;
+
+			wantscreen[lyx] = ' ';
+			onscreen[lyx] = ' ';
+
+			wantattr[lyx] = 0;
+			onattr[lyx] = 0;
+		}
 	} else {
 		if (insertcmd && deletecmd) {
-			cursto (virty, 0);
+			int yloc = 0;
+
+			cursto (virty, virtx);
 			tputs (deletecmd, 1, putfunc);
-			cursto (virtscrollbot, 0);
+			cursto (virtscrollbot, virtx);
 			tputs (insertcmd, 1, putfunc);
 
 			for (y = virty + 1; y <= virtscrollbot; y++) {
+				int yloc1 = loc (y - 1, 0);
+				yloc = loc (y, 0);
+
 				for (x = 0; x < scrcols; x++) {
-					int lyx = loc (y, x);
-					int ly1x = loc (y-1, x);
+					int lyx = yloc + x;
+					int ly1x = yloc1 + x;
 
 					wantscreen[ly1x] = wantscreen[lyx];
 					onscreen[ly1x] = onscreen[lyx];
 
-					wantscreen[lyx] = ' ';
-					onscreen[lyx] = ' ';
-
 					wantattr[ly1x] = wantattr[lyx];
 					onattr[ly1x] = onattr[lyx];
-
-					wantattr[lyx] = 0;
-					onattr[lyx] = 0;
 				}
+			}
+
+			for (x = 0; x < scrcols; x++) {
+				int lyx = yloc + x;
+
+				wantscreen[lyx] = ' ';
+				onscreen[lyx] = ' ';
+
+				wantattr[lyx] = 0;
+				onattr[lyx] = 0;
 			}
 		} else {
 			for (y = virty + 1; y <= virtscrollbot; y++) {
+				int yloc = loc (y, 0);
+				int yloc1 = loc (y - 1, 0);
+
 				for (x = 0; x < scrcols; x++) {
-					int lyx = loc (y, x);
-					int ly1x = loc (y-1, x);
+					int lyx = yloc + x;
+					int ly1x = yloc1 + x;
 
 					wantscreen[ly1x] = wantscreen[lyx];
 					wantscreen[lyx] = ' ';
@@ -733,8 +839,6 @@ dodeleteln()
 	}
 
 	oldvirty--;
-
-	fflush (stdout);
 }
 
 /* clear the screen for real, and blank out both physical and
@@ -750,6 +854,8 @@ void
 doclearscr()
 {
 	int y, x;
+
+	inval = 1;
 
 	if (clearscreencmd) {
 		reallyclearscreen();
@@ -816,10 +922,15 @@ doscrollup()
 {
 	int x, y;
 
+	inval = 1;
+
 	for (y = virtscrolltop + 1; y <= virtscrollbot; y++) {
+		int locy1 = loc (y-1, 0);
+		int locy = loc (y, 0);
+
 		for (x = 0; x < scrcols; x++) {
-			int ly1x = loc (y-1, x);
-			int lyx = loc (y, x);
+			int ly1x = locy1 + x;
+			int lyx = locy + x;
 
 			wantscreen[ly1x] = wantscreen[lyx];
 			onscreen[ly1x] = onscreen[lyx];
@@ -836,6 +947,21 @@ doscrollup()
 	oldvirty--;
 }
 
+void
+doinitterm()
+{
+	if (initterm) tputs (initterm, 1, putfunc);
+	fflush (stdout);
+}
+
+void
+doexitterm()
+{
+	if (exitterm) tputs (exitterm, 1, putfunc);
+	if (openmode) printf ("\n\n\r");
+	fflush (stdout);
+}
+
 /* terminal emulation!
 
    perform an action for each of the special characters,
@@ -847,8 +973,11 @@ doscrollup()
 */
 
 void
-spewchar (char what)
+spewchar (what)
+	unsigned what;
 {
+	screendirty = 1;
+
 	if        (what == CCLEAREOL) {
 		docleareol();
 	} else if (what == CINSERTLN) {
@@ -861,6 +990,10 @@ spewchar (char what)
 		dostandout();
 	} else if (what == CSTANDEND) {
 		dostandend();
+	} else if (what == CINIT) {
+		doinitterm();
+	} else if (what == CEXIT) {
+		doexitterm();
 	} else if (what == '\r') {
 		virtx = 0;
 	} else if (what == '\n') {
@@ -875,8 +1008,10 @@ spewchar (char what)
 		wantattr  [loc (virty, virtx)] = virtattr;
 		virtx++;
 	} else {
-		fprintf (stderr, "%d\n", what);
-		exit (1);
+		stillpending = 2;
+		wantscreen[loc (virtx, virty)] = (what & 31) + 64;
+		wantattr  [loc (virtx, virty)] = virtattr;
+		virtx++;
 	}
 
 	if (virtx >= scrcols) {
@@ -888,14 +1023,16 @@ spewchar (char what)
 		while (virty > virtscrollbot) {
 			int savex = virtx, savey = virty;
 
-			virtx = 0;
 			virty = virtscrolltop;
 			dodeleteln();
+
+			deleted = -1; /* so open mode doesn't think a
+			                 line really vanished */
+
 			virtx = savex;
 			virty = savey;
 
 			virty--;
-			oldvirty--;
 		}
 	}
 }
@@ -905,10 +1042,14 @@ spewchar (char what)
 */
 
 void
-fixchar (int y, int x)
+fixchar (y, x)
+	int y;
+	int x;
 {
+	int lll = loc (y, 0);
+
 	while (1) {
-		int ll = loc (y, x);
+		int ll = lll + x;
 
 		cursto (y, x);
 
@@ -927,164 +1068,189 @@ fixchar (int y, int x)
 		physx++;
 		if (x >= scrcols) return;
 
-		if (wantscreen[loc (y,x)] == onscreen[loc (y,x)] &&
-		    wantscreen[loc (y,x+1)] == onscreen[loc (y,x+1)] &&
-		    wantscreen[loc (y,x+2)] == onscreen[loc (y,x+2)] &&
+		if (wantscreen[lll + x] == onscreen[lll + x] &&
+		    wantscreen[lll + x + 1] == onscreen[lll + x + 1] &&
+		    wantscreen[lll + x + 2] == onscreen[lll + x + 2] &&
 
-		    wantattr[loc (y,x)] == onattr[loc (y,x)] &&
-		    wantattr[loc (y,x+1)] == onattr[loc (y,x+1)] &&
-		    wantattr[loc (y,x+2)] == onattr[loc (y,x+2)])
+		    wantattr[lll + x] == onattr[lll + x] &&
+		    wantattr[lll + x + 1] == onattr[lll + x + 1] &&
+		    wantattr[lll + x + 2] == onattr[lll + x + 2])
 		{
 			return;
 		}
-
-		if (charsleft <= 0) return;
 	}
 }
 
-long
-charspersec()
+void
+splatonscreen (y)
+	int y;
 {
-	if (outspeed == 38400) {
-		return 200000;
+	int x;
+
+	for (x = 0; x < scrcols; x++) {
+		onattr[loc (y, x)] = 0;
+		onscreen[loc (y, x)] = ' ';
+	}
+}
+
+int
+xlocmove (vx, xloc, y)
+	int vx;
+	int xloc;
+	int y;
+{
+	if ((xloc > vx) && (vx < xloc-vx)) {
+		printf ("\r");
+		xloc = 0;
 	}
 
-	return outspeed / 12;
+	while (xloc > vx) {
+		printf ("\b");
+		xloc--;
+	}
+
+	while (xloc < vx) {
+		int ll = loc (y, xloc);
+
+		if (wantattr[ll]) putfunkyfunc (wantscreen[ll]);
+		else              putfunc      (wantscreen[ll]);
+
+		xloc++;
+	}
+
+	return xloc;
+}
+
+int
+fixbottomline()
+{
+	int difference = 0;
+	int x;
+	int scrloc;
+
+	if (virty == scrrows - 1) return 0;
+
+	scrloc = loc (scrrows - 1, 0);
+
+	for (x = 0; x < scrcols - 1; x++) {
+		int ll = scrloc + x;
+
+		if ((onscreen[ll] != wantscreen[ll])
+		&&  (wantscreen[ll] != ' ')) difference = 1;
+	}
+
+	if (difference) {
+		int xloc = 0;
+
+		printf ("\r\n");
+
+		for (x = 0; x < scrcols - 1; x++) {
+			int ll = scrloc + x;
+
+			if (onscreen[ll] != wantscreen[ll]
+			||  onattr  [ll] != wantattr  [ll]) {
+				xloc = xlocmove (x, xloc, scrrows - 1);
+
+				if (wantattr[ll]) putfunkyfunc (wantscreen[ll]);
+				else              putfunc      (wantscreen[ll]);
+
+				onscreen[ll] = wantscreen[ll];
+				onattr  [ll] = wantattr  [ll];
+
+				xloc++;
+			}
+		}
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+void
+openrefresh()
+{
+	static int oldy = -1;
+	static int xloc;
+	int x;
+	int virtyloc;
+
+	if (deleted == virty) {
+		printf ("\r@");
+		xloc = 1;
+		deleted = -1;
+	}
+
+	if (fixbottomline()) inval = 1;
+
+	if (inval || virty != oldy) {
+		inval = 0;
+		oldy = virty;
+
+		printf ("\n\r");
+		splatonscreen (virty);
+		xloc = 0;
+	}
+
+	virtyloc = loc (virty, 0);
+
+	for (x = 0; x < scrcols - 1; x++) {
+		int ll = virtyloc + x;
+
+		if (onscreen[ll] != wantscreen[ll]
+		||  onattr  [ll] != wantattr  [ll]) {
+			xloc = xlocmove (x, xloc, virty);
+
+			if (wantattr[ll]) putfunkyfunc (wantscreen[ll]);
+			else              putfunc      (wantscreen[ll]);
+
+			onscreen[ll] = wantscreen[ll];
+			onattr  [ll] = wantattr  [ll];
+
+			xloc++;
+		}
+	}
+
+	xloc = xlocmove (virtx, xloc, virty);
 }
 
 #define UNKNOWN 3
 #define EXTRA 7
 
 void
-fixscreen (int len)
+fixscreen ()
 {
-	int y, x;
-	int temp;
-	int ll = loc (virty, virtx);
-	static int boring = UNKNOWN;
-	int oldphysx = physx, oldphysy = physy;
+	register int y, x;
 
-	if (boring == UNKNOWN) {
-		boring = (getenv ("BORING") != 0);
+	if (openmode) {
+		openrefresh();
+		fflush (stdout);
+		return;
 	}
 
-	if (charsleft >= 0) charsleft = 0;
-	charsleft += len * charspersec() / 1000;
-
-	if (stillpending == 0) return;
-
-	/* if the cursor is away, draw a fake one. */
-
-	if (oldphysx != virtx || oldphysy != virty) {
-		wantattr[ll] = !wantattr[ll];
-	}
-
-	if (charsleft > 0) {
-		/* update the screen around the cursor */
-
-		temp = virtx - 5;
-		if (temp < 0) temp = 0;
-
-		for (x = temp; x < temp + 10 && x < scrcols; x++) {
-			int lol = loc (virty, x);
-		    
-			if (onscreen[lol] != wantscreen[lol] ||
-			    onattr  [lol] != wantattr  [lol]) {
-				fixchar (virty, x);
-			}
-		}
-
-		/* get rid of last time's fake cursor, if it's still there */
-
-		temp = oldvirtx - 5;
-		if (temp < 0) temp = 0;
-
-		for (x = temp; x < temp + 10 && x < scrcols; x++) {
-			int lol = loc (oldvirty, x);
-		    
-			if (onscreen[lol] != wantscreen[lol] ||
-			    onattr  [lol] != wantattr  [lol]) {
-				fixchar (oldvirty, x);
-			}
-		}
-
-		/* remember that we left a cursor here */
-
-		oldvirtx = virtx;
-		oldvirty = virty;
-	}
-	
-	/* if boring, rewrite a hunk of the screen in linear order.
-	   if not boring, do it both top-to-bottom and vice versa.
-	*/
-
-	if (boring) {
+	if (screendirty) {
 		for (y = 0; y < scrrows; y++) {
+			int lap = loc (y, 0);
+
 			for (x = 0; x < scrcols; x++) {
-				int lyx = loc (y, x);
+				int lyx = lap + x;
 
 				if (onscreen[lyx] != wantscreen[lyx] ||
 				    onattr  [lyx] != wantattr  [lyx]) {
-					if (charsleft > 0) fixchar (y, x);
-				}
-			}
-		}
-	} else {
-		for (y = 0; y < scrrows; y++) {
-			int yy = scrrows - 1 - y;
-
-			for (x = 0; x < scrcols; x++) {
-				int lyx = loc (y, x);
-
-				if (onscreen[lyx] != wantscreen[lyx] ||
-				    onattr  [lyx] != wantattr  [lyx]) {
-					if (charsleft > 0) fixchar (y, x);
-				}
-			}
-
-			for (x = 0; x < scrcols; x++) {
-				int lyx = loc (yy, x);
-
-				if (onscreen[lyx] != wantscreen[lyx] ||
-				    onattr  [lyx] != wantattr  [lyx]) {
-					if (charsleft > 0) fixchar (yy, x);
+					fixchar (y, x);
+					x = physx;
 				}
 			}
 		}
 	}
 
-	/* erase the fake cursor (from memory) */
-
-	if (oldphysx != virtx || oldphysy != virty) {
-		wantattr[ll] = !wantattr[ll];
-	}
-
-	/* if charsleft, then we're done!  update the area
-	   around the cursor again (to get rid of the fake one)
-	   then move the real one there.
-	*/
-
-	if (charsleft > 0) {
-		stillpending = 0;
-
-		temp = virtx - 5;
-		if (temp < 0) temp = 0;
-
-		for (x = temp; x < temp + 10 && x < scrcols; x++) {
-			int lol = loc (virty, x);
-		    
-			if (onscreen[lol] != wantscreen[lol] ||
-			    onattr  [lol] != wantattr  [lol]) {
-				fixchar (virty, x);
-			}
-		}
-
-		cursto (virty, virtx);
-	}
-
-	if (setscrollcmd && (charsleft > 0)) {
+/*
+	if (setscrollcmd) {
 		setphysscroll (virtscrollbot, virtscrolltop);
 	}
+*/
+
+	cursto (virty, virtx);
+	screendirty = 0;
 
 	fflush (stdout);
 }

@@ -90,8 +90,10 @@ emsg(s)
 			cmdline_row = msg_row;
 			need_wait_return = TRUE;
 		}
-		else
+		else {
+			fixscreen();
 			sleep(1);			/* give the user a chance to read the message */
+		}
 		return TRUE;
 	}
 	return FALSE;

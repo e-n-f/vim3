@@ -25,7 +25,8 @@
 Tcarr term_strings;
 
 void 
-set_term (char *termname) 
+set_term (termname) 
+	char *termname;
 {
 	reallyinittcap();
 
@@ -51,13 +52,13 @@ set_term (char *termname)
 	term_strings.t_vb = 0;
 	term_strings.t_ks = (char_u *)0;
 	term_strings.t_ke = (char_u *)0;
-	term_strings.t_ts = (char_u *)0;
-	term_strings.t_te = (char_u *)0;
+	term_strings.t_ts = INITCAP;
+	term_strings.t_te = EXITCAP;
 	
-	term_strings.t_ku = CURSU;
-	term_strings.t_kd = CURSD;
-	term_strings.t_kl = CURSL;
-	term_strings.t_kr = CURSR;
+	term_strings.t_ku = upkey;
+	term_strings.t_kd = downkey;
+	term_strings.t_kl = leftkey;
+	term_strings.t_kr = rightkey;
 
 	ttest (TRUE);
 }
@@ -97,6 +98,8 @@ termcapinit(term)
 {
 	if (!term)
 		term = vimgetenv((char_u *)"TERM");
+	if (!term)
+		term = "dumb";
 	term_strings.t_name = strsave(term);
 	set_term(term);
 }
@@ -494,6 +497,7 @@ stoptermcap()
 	termcap_active = FALSE;
 	cursor_on();	/* just in case it is still off */
 	outstr(T_TE);	/* stop termcap mode */
+	flushbuf();
 }
 
 /*

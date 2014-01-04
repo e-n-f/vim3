@@ -171,8 +171,8 @@ DEFS = -DDIGRAPHS -DTERMCAP -DSOME_BUILTIN_TCAPS -DNO_FREE_NULL -DVIM_ISSPACE \
 # like generic, but with termcap, for Linux, NeXT and others (NOT TESTED YET)
 # standard cc with optimizer
 #
-MACHINE = -DBSD_UNIX
-CC=gcc -O -Wall
+MACHINE = -DBSD_UNIX -DTERMCAP
+CC=gcc -O -Wall -pg
 LIBS = -ltermcap
 
 # linux 1.0 with X11 (TESTED)

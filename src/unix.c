@@ -18,7 +18,7 @@
 #include "proto.h"
 
 extern int virtx, virty;
-extern void fixscreen (int);
+extern void fixscreen ();
 
 #include <fcntl.h>
 #if !defined(pyr) && !defined(NOT_BOTH_TIME)
@@ -135,8 +135,6 @@ static int show_shell_mess = TRUE;
 #undef FALSE
 #define FALSE 0
 
-void spewchar (char what);  /* I learned my lesson on the Mac version... */
-
 	void
 mch_write(s, len)
 	char_u	*s;
@@ -147,9 +145,6 @@ mch_write(s, len)
 		s++, len--;
 	}
 }
-
-#define WAITTIME 200
-#define SHORTWAITTIME 50
 
 /*
  * GetChars(): low level input funcion.
@@ -167,16 +162,12 @@ GetChars(buf, maxlen, wtime)
 	int		len;
 
 	flushbuf();
-	cursto (virty, virtx);
-	fixscreen (SHORTWAITTIME);
-	fflush (stdout);
+	fixscreen();
 
 	if (wtime >= 0)
 	{
 		while (WaitForChar(wtime) == 0)		/* no character available */
 		{
-			fixscreen (wtime);
-
 			if (!do_resize)			/* return if not interrupted by resize */
 				return 0;
 			set_winsize(0, 0, FALSE);
@@ -190,18 +181,8 @@ GetChars(buf, maxlen, wtime)
 	 * flush all the swap files to disk
 	 * Also done when interrupted by SIGWINCH.
 	 */
-		int tm = p_ut;
-
-		while (tm > 0) {
-			if (WaitForChar (WAITTIME)) break;
-			fixscreen (WAITTIME);
-
-			tm -= WAITTIME;
-		}
-
-		if (tm <= 0) {
+		if (WaitForChar((int)p_ut) == 0)
 			updatescript(0);
-		}
 	}
 
 	for (;;)	/* repeat until we got a character */
@@ -214,14 +195,7 @@ GetChars(buf, maxlen, wtime)
 		/* 
 		 * we want to be interrupted by the winch signal
 		 */
-		if (WaitForChar (SHORTWAITTIME)) {
-			fixscreen (SHORTWAITTIME);
-		} else {
-			while (!WaitForChar(WAITTIME)) {
-				fixscreen (WAITTIME);
-			}
-		}
-
+		WaitForChar(-1);
 		if (do_resize)		/* interrupted by SIGWINCHsignal */
 			continue;
 		len = Read(buf, (long)maxlen);
@@ -250,6 +224,9 @@ mch_avail_mem(special)
 	void
 vim_delay()
 {
+	flushbuf();
+	fixscreen();
+
 	poll(0, 0, 500);
 }
 #else
@@ -262,7 +239,8 @@ vim_delay()
 {
 	struct timeval tv;
 
-	fixscreen (500);
+	flushbuf();
+	fixscreen();
 
 	tv.tv_sec = 25 / 50;
 	tv.tv_usec = (25 % 50) * (1000000/50);
@@ -346,11 +324,13 @@ check_win(argc, argv)
 	int		argc;
 	char	**argv;
 {
+	/*
 	if (!isatty(0) || !isatty(1))
     {
 		fprintf(stderr, "VIM: no controlling terminal\n");
 		exit(2);
     }
+	*/
 }
 
 /*
@@ -1213,12 +1193,18 @@ RealWaitForChar(ticks)
 #ifndef FD_ZERO
 	struct pollfd fds;
 
+	flushbuf();
+	fixscreen();
+
 	fds.fd = 0;
 	fds.events = POLLIN;
 	return (poll(&fds, 1, ticks));
 #else
 	struct timeval tv;
 	fd_set fdset;
+
+	flushbuf();
+	fixscreen();
 
 	if (ticks >= 0)
     {

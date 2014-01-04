@@ -83,6 +83,10 @@ main(argc, argv)
 	setlocale(LC_ALL, "");		/* for ctype() and the like */
 #endif
 
+#ifdef _IOFBF
+	setvbuf (stdout, (char *) 0, _IOFBF, 3000);
+#endif
+
 /*
  * Check if we have an interactive window.
  * If not, open one with a newcli command (needed for :! to work).
