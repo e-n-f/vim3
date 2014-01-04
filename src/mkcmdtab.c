@@ -17,7 +17,7 @@
 #if defined(UTS4)
     int
 #else
-	void
+	int
 #endif
 main(argc, argv)
 	int		argc;

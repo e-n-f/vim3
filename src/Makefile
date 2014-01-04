@@ -154,7 +154,7 @@ PROTO_FLAGS = -m -M__PARMS -d -E"/usr/bin/cc -E"
 
 MACHINE = -DBSD_UNIX -DUSE_LOCALE -Dconst=
 CC=cc -O
-LIBS = -ltermlib
+LIBS = -lcurses
 
 # generic for Sun, FreeBSD, NetBSD, NeXT, POSIX and SYSV R4 (?) without x11 code
 #	(TESTED for Sun 4.1.x and FreeBSD)
