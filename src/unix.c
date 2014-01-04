@@ -44,10 +44,8 @@
 #ifndef USE_SYSTEM		/* use fork/exec to start the shell */
 # include <sys/wait.h>
 # if !defined(__sgi) && !defined(__COHERENT__) && !defined(SCO) && !defined(SOLARIS) && !defined(hpux) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(_SEQUENT_) && !defined(UNISYS)	/* SCO returns pid_t */
-extern int fork();
 # endif
 # if !defined(__sgi) && !defined(linux) && !defined(SOLARIS) && !defined(USL) && !defined(sun) && !(defined(hpux) && defined(__STDC__)) && !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(USL) && !defined(UNISYS)
-extern int execvp __ARGS((const char *, const char **));
 # endif
 #endif
 
