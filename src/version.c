@@ -1,4 +1,4 @@
-/* vi:ts=4:sw=4:tw=78
+/* 
  *
  * VIM - Vi IMproved		by Bram Moolenaar
  *
@@ -274,7 +274,7 @@
 
 char		   *Version = "VIM 3.0";
 #if !defined(__DATE__) || !defined(__TIME__)
-char		   *longVersion = "Vi IMproved 3.0 by Bram Moolenaar (1994 Aug 12)";
+char		   *longVersion = "vim 3.0 by Bram Moolenaar, screen stuff by Eric";
 #else
-char		   *longVersion = "Vi IMproved 3.0 by Bram Moolenaar (1994 Aug 12, compiled " __DATE__ " " __TIME__ ")";
+char		   *longVersion = "Vim 3.0 by Bram Moolenaar, screen stuff by Eric, compiled " __DATE__ " " __TIME__ ")";
 #endif

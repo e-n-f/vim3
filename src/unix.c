@@ -17,6 +17,9 @@
 #include "param.h"
 #include "proto.h"
 
+extern int virtx, virty;
+extern void fixscreen (int);
+
 #include <fcntl.h>
 #if !defined(pyr) && !defined(NOT_BOTH_TIME)
 # include <time.h>			/* on some systems time.h should not be
@@ -132,13 +135,21 @@ static int show_shell_mess = TRUE;
 #undef FALSE
 #define FALSE 0
 
+void spewchar (char what);  /* I learned my lesson on the Mac version... */
+
 	void
 mch_write(s, len)
 	char_u	*s;
 	int		len;
 {
-	write(1, (char *)s, len);
+	while (len) {
+		spewchar (*s);
+		s++, len--;
+	}
 }
+
+#define WAITTIME 200
+#define SHORTWAITTIME 50
 
 /*
  * GetChars(): low level input funcion.
@@ -155,10 +166,17 @@ GetChars(buf, maxlen, wtime)
 {
 	int		len;
 
+	flushbuf();
+	cursto (virty, virtx);
+	fixscreen (SHORTWAITTIME);
+	fflush (stdout);
+
 	if (wtime >= 0)
 	{
 		while (WaitForChar(wtime) == 0)		/* no character available */
 		{
+			fixscreen (wtime);
+
 			if (!do_resize)			/* return if not interrupted by resize */
 				return 0;
 			set_winsize(0, 0, FALSE);
@@ -172,8 +190,18 @@ GetChars(buf, maxlen, wtime)
 	 * flush all the swap files to disk
 	 * Also done when interrupted by SIGWINCH.
 	 */
-		if (WaitForChar((int)p_ut) == 0)
+		int tm = p_ut;
+
+		while (tm > 0) {
+			if (WaitForChar (WAITTIME)) break;
+			fixscreen (WAITTIME);
+
+			tm -= WAITTIME;
+		}
+
+		if (tm <= 0) {
 			updatescript(0);
+		}
 	}
 
 	for (;;)	/* repeat until we got a character */
@@ -186,7 +214,14 @@ GetChars(buf, maxlen, wtime)
 		/* 
 		 * we want to be interrupted by the winch signal
 		 */
-		WaitForChar(-1);
+		if (WaitForChar (SHORTWAITTIME)) {
+			fixscreen (SHORTWAITTIME);
+		} else {
+			while (!WaitForChar(WAITTIME)) {
+				fixscreen (WAITTIME);
+			}
+		}
+
 		if (do_resize)		/* interrupted by SIGWINCHsignal */
 			continue;
 		len = Read(buf, (long)maxlen);
@@ -226,6 +261,8 @@ extern int select __ARGS((int, fd_set *, fd_set *, fd_set *, struct timeval *));
 vim_delay()
 {
 	struct timeval tv;
+
+	fixscreen (500);
 
 	tv.tv_sec = 25 / 50;
 	tv.tv_usec = (25 % 50) * (1000000/50);
@@ -508,6 +545,8 @@ mch_settitle(title, icon)
 			 STRCMP(term_strings.t_name, "iris-ansi-net") == 0)
 		type = 3;
 
+#ifdef XTERM_SPECIAL
+
 	if (type)
 	{
 		if (title != NULL)
@@ -564,6 +603,9 @@ mch_settitle(title, icon)
 			}
 		}
 	}
+
+#endif /* XTERM_SPECIAL */
+
 }
 
 /*
@@ -912,6 +954,8 @@ mch_get_winsize()
 mch_set_winsize()
 {
 	/* should try to set the window size to Rows and Columns */
+
+	newscreensize (Rows, Columns);
 }
 
 	int 

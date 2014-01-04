@@ -9,322 +9,57 @@
  *
  * term.c: functions for controlling the terminal
  *
- * primitive termcap support for Amiga and MSDOS included
- *
- * NOTE: padding and variable substitution is not performed,
- * when compiling without TERMCAP, we use tputs() and tgoto() dummies.
  */
+
+/* heavily modified by Eric Fischer, etaoin@uchicago.edu,
+   to support reasonable output on slow devices.
+*/
 
 #include "vim.h"
 #include "globals.h"
 #include "param.h"
 #include "proto.h"
-#ifdef TERMCAP
-# ifdef linux
-#  include <termcap.h>
-#  if 0		/* only required for old versions, it's now in termcap.h */
-    typedef int (*outfuntype) (int);
-#  endif
-#  define TPUTSFUNCAST (outfuntype)
-# else
-#  define TPUTSFUNCAST
-#  ifdef AMIGA
-#   include "proto/termlib.pro"
-#  endif
-# endif
-#endif
 
-static void parse_builtin_tcap __ARGS((Tcarr *tc, char_u *s));
+#include "terms.h"
 
-/*
- * Builtin_tcaps must always contain DFLT_TCAP as the first entry!
- * DFLT_TCAP is used, when no terminal is specified with -T option or $TERM.
- * The entries are compact, therefore they normally are included even when
- * TERMCAP is defined.
- * When TERMCAP is defined, the builtin entries can be accessed with
- * "builtin_amiga", "builtin_ansi", "builtin_debug", etc.
- */
-static char_u *builtin_tcaps[] =
-{
-#ifndef NO_BUILTIN_TCAPS
-  (char_u *)DFLT_TCAP,		/* almost allways included */
-# if !defined(UNIX) && (defined(ALL_BUILTIN_TCAPS) || defined(SOME_BUILTIN_TCAPS))
-  (char_u *)ANSI_TCAP,		/* default for unix */
-# endif
-# if !defined(AMIGA) && (defined(ALL_BUILTIN_TCAPS) || defined(SOME_BUILTIN_TCAPS))
-  (char_u *)AMIGA_TCAP,		/* default for amiga */
-# endif
-# if !defined(MSDOS) && (defined(ALL_BUILTIN_TCAPS) || defined(SOME_BUILTIN_TCAPS))
-  (char_u *)PCTERM_TCAP,		/* default for MSdos */
-# endif
-# if defined(MSDOS) || defined(ALL_BUILTIN_TCAPS)
-  (char_u *)PCANSI_TCAP,
-# endif
-# if !defined(ATARI) && defined(ALL_BUILTIN_TCAPS)
-  (char_u *)ATARI_TCAP,		/* default for Atari */
-# endif
-# if defined(UNIX) || defined(ALL_BUILTIN_TCAPS) || defined(SOME_BUILTIN_TCAPS)
-  (char_u *)XTERM_TCAP,		/* always included on unix */
-# endif
-# ifdef ALL_BUILTIN_TCAPS
-  (char_u *)VT52_TCAP,
-# endif
-# if defined(DEBUG) || defined(ALL_BUILTIN_TCAPS)
-  (char_u *)DEBUG_TCAP,		/* always included when debugging */
-# endif
-#else /* NO_BUILTIN_TCAPS */
-  (char_u *)DUMB_TCAP,		/* minimal termcap, used when everything else fails */
-#endif /* NO_BUILTIN_TCAPS */
-  NULL,
-};
-
-/*
- * Term_strings contains currently used terminal strings.
- * It is initialized with the default values by parse_builtin_tcap().
- * The values can be changed by setting the parameter with the same name.
- */
 Tcarr term_strings;
 
-/*
- * Parsing of the builtin termcap entries.
- * The terminal's name is not set, as this is already done in termcapinit().
- * Chop builtin termcaps, string entries are already '\0' terminated.
- * not yet implemented:
- *   boolean entries could be empty strings;
- *   numeric entries would need a flag (e.g. high bit of the skip byte),
- *   so that parse_builtin_tcap can handle them.
- */
-	static void
-parse_builtin_tcap(tc, s)
-	Tcarr *tc;
-	char_u *s;
+void 
+set_term (char *termname) 
 {
-	char_u **p = &tc->t_name;
+	reallyinittcap();
 
-	p++;
-	for (;;)
-    {
-		while (*s++)
-			;
-		p += *s++;
-		if (!*s)
-			return;
-		*p++ = s;
-    }
-}
+	term_strings.t_name = (char_u *)termname;
+	term_strings.t_el = CLEAREOL;
+	term_strings.t_il = INSERTLN;
+	term_strings.t_cil = 0;         /* insert multiple lines */
+	term_strings.t_dl = DELETELN;
+	term_strings.t_cdl = 0;         /* delete multiple lines */
+	term_strings.t_cs = SCROLLSET;  /* dummy */
+	term_strings.t_ed = CLEARSCR;
+	term_strings.t_ci = 0;          /* curs invisible */
+	term_strings.t_cv = 0;          /* cursor visible */
+	term_strings.t_cvv = 0;
+	term_strings.t_tp = STANDEND;
+	term_strings.t_ti = STANDOUT;
+	term_strings.t_tb = STANDOUT;
+	term_strings.t_se = STANDEND;
+	term_strings.t_so = STANDOUT;
+	term_strings.t_cm = MOVETO;     /* dummy */
+	term_strings.t_sr = 0;
+	term_strings.t_cri = 0;
+	term_strings.t_vb = 0;
+	term_strings.t_ks = (char_u *)0;
+	term_strings.t_ke = (char_u *)0;
+	term_strings.t_ts = (char_u *)0;
+	term_strings.t_te = (char_u *)0;
+	
+	term_strings.t_ku = CURSU;
+	term_strings.t_kd = CURSD;
+	term_strings.t_kl = CURSL;
+	term_strings.t_kr = CURSR;
 
-#ifdef TERMCAP
-# ifndef linux		/* included in <termlib.h> */
-#  ifndef AMIGA		/* included in proto/termlib.pro */
-int				tgetent();
-int				tgetnum();
-char			*tgetstr();
-int				tgetflag();
-int				tputs();
-#  endif /* AMIGA */
-#  ifndef hpux
-extern short	ospeed;
-#  endif
-# endif /* linux */
-# ifndef hpux
-char		*UP, *BC, PC;		/* should be extern, but some don't have them */
-# endif
-#endif /* TERMCAP */
-
-#ifdef linux
-# define TGETSTR(s, p)	(char_u *)tgetstr((s), (char **)(p))
-#else
-# define TGETSTR(s, p)	(char_u *)tgetstr((s), (char *)(p))
-#endif
-
-	void
-set_term(term)
-	char_u *term;
-{
-	char_u **p = builtin_tcaps;
-#ifdef TERMCAP
-	int builtin = 0;
-#endif
-	int width = 0, height = 0;
-
-	if (!STRNCMP(term, "builtin_", (size_t)8))
-	{
-		term += 8;
-#ifdef TERMCAP
-		builtin = 1;
-#endif
-	}
-#ifdef TERMCAP
-	else
-	{
-		char_u			*p;
-		static char_u	tstrbuf[TBUFSZ];
-		char_u			tbuf[TBUFSZ];
-		char_u			*tp = tstrbuf;
-		int				i;
-
-		i = tgetent(tbuf, term);
-		if (i == -1)
-		{
-			EMSG("Cannot open termcap file");
-			builtin = 1;
-		}
-		else if (i == 0)
-		{
-			EMSG("terminal entry not found");
-			builtin = 1;
-		}
-		else
-		{
-			clear_termparam();		/* clear old parameters */
-		/* output strings */
-			T_EL = TGETSTR("ce", &tp);
-			T_IL = TGETSTR("al", &tp);
-			T_CIL = TGETSTR("AL", &tp);
-			T_DL = TGETSTR("dl", &tp);
-			T_CDL = TGETSTR("DL", &tp);
-			T_CS = TGETSTR("cs", &tp);
-			T_ED = TGETSTR("cl", &tp);
-			T_CI = TGETSTR("vi", &tp);
-			T_CV = TGETSTR("ve", &tp);
-			T_CVV = TGETSTR("vs", &tp);
-			T_TP = TGETSTR("me", &tp);
-			T_TI = TGETSTR("mr", &tp);
-			T_TB = TGETSTR("md", &tp);
-			T_SE = TGETSTR("se", &tp);
-			T_SO = TGETSTR("so", &tp);
-			T_CM = TGETSTR("cm", &tp);
-			T_SR = TGETSTR("sr", &tp);
-			T_CRI = TGETSTR("RI", &tp);
-			T_VB = TGETSTR("vb", &tp);
-			T_KS = TGETSTR("ks", &tp);
-			T_KE = TGETSTR("ke", &tp);
-			T_TS = TGETSTR("ti", &tp);
-			T_TE = TGETSTR("te", &tp);
-
-		/* key codes */
-			term_strings.t_ku = TGETSTR("ku", &tp);
-			term_strings.t_kd = TGETSTR("kd", &tp);
-			term_strings.t_kl = TGETSTR("kl", &tp);
-				/* if cursor-left == backspace, ignore it (televideo 925) */
-			if (term_strings.t_kl != NULL && *term_strings.t_kl == Ctrl('H'))
-				term_strings.t_kl = NULL;
-			term_strings.t_kr = TGETSTR("kr", &tp);
-			/* term_strings.t_sku = TGETSTR("", &tp); termcap code unknown */
-			/* term_strings.t_skd = TGETSTR("", &tp); termcap code unknown */
-#ifdef ARCHIE
-            /* Termcap code made up! */
-            term_strings.t_sku = tgetstr("su", &tp);
-            term_strings.t_skd = tgetstr("sd", &tp);
-#else
-            term_strings.t_sku = NULL;
-            term_strings.t_skd = NULL;
-#endif
-			term_strings.t_skl = TGETSTR("#4", &tp);
-			term_strings.t_skr = TGETSTR("%i", &tp);
-			term_strings.t_f1 = TGETSTR("k1", &tp);
-			term_strings.t_f2 = TGETSTR("k2", &tp);
-			term_strings.t_f3 = TGETSTR("k3", &tp);
-			term_strings.t_f4 = TGETSTR("k4", &tp);
-			term_strings.t_f5 = TGETSTR("k5", &tp);
-			term_strings.t_f6 = TGETSTR("k6", &tp);
-			term_strings.t_f7 = TGETSTR("k7", &tp);
-			term_strings.t_f8 = TGETSTR("k8", &tp);
-			term_strings.t_f9 = TGETSTR("k9", &tp);
-			term_strings.t_f10 = TGETSTR("k;", &tp);
-			term_strings.t_sf1 = TGETSTR("F1", &tp);	/* really function keys 11-20 */
-			term_strings.t_sf2 = TGETSTR("F2", &tp);
-			term_strings.t_sf3 = TGETSTR("F3", &tp);
-			term_strings.t_sf4 = TGETSTR("F4", &tp);
-			term_strings.t_sf5 = TGETSTR("F5", &tp);
-			term_strings.t_sf6 = TGETSTR("F6", &tp);
-			term_strings.t_sf7 = TGETSTR("F7", &tp);
-			term_strings.t_sf8 = TGETSTR("F8", &tp);
-			term_strings.t_sf9 = TGETSTR("F9", &tp);
-			term_strings.t_sf10 = TGETSTR("FA", &tp);
-			term_strings.t_help = TGETSTR("%1", &tp);
-			term_strings.t_undo = TGETSTR("&8", &tp);
-
-			height = tgetnum("li");
-			width = tgetnum("co");
-
-			T_MS = tgetflag("ms") ? (char_u *)"yes" : (char_u *)NULL;
-
-# ifndef hpux
-			BC = (char *)TGETSTR("bc", &tp);
-			UP = (char *)TGETSTR("up", &tp);
-			p = TGETSTR("pc", &tp);
-			if (p)
-				PC = *p;
-			ospeed = 0;
-# endif
-		}
-	}
-	if (builtin)
-#endif
-	{
-		while (*p && STRCMP(term, *p))
-			p++;
-		if (!*p)
-		{
-			fprintf(stderr, "'%s' not builtin. Available terminals are:\r\n", term);
-			for (p = builtin_tcaps; *p; p++)
-#ifdef TERMCAP
-				fprintf(stderr, "\tbuiltin_%s\r\n", *p);
-#else
-				fprintf(stderr, "\t%s\r\n", *p);
-#endif
-			if (!starting)		/* when user typed :set term=xxx, quit here */
-			{
-				wait_return(TRUE);
-				return;
-			}
-			sleep(2);
-			fprintf(stderr, "defaulting to '%s'\r\n", *builtin_tcaps);
-			sleep(2);
-			p = builtin_tcaps;
-			free(term_strings.t_name);
-			term_strings.t_name = strsave(term = *p);
-		}
-		clear_termparam();		/* clear old parameters */
-		parse_builtin_tcap(&term_strings, *p);
-	}
-/*
- * special: There is no info in the termcap about whether the cursor positioning
- * is relative to the start of the screen or to the start of the scrolling region.
- * We just guess here. Only msdos pcterm is known to do it relative.
- */
-	if (STRCMP(term, "pcterm") == 0)
-		T_CSC = (char_u *)"yes";
-	else
-		T_CSC = NULL;
-
-#if defined(AMIGA) || defined(MSDOS)
-		/* DFLT_TCAP indicates that it is the machine console. */
-	if (STRCMP(term, *builtin_tcaps))
-		term_console = FALSE;
-	else
-	{
-		term_console = TRUE;
-# ifdef AMIGA
-		win_resize_on();		/* enable window resizing reports */
-# endif
-	}
-#endif
-	ttest(TRUE);
-		/* display initial screen after ttest() checking. jw. */
-	if (width <= 0 || height <= 0)
-    {
-		/* termcap failed to report size */
-		/* set defaults, in case mch_get_winsize also fails */
-		width = 80;
-#ifdef MSDOS
-		height = 25;		/* console is often 25 lines */
-#else
-		height = 24;		/* most terminals are 24 lines */
-#endif
-	}
-	set_winsize(width, height, FALSE);	/* may change Rows */
+	ttest (TRUE);
 }
 
 #if defined(TERMCAP) && defined(UNIX)
@@ -333,6 +68,8 @@ set_term(term)
  * ioctl() fails. It doesn't make sense to call tgetent each time if the "co"
  * and "li" entries never change. But this may happen on some systems.
  */
+
+/*
 	void
 getlinecol()
 {
@@ -346,82 +83,9 @@ getlinecol()
 			Rows = tgetnum("li");
 	}
 }
+*/
+
 #endif
-
-static char_u *tltoa __PARMS((unsigned long));
-
-	static char_u *
-tltoa(i)
-	unsigned long i;
-{
-	static char_u buf[16];
-	char_u		*p;
-
-	p = buf + 15;
-	*p = '\0';
-	do
-	{
-		--p;
-		*p = i % 10 + '0';
-		i /= 10;
-    }
-	while (i > 0 && p > buf);
-	return p;
-}
-
-#ifndef TERMCAP
-
-/*
- * minimal tgoto() implementation.
- * no padding and we only parse for %i %d and %+char
- */
-
-	char *
-tgoto(cm, x, y)
-	char *cm;
-	int x, y;
-{
-	static char buf[30];
-	char *p, *s, *e;
-
-	if (!cm)
-		return "OOPS";
-	e = buf + 29;
-	for (s = buf; s < e && *cm; cm++)
-    {
-		if (*cm != '%')
-        {
-			*s++ = *cm;
-			continue;
-		}
-		switch (*++cm)
-        {
-		case 'd':
-			p = (char *)tltoa((unsigned long)y);
-			y = x;
-			while (*p)
-				*s++ = *p++;
-			break;
-		case 'i':
-			x++;
-			y++;
-			break;
-		case '+':
-			*s++ = (char)(*++cm + y);
-			y = x;
-			break;
-        case '%':
-			*s++ = *cm;
-			break;
-		default:
-			return "OOPS";
-		}
-    }
-	*s = '\0';
-	return buf;
-}
-
-#endif /* TERMCAP */
 
 /*
  * Termcapinit is called from main() to initialize the terminal.
@@ -433,8 +97,6 @@ termcapinit(term)
 {
 	if (!term)
 		term = vimgetenv((char_u *)"TERM");
-	if (!term || !*term)
-		term = *builtin_tcaps;
 	term_strings.t_name = strsave(term);
 	set_term(term);
 }
@@ -512,23 +174,8 @@ outstr(s)
 	if (bpos > BSIZE - 20)		/* avoid terminal strings being split up */
 		flushbuf();
 	if (s)
-#ifdef TERMCAP
-		tputs(s, 1, TPUTSFUNCAST outchar);
-#else
 		while (*s)
 			outchar(*s++);
-#endif
-}
-
-/* 
- * cursor positioning using termcap parser. (jw)
- */
-	void
-windgoto(row, col)
-	int		row;
-	int		col;
-{
-	OUTSTR(tgoto((char *)T_CM, col, row));
 }
 
 /*
@@ -719,6 +366,27 @@ check_termcode(buf)
 	return 0;						/* no match found */
 }
 
+/* tltoa -- str -> num */
+
+	static char_u *
+tltoa(i)
+	unsigned long i;
+{
+	static char_u buf[16];
+	char_u		*p;
+
+	p = buf + 15;
+	*p = '\0';
+	do
+	{
+		--p;
+		*p = i % 10 + '0';
+		i /= 10;
+    }
+	while (i > 0 && p > buf);
+	return p;
+}
+
 /*
  * outnum - output a (big) number fast
  */
@@ -775,7 +443,10 @@ set_winsize(width, height, mustset)
 		mch_set_winsize();
 	}
 	else
+	{
 		check_winsize();		/* always check, to get p_scroll right */
+		mch_set_winsize();
+	}
 	if (State == HELP)
 		(void)redrawhelp();
 	else if (!starting)
@@ -855,7 +526,9 @@ cursor_off()
 scroll_region_set(wp)
 	WIN		*wp;
 {
-	OUTSTR(tgoto((char *)T_CS, wp->w_winpos + wp->w_height - 1, wp->w_winpos));
+	setscroll (wp->w_winpos + wp->w_height - 1, wp->w_winpos);
+
+/*	OUTSTR(tgoto((char *)T_CS, wp->w_winpos + wp->w_height - 1, wp->w_winpos));*/
 }
 
 /*
@@ -864,5 +537,7 @@ scroll_region_set(wp)
 	void
 scroll_region_reset()
 {
-	OUTSTR(tgoto((char *)T_CS, (int)Rows - 1, 0));
+	setscroll (Rows - 1, 0);
+
+/*	OUTSTR(tgoto((char *)T_CS, (int)Rows - 1, 0)); */
 }

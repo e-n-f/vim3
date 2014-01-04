@@ -110,7 +110,7 @@ char *bsdmemset __ARGS((char *, int, long));
  * Most unixes don't have these in include files.
  * If you get a "redefined" error, delete the offending line.
  */
-#if !defined(__NetBSD__) && !defined(__FreeBSD__)
+#if !defined(__NetBSD__) && !defined(__FreeBSD__) && !defined(NeXT)
   extern int	ioctl __ARGS((int, int, ...));
 #endif
 extern int	fsync __ARGS((int));
@@ -125,3 +125,8 @@ extern char *getwd __ARGS((char *));
 #if defined(system_that_does_not_have_access_in_an_include_file)
 extern int access __ARGS((char *, int));
 #endif
+
+#define tputs our_tputs
+#define tgoto our_tgoto
+#define tgetstr our_tgetstr
+#define tgetent our_tgetent

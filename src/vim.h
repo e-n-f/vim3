@@ -125,6 +125,7 @@ typedef unsigned long	long_u;
 
 #ifdef UNIX
 # include <unistd.h>		/* any unix that doesn't have it? */
+
 # ifdef SCO
 #  undef M_XENIX
 #  include <sys/ndir.h>		/* for MAXNAMLEN */
